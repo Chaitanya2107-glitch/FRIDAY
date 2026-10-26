@@ -1,0 +1,49 @@
+﻿# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# Secrets
+.env
+
+# Runtime files
+/logs/
+/memory/
+
+# Codex local configuration
+.codex/
+# Claude Flow runtime data
+.claude-flow/data/
+.claude-flow/logs/
+# Environment variables
+.env.local
+.env.*.local
+
+# Local configuration and agent state
+AGENTS.md
+.agents/
+.claude/
+.claude-flow/
+.playwright-cli/
+
+# Runtime output and private local state
+*.log
+*.pid
+*.db
+*.db-*
+*.sqlite*
+*.lnk
+.pytest_cache/
+.venv/
+.env.*
+!.env.example
+
+# Development evidence, screenshots and temporary test workspaces
+tasks/*
+!tasks/*.py
+!tasks/semantic_holdout_v*.json
+!tasks/recall_holdout_v1.json
+!tasks/ordinary-followups-live-fixtures.json

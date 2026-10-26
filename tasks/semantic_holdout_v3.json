@@ -1,0 +1,10 @@
+[
+  {"id":"clock_repair","related":true,"subject":"Synthetic clock repair","sources":[["My synthetic clock repair requires a new pendulum spring.",""],["The pendulum spring may be too stiff for my synthetic clock mechanism.",""]]},
+  {"id":"paired_puppet","related":true,"subject":"Synthetic puppet pattern","sources":[["I am making the synthetic glove puppet from the green pattern.",""],["The thumb seam allowance may be missing.","What might be missing from the green pattern for your synthetic glove puppet?"]]},
+  {"id":"paraphrased_garden","related":true,"subject":"Synthetic garden irrigation","sources":[["I am planning the synthetic garden irrigation layout.",""],["The watering-system diagram for that synthetic vegetable plot may omit the shutoff valve.",""]]},
+  {"id":"failed_recording","related":true,"subject":"Synthetic violin recording","sources":[["My synthetic violin recording has a persistent hum.",""],["Moving the microphone did not remove the hum from my synthetic violin recording.",""]]},
+  {"id":"crane_homonym","related":false,"subject":"Synthetic crane permit","sources":[["The lifting crane in my synthetic construction plan needs a permit.",""],["The migrating crane bird in my synthetic nature painting needs longer wings.",""]]},
+  {"id":"seal_homonym","related":false,"subject":"Synthetic wax seal","sources":[["My synthetic wax seal design needs a clearer monogram.",""],["The harbour seal in my synthetic marine illustration needs darker flippers.",""]]},
+  {"id":"unrelated_instrument_answer","related":false,"subject":"Synthetic parcel label","sources":[["The address on my synthetic parcel label may be incomplete.",""],["The oboe.","Which orchestral instrument do you most enjoy listening to?"]]},
+  {"id":"unrelated_baking","related":false,"subject":"Synthetic bicycle bearing","sources":[["My synthetic bicycle wheel bearing needs fresh grease.",""],["I prefer baking oatmeal cookies with raisins.",""]]}
+]

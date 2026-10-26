@@ -1,0 +1,37 @@
+{
+  "sources": [
+    {"id":"pump","text":"The diaphragm pump may leak around its inlet gasket."},
+    {"id":"pump_answer","text":"Possibly the intake valve.","question":"Which part of the diaphragm pump may be damaged?"},
+    {"id":"maps","text":"The survey maps use contour lines at five metre intervals."},
+    {"id":"maps_answer","text":"The eastern footbridge may be missing.","question":"What might be missing from the survey maps?"},
+    {"id":"battery","text":"The spare batteries for the rangefinder are in a brass tin."},
+    {"id":"recipe","text":"The lentil recipe may need less cumin."},
+    {"id":"print","text":"The photograph print has uneven brightness along the left edge."},
+    {"id":"audio","text":"The bass speaker has a faint buzzing sound."},
+    {"id":"bank","text":"The bank account statement may include a duplicate service fee."},
+    {"id":"exam_old","text":"My acoustics exam is tomorrow."},
+    {"id":"exam_new","text":"My acoustics exam was postponed."},
+    {"id":"remote","text":"The Telegram pump shipping reference is copper-seven.","channel":"telegram"}
+  ],
+  "threads": [["pump","pump_answer"],["maps","maps_answer"]],
+  "queries": [
+    {"query":"diaphragm pump gasket","relevant":["pump"]},
+    {"query":"pump damaged part","relevant":["pump_answer"]},
+    {"query":"survey map contours","relevant":["maps"]},
+    {"query":"survey maps missing footbridge","relevant":["maps_answer"]},
+    {"query":"rangefinder battery tin","relevant":["battery"]},
+    {"query":"lentil cumin recipe","relevant":["recipe"]},
+    {"query":"photograph brightness","relevant":["print"]},
+    {"query":"duplicate bank service fee","relevant":["bank"]},
+    {"query":"acoustics exam","relevant":["exam_new"],"excluded":["exam_old"]},
+    {"query":"pump shipping copper","channel":"telegram","relevant":["remote"]},
+    {"query":"pump shipping copper","relevant":[]},
+    {"query":"volcanic eruption","relevant":[]},
+    {"query":"bass fish","relevant":[]},
+    {"query":"river bank erosion","relevant":[]},
+    {"query":"what did I tell you about it","relevant":[]},
+    {"query":"image exposure","relevant":["print"]},
+    {"query":"pulse locator power cells","relevant":["battery"]},
+    {"query":"eastern crossing cartography","relevant":["maps_answer"]}
+  ]
+}

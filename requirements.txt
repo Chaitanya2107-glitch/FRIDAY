@@ -1,0 +1,62 @@
+# requirements.txt
+# F.R.I.D.A.Y — Phase 1 dependencies
+#
+# Install with: pip install -r requirements.txt
+#
+# Only install what Phase 1 actually needs.
+# Future phases will add to this list.
+
+# ── Core API framework ────────────────────────────────────────────────────────
+fastapi>=0.110.0        # Web framework for the local API
+uvicorn>=0.29.0         # ASGI server that runs FastAPI
+pydantic>=2.0.0         # Data validation (FastAPI uses this internally)
+
+# ── Environment / config ──────────────────────────────────────────────────────
+python-dotenv>=1.0.0    # Loads .env files into os.environ
+
+# ── AI Providers ──────────────────────────────────────────────────────────────
+# OpenRouter uses the openai SDK (it's OpenAI-compatible) — required
+openai>=1.0.0           # Used by OpenRouter provider AND direct OpenAI provider
+httpx>=0.27.0           # HTTP client — used by Ollama provider
+
+# Direct provider SDKs — only needed if NOT using OpenRouter
+anthropic>=0.25.0       # Only needed if ACTIVE_PROVIDER=anthropic
+
+# ── Voice ─────────────────────────────────────────────────────────────────────
+faster-whisper>=1.2.0   # Speech-to-text + voice-activity detection (auto-stop listening)
+onnx-asr>=0.12.0        # Parakeet speech-to-text (the main STT model; faster-whisper is the fallback)
+torch>=2.0.0            # GPU support for faster-whisper — install the CUDA build from pytorch.org
+pyaudio>=0.2.14         # Microphone recording and speech playback
+av>=12.0.0              # Decodes speech audio as it streams in (installed with faster-whisper)
+edge-tts>=7.0.0         # Online neural voice
+piper-tts==1.8.0        # Offline neural voice (services/voice/tts.py)
+pypdfium2               # PDF pages as images, for the vision AI (timetables)
+pyttsx3>=2.90           # Last-resort offline voice (Hindi text, or Piper missing)
+
+# ── Web search ────────────────────────────────────────────────────────────────
+ddgs>=9.0.0             # DuckDuckGo search, no API key (successor to duckduckgo-search)
+playwright==1.64.0      # Owned visible/headless browser; python -m playwright install chromium
+scrapling==0.5          # Parser only; shares Playwright's pages (no second browser stack)
+pywinauto==0.6.9; sys_platform == "win32"  # Stable Windows UI Automation adapter
+
+# ── System control (Windows) ──────────────────────────────────────────────────
+pycaw>=20251023         # Volume control via Windows Core Audio
+psutil>=5.9.0           # System stats: CPU, memory, battery, disk
+pillow>=10.0.0          # Screenshots (PIL.ImageGrab) and the tray icon image
+pystray>=0.19.0         # System tray icon (interfaces/tray/)
+winrt-runtime>=3.2.1                # Music controls: Windows media sessions (Spotify, YouTube…)
+winrt-Windows.Foundation>=3.2.1
+winrt-Windows.Media.Control>=3.2.1
+
+# ── File search ───────────────────────────────────────────────────────────────
+sentence-transformers>=3.0.0  # local embedding model for meaning-based search (uses torch above)
+pypdf>=5.0.0            # text from PDFs
+python-docx>=1.1.0      # text from Word files
+python-pptx>=1.0.0      # text from PowerPoint files
+openpyxl>=3.1.0         # text from Excel files
+
+# ── Phase 4 (advanced memory) — uncomment when ready ─────────────────────────
+# chromadb              # Vector database for semantic memory search
+
+# ── Dev / testing ─────────────────────────────────────────────────────────────
+pytest>=8.0.0           # Run with: python -m pytest tests

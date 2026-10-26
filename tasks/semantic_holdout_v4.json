@@ -1,0 +1,10 @@
+[
+  {"id":"lathe_repair","related":true,"subject":"Synthetic lathe repair","sources":[["My synthetic lathe repair requires a replacement drive belt.",""],["The replacement drive belt may be too wide for my synthetic lathe pulley.",""]]},
+  {"id":"paired_kite","related":true,"subject":"Synthetic kite instructions","sources":[["I am assembling the synthetic box kite using the purple instructions.",""],["The bridle attachment point may be missing.","What might be missing from the purple instructions for your synthetic box kite?"]]},
+  {"id":"paraphrased_archive","related":true,"subject":"Synthetic family photograph archive","sources":[["I am arranging the synthetic family photograph archive.",""],["The index for that synthetic collection of relatives' pictures may omit the dates.",""]]},
+  {"id":"failed_printing","related":true,"subject":"Synthetic map printing","sources":[["My synthetic map printing has persistent streaks.",""],["Cleaning the printhead did not remove the streaks from my synthetic map printing.",""]]},
+  {"id":"bat_homonym","related":false,"subject":"Synthetic cricket bat grip","sources":[["The cricket bat in my synthetic sports equipment design needs a thicker grip.",""],["The flying bat in my synthetic cave illustration needs pointed ears.",""]]},
+  {"id":"mouse_homonym","related":false,"subject":"Synthetic computer mouse shell","sources":[["My synthetic computer mouse shell design needs a wider button.",""],["The field mouse in my synthetic meadow illustration needs longer whiskers.",""]]},
+  {"id":"unrelated_dessert_answer","related":false,"subject":"Synthetic membership form","sources":[["The address on my synthetic membership form may be incomplete.",""],["Apple crumble.","Which dessert would you choose for dinner?"]]},
+  {"id":"unrelated_hiking","related":false,"subject":"Synthetic keyboard repair","sources":[["My synthetic keyboard repair needs a replacement switch.",""],["I enjoy hiking on forest trails in autumn.",""]]}
+]

@@ -1,0 +1,10 @@
+[
+  {"id":"mosaic_panel","related":true,"subject":"Synthetic mosaic panel","sources":[["The synthetic mosaic panel has a cracked corner tile.",""],["Replacing the corner tile did not fix the crack in my synthetic mosaic panel.",""]]},
+  {"id":"paired_quilt","related":true,"subject":"Synthetic quilt pattern","sources":[["The synthetic quilt pattern is printed on blue card.",""],["The border dimensions may be missing.","What might be missing from the synthetic quilt pattern printed on blue card?"]]},
+  {"id":"paraphrased_trail","related":true,"subject":"Synthetic trail map","sources":[["The synthetic trail map uses contour labels.",""],["The elevation annotations on that synthetic walking-route diagram may be inconsistent.",""]]},
+  {"id":"faint_print","related":true,"subject":"Synthetic photograph print","sources":[["The synthetic photograph print has a faint vertical band.",""],["Changing the paper did not remove the vertical band from that synthetic photograph print.",""]]},
+  {"id":"pitch_homonym","related":false,"subject":"Synthetic flute recording pitch","sources":[["The musical pitch in my synthetic flute recording is too high.",""],["The football pitch in my synthetic stadium drawing has narrow touchlines.",""]]},
+  {"id":"ring_homonym","related":false,"subject":"Synthetic jewellery ring","sources":[["The engraved ring in my synthetic jewellery design has a wide band.",""],["The ring tone in my synthetic telephone recording is too quiet.",""]]},
+  {"id":"unrelated_wood_answer","related":false,"subject":"Synthetic weather sensor","sources":[["The synthetic weather sensor has a frayed cable.",""],["Walnut.","Which wood do you prefer for furniture?"]]},
+  {"id":"unrelated_comedy","related":false,"subject":"Synthetic bottle stopper","sources":[["The synthetic bottle stopper is loose.",""],["Slapstick comedies make me laugh.",""]]}
+]

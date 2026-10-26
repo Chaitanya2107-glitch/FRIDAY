@@ -1,0 +1,10 @@
+[
+  {"id":"radio_repair","related":true,"subject":"Synthetic radio repair","sources":[["My synthetic radio repair needs a new tuning capacitor.",""],["The tuning capacitor may not fit the chassis of my synthetic radio.",""]]},
+  {"id":"paired_recipe","related":true,"subject":"Synthetic sourdough recipe","sources":[["I am testing the synthetic sourdough recipe in the red notebook.",""],["The starter quantity may be missing.","What might be missing from the synthetic sourdough recipe in your red notebook?"]]},
+  {"id":"paraphrased_trip","related":true,"subject":"Synthetic ferry booking","sources":[["I am arranging a synthetic ferry booking for the coastal trip.",""],["The boat reservation for that synthetic seaside journey may lack the passenger names.",""]]},
+  {"id":"failed_backup","related":true,"subject":"Synthetic photograph backup","sources":[["My synthetic photograph backup is failing.",""],["Replacing the USB cable did not fix my synthetic photograph backup.",""]]},
+  {"id":"bass_homonym","related":false,"subject":"Synthetic bass speaker repair","sources":[["The bass speaker in my synthetic amplifier project distorts.",""],["I painted a freshwater bass fish in my synthetic wildlife illustration.",""]]},
+  {"id":"python_homonym","related":false,"subject":"Synthetic Python program","sources":[["My synthetic Python program crashes while parsing a file.",""],["The python snake in my synthetic wildlife drawing needs a longer tail.",""]]},
+  {"id":"unrelated_colour_answer","related":false,"subject":"Synthetic parcel delivery","sources":[["The synthetic parcel delivery may require a signature.",""],["Violet.","Which colour do you prefer for the bedroom curtains?"]]},
+  {"id":"unrelated_poetry","related":false,"subject":"Synthetic car tyre repair","sources":[["My synthetic car tyre repair needs a replacement valve.",""],["I prefer poems written in free verse.",""]]}
+]

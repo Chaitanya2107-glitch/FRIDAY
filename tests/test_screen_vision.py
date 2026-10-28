@@ -268,11 +268,11 @@ def test_capture_failure_returns_an_error_and_saves_nothing(screen_setup, monkey
 def test_voice_screen_question_asks_for_a_spoken_reply(screen_setup, monkeypatch):
     spoken = []
 
-    async def speak(text, cache=False):
+    async def speak(text, cache=False, expected_generation=None):
         spoken.append(text)
 
     monkeypatch.setattr(voice_route.recorder, "record", lambda: b"audio")
-    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio: "explain the error on my screen")
+    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio, log=True: "explain the error on my screen")
     monkeypatch.setattr(voice_route.tts, "speak", speak)
     monkeypatch.setattr(voice_route.tts, "stop", lambda: None)
 

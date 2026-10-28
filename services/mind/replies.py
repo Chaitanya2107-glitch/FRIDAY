@@ -16,7 +16,7 @@ REMARKS = {
     "greeting": "I'm here, Boss. What are we doing today?",
     "thanks": "Anytime, Boss.",
     "goodbye": "Talk later, Boss.",
-    "help": 'I can open apps, control music and volume, find files, save notes, track activity and set reminders. Try "open Chrome" or "remind me in 10 minutes to stretch".',
+    "help": 'I help you keep track of your day, schedule, reminders, notes and recorded activity, plus phone notifications and music. Try "what am I doing", "read my phone notifications", "play something chill" or "remind me in 10 minutes to stretch".',
     "unknown": 'I haven\'t learned that yet, Boss. You can tell me what it is, or ask again when knowledge lookup is available.',
     "unmatched": 'I don\'t recognise that yet, Boss. I can help with local commands; try "help" for examples.',
     "screen": 'Screen interpretation is unavailable in this mode, Boss. Tell me what you see, or use a local command.',
@@ -64,13 +64,18 @@ async def answer(message: str, provider_name: str | None = None, context: str | 
                                  (knowledge.key_for("topic", name), name, now, now, json.dumps([0] * 24)))
                 return knowledge.find(name)
             thing = await asyncio.to_thread(remember_topic)
-        if thing and not thing.about and config.AI_KNOWLEDGE_ENABLED:
+        from services.mind.app_learning import pending
+        proposed = await asyncio.to_thread(pending, thing.key) if thing else []
+        if thing and not thing.about and not proposed and config.AI_KNOWLEDGE_ENABLED:
             try:
-                thing = await asyncio.wait_for(knowledge.look_up(thing, datetime.now()),
+                thing = await asyncio.wait_for(knowledge.look_up(thing, datetime.now(), requested=True),
                                                timeout=17 + max(1, config.OLLAMA_START_TIMEOUT_SECONDS)) or thing
             except Exception as error:
                 logger.debug("Knowledge unavailable (%s)", type(error).__name__)
-        reply = f"{thing.name}: {thing.about}" if thing and thing.about else REMARKS["unknown"]
+            proposed = await asyncio.to_thread(pending, thing.key)
+        reply = (f"{thing.name}: {thing.about}" if thing and thing.about else
+                 f"Unverified model explanation of {thing.name}: {proposed[0]['description']}"
+                 if proposed and proposed[0]["description"] else REMARKS["unknown"])
     else:
         reply = REMARKS["unmatched"]
     reply = await wording.enhance(reply, provider_name)

@@ -30,6 +30,7 @@ deletes everything, ACTIVITY_LOG_ENABLED=false turns it off.
 import asyncio
 import ctypes
 import itertools
+import json
 import os
 import re
 import shutil
@@ -49,7 +50,7 @@ import psutil
 from core.config import config
 from core.logger import logger
 from services.activity import projects
-from services.activity.categories import categorize
+from services.activity.categories import categorize, clean_title
 
 # Set per request by intent.try_system_action: the commands it ran (services/automation/personality.py reads them)
 commands_run: ContextVar[list | None] = ContextVar("commands_run", default=None)
@@ -178,6 +179,8 @@ class ActivityLog:
         self._observed_runtime = False
         self.app = None          # app in the foreground right now (None = idle/unknown)
         self.title = None        # its window title
+        self.last_observed_at = None  # freshness, distinct from the beginning of a session
+        self.last_foreground = None   # recent evidence for an explicit command-bar activity label
         self.app_since = None    # when the user got into this app (survives title changes — the long-stretch nudge uses it)
         self.title_since = None  # when this app+title started (what the next saved row covers)
         self.last_app = None     # last real app the user was in — context for commands
@@ -268,6 +271,24 @@ class ActivityLog:
         (None = idle). Closes the previous session on a change.
         """
         now = now or datetime.now()
+        from services.mind import activity_awareness
+        gap = self.last_observed_at and (now - self.last_observed_at).total_seconds() > activity_awareness.FRESH_SECONDS
+        try:
+            if gap:
+                activity_awareness.end_current(now)
+        except (OSError, sqlite3.Error):
+            logger.debug("Optional activity label could not be closed after an observation gap")
+        self.last_observed_at = now
+        if app:
+            self.last_foreground = {"app": app, "title": title, "at": now,
+                                    "window": json.dumps(self.last_window)}
+        try:
+            # Check window identity even when the app and title haven't changed.
+            seen = activity_awareness.snapshot(self, now)
+            seen.update(app=app, title=clean_title(title)[:180])
+            activity_awareness.changed(self, now, seen=seen)
+        except (OSError, sqlite3.Error):
+            logger.debug("Optional activity label unavailable")
         if (app, title, project) == (self.app, self.title, self.project):
             return
         self.flush(now)
@@ -559,6 +580,10 @@ class ActivityLog:
         with self._lock, closing(self._connect()) as conn, conn:
             count = conn.execute("DELETE FROM activity").rowcount
         self.app_since = self.title_since = datetime.now()
+        from services.mind.activity_awareness import forget
+        forget(activities_only=True)
+        from services.screen_watch.store import ScreenStore
+        ScreenStore().forget()
         return f"Cleared your activity log ({count} entries)." if count else "Your activity log is already empty."
 
 

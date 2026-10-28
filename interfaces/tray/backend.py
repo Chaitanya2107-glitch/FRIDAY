@@ -25,12 +25,17 @@ class BackendError(Exception):
         self.status = status  # the HTTP status, when the backend answered
 
 
+def screen_indicator(hwnd):
+    return _request("POST", "/api/v1/screen-watch/indicator", timeout=2, json={"hwnd": hwnd})
+
+
 class ChatReply(NamedTuple):
     text: str
     awaiting_reply: bool  # FRIDAY asked a yes/no question and is waiting for the answer
     keyboard: tuple = ()  # text/keys to type into the app the user was using
     command: bool = False  # a command ran (not an AI answer)
     automation_job: str | None = None
+    private: bool = False
 
 
 @dataclass
@@ -85,7 +90,7 @@ def chat(message: str) -> ChatReply:
     body = {"message": message, "provider": settings.provider, "speak": settings.speak_typed or settings.conversation}
     data = _request("POST", "/api/v1/chat", timeout=60, json=body)
     return ChatReply(data["response"], data.get("awaiting_reply", False), tuple(data.get("keyboard") or ()),
-                     data.get("model") == "system_control", data.get("automation_job"))
+                     data.get("model") == "system_control", data.get("automation_job"), data.get("private", False))
 
 
 def bar_suggestions() -> list[str]:
@@ -117,6 +122,8 @@ def voice(after_speech: bool = False, speak: bool | None = None) -> dict:
     """
     body = {"speak": settings.speak_replies if speak is None else speak, "provider": settings.provider,
             "after_speech": after_speech}
+    if settings.conversation:
+        body["barge_in"] = True
     return _request("POST", "/api/v1/voice", timeout=MAX_LISTEN_SECONDS + VOICE_EXTRA_SECONDS, json=body)
 
 
@@ -136,6 +143,10 @@ def stop_wake(session: str) -> None:
 
 def stop_listening(discard: bool = False) -> None:
     _request("POST", "/api/v1/voice/stop", timeout=5, params={"discard": "true"} if discard else None)
+
+
+def stop_conversation_input() -> None:
+    _request("POST", "/api/v1/voice/conversation/stop", timeout=5, params={"silence": "false"})
 
 
 def body_state(since: int = 0) -> dict:

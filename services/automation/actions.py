@@ -75,6 +75,13 @@ def _run_action(parsed: dict, confirmed: bool = False) -> ActionResult | None:
         return ActionResult(False, intent.REMOTE_REFUSAL)
 
     try:
+        if action.startswith("phone_"):
+            from services.phone.commands import run
+            return run(parsed, confirmed)
+        if action.startswith("dj_"):
+            from services.spotify.dj import run
+            success, message = run(parsed, _open_spotify)
+            return ActionResult(success, message, repeatable=False)
         if action == "open_app":
             return ActionResult(True, system.open_app(parsed["app_name"]))
         elif action == "search_chrome":

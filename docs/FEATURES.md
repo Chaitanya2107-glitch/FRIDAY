@@ -1,15 +1,32 @@
 # F.R.I.D.A.Y — Everything She Can Do
 
-*Last updated: 2026-10-24.* A tour of every feature, with example phrases. Anything in quotes can be typed in the
+*Last updated: 2026-10-28.* A tour of every feature, with example phrases. Anything in quotes can be typed in the
 command bar or said by voice unless it says otherwise. How it's built: `docs/current_state.md` and `docs/architecture.md`.
 
 Different wording for the same task: [command synonyms and sentence examples](COMMAND_LANGUAGE.md).
+
+Friday's default role is your personal assistant: your day, schedule, routines,
+preferences and activities. “What am I doing” reports fresh app/window evidence
+and any task you explicitly labelled. “I'm studying graphs” saves a scoped task;
+“I use this app for college notes” saves personal app use separately. “Learn this
+app” asks the model first and verifies its exact explanation/category with you
+before treating it as confirmed. App metadata alone does not establish exact
+intent or progress. [Activity awareness and examples](PERSONAL_ASSISTANT_AWARENESS.md).
 
 AI also understands unfamiliar phrasing and typos by default. For example, “bro the speakers r too loud
 bring em down to 23” becomes the local `set volume to 23` command. Ordinary chat and voice conversation
 use AI replies with recent history. Existing commands execute locally, with existing confirmations.
 Background cognition and notification decisions use local Ollama only; language uses OpenRouter with
 Ollama fallback. See [language settings](AI_ASSISTANCE.md). Unsupported abilities still need implementation.
+
+### Android bridge, conversation interruptions and Friday DJ
+
+With paired KDE Connect, read/select phone notifications, preview a reply and
+confirm submission, or ring your phone. In conversation mode, say “wait” or
+“hey Friday” during a reply to interrupt and continue. Spotify DJ supports mood
+mixes, more tracks from the current artist and saved playlist/search preferences.
+Examples, setup and limits: [personal assistant upgrades](PERSONAL_ASSISTANT_UPGRADES.md).
+The original desktop robot remains unchanged.
 
 ### Native customization window
 
@@ -135,7 +152,7 @@ your source tasks. Restart FRIDAY from the tray to load the new commands.
 | **Interrupting** | While "Hey Friday" is on: "Hey Friday, …" over her voice stops her and takes the new command; "Hey Friday, stop" just silences her |
 | **Speak via Handy** | **Ctrl+Alt+F** — opens the bar and dictates into it with Handy; sent automatically |
 | **Terminal** | `friday open spotify`, `friday "what's due"`, `git diff \| friday "review this"`, `npm run build 2>&1 \| friday "why did this fail"`, bare `friday` for a back-and-forth |
-| **Telegram** | Message the bot from your phone: any command/chat, plus /lock, /sleep, /shutdown, /restart, /cancel, /away, /menu. Send a link (opens on the laptop), a file (saved to Downloads\FRIDAY), "copy <text>" (to the clipboard) |
+| **Telegram** | Message the bot from your phone: any command/chat, plus /lock, /sleep, /shutdown, /restart, /cancel, /away, /menu. `/! <command>` skips that command's confirmations; `/cc enter` or `/cc right-arrow` presses a key. Local diagnostics such as `brain status` reply in your private chat. Offline commands catch up, and briefings/reports use emoji sections. [Examples and queue limits](TELEGRAM_UPGRADES.md). Send links, files and `copy <text>` to the laptop. |
 | **File right-click** | Right-click a single file in Explorer → **Show more options** (Windows 11) → **Send to Chaitu through Friday** → **Telegram** or **WhatsApp**. Telegram sends to the configured account; WhatsApp opens the saved `chaitu` contact and pastes the selected file for you to review and press Send. Friday must be running |
 | **Her body** | Click her to talk, double-click for the command bar, right-click for a menu |
 | **Tray menu** | Status, command bar, Talk to FRIDAY (listen, conversation mode, Hey Friday, free will, speak voice / typed replies aloud), Quick actions, Routines, System stats, Clipboard history, File search, AI provider, Clear chat memory, Quit |

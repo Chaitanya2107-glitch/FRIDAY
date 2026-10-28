@@ -121,6 +121,9 @@ def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     # ...nor the real activity log
     monkeypatch.setattr(activity_log, "db_path", str(tmp_path / "activity.db"))
     monkeypatch.setattr(activity_log, "last_app", None)
+    monkeypatch.setattr(activity_log, "last_observed_at", None)
+    monkeypatch.setattr(activity_log, "last_foreground", None)
+    monkeypatch.setattr(activity_log, "last_window", (None, None))
     monkeypatch.setattr(activity_log, "app", None)
     # ...nor the real logins, nor Windows Credential Manager (an in-memory stand-in), nor real key presses
     monkeypatch.setattr(logins, "path", tmp_path / "logins.json")

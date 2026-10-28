@@ -124,11 +124,21 @@ def sense(log, now: datetime | None = None) -> None:
     app = log.app
     topic = knowledge.topic_of(app, log.title)
     if _cur and (_cur["app"], _cur["topic"]) == (app, topic):
+        with knowledge.db() as conn:
+            seconds = max(0, (now - _cur.get("accounted", _cur["since"])).total_seconds())
+            if getattr(log, "last_observed_at", None) and seconds > 20:
+                seconds = 0
+            knowledge.spend(conn, "app", app, seconds)
+            if topic:
+                knowledge.spend(conn, "topic", topic, seconds)
+        _cur["accounted"] = now
         return
     before = _cur
     with knowledge.db() as conn:
         if before:  # the stretch that just ended
-            seconds = (now - before["since"]).total_seconds()
+            seconds = max(0, (now - before.get("accounted", before["since"])).total_seconds())
+            if getattr(log, "last_observed_at", None) and seconds > 20:
+                seconds = 0
             knowledge.spend(conn, "app", before["app"], seconds)
             if before["topic"]:
                 knowledge.spend(conn, "topic", before["topic"], seconds)
@@ -146,7 +156,7 @@ def sense(log, now: datetime | None = None) -> None:
         cognition.record("observation", "activity", f"Boss's current activity: {app_category(app)}", public=True)
         _switches.append(now)
         foresight.moved(log, app, now)  # both predictors are scored on this move, and guess the next one
-    _cur = {"app": app, "topic": topic, "since": now}
+    _cur = {"app": app, "topic": topic, "since": now, "accounted": now}
     _notice(now, app, topic, app_category(app, log.title), knew_app)
 
 
@@ -323,7 +333,11 @@ async def learn_something(log, now: datetime) -> None:
     known = await knowledge.look_up(thing, now)
     _next_lookup = None if known else now + LOOKUP_RETRY
     spent = _duration(thing.seconds)
-    if known and known.about:
+    from services.mind import app_learning
+    if app_learning.pending(thing.key):
+        # The real question flow reads these versioned proposals. No category or personal fact changes yet.
+        return
+    if known and known.about and known.source in {"boss", "confirmed"}:
         life.feel("learned", now.timestamp())
         _wonder("learned", thing.key, {"noticed": "I looked up something the Boss uses, and now I know what it is",
                                        "name": thing.name, "it_is": known.about, "the_boss_has_spent": spent}, 0.6, now)
@@ -366,15 +380,15 @@ def timeline(log, now: datetime | None = None) -> str:
 
     now = now or datetime.now()
     found = episodes(log, now)
-    here = present(found, now)
-    earlier = [e for e in found if e is not here]
+    earlier = found  # history remains useful even when no fresh foreground observation exists
     span = lambda e: f"{e.start:%H:%M}–{e.end:%H:%M}"
-    lines = [f"Right now: {here.label()}, {_duration(here.seconds)} since {here.start:%H:%M}." if here
-             else f"Right now: {log.app or 'nothing'} — too new to call it anything yet."]
+    from services.mind.activity_awareness import summary
+    lines = [summary(log, now)]
     if earlier:
-        lines.append("Before that: " + "; ".join(f"{span(e)} {e.label()}" for e in reversed(earlier[-5:])) + ".")
+        lines.append("Recorded earlier (app/title-based categories): " + "; ".join(
+            f"{span(e)} {e.label()}" for e in reversed(earlier[-5:])) + ".")
     if left := dropped(found, now):
-        lines.append(f"Left hanging: {left.label()}, since {left.end:%H:%M}.")
+        lines.append(f"Earlier focus: {left.label()}, last seen at {left.end:%H:%M}; completion is unknown.")
     try:
         guess = predict.predict_next(log, now)
         if guess.startswith("After"):

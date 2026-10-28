@@ -172,7 +172,7 @@ def wake_api(monkeypatch):
         return state.command if isinstance(state.command, Wake) else Wake(state.command, False)
     monkeypatch.setattr(voice_route.wake_listener, "wait", fake_wait)
     monkeypatch.setattr(voice_route.recorder, "record", lambda: setattr(state, "recorded", state.recorded + 1) or b"")
-    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio: "take a screenshot")
+    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio, log=True: "take a screenshot")
     monkeypatch.setattr(voice_route, "_speak_in_background", lambda text, cache=False: state.spoken.append(text))
     monkeypatch.setattr(voice_route, "_memory", SimpleNamespace(
         get_recent_history=lambda: [], save_message=lambda role, content: None,
@@ -244,7 +244,7 @@ def test_false_wakes_are_logged_and_counted(wake_api, monkeypatch):
     body = wake_api.client.post("/api/v1/voice/wake", json={"session": "h"}).json()
     assert body["response"] == "Sorry — my mistake." and wake_api.spoken == ["Volume set to 40%."]
     wake_api.command = ""  # woke, then nothing was said
-    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio: "")
+    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio, log=True: "")
     assert wake_api.client.post("/api/v1/voice/wake", json={"session": "h"}).status_code != 200
     assert [e["mistake"] for e in map(json.loads, wake.LOG_PATH.read_text().splitlines())] == [False, True, True]
     assert "woke me 3 times; 2 were mistakes (67%)" in wake.stats()

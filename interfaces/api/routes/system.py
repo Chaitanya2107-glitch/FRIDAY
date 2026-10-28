@@ -40,6 +40,13 @@ async def system_control(request: SystemRequest):
     """Use the same local and AI command routing as chat and voice."""
     from services.automation import intent
     from services.mind.replies import REMARKS
+    from services.screen_watch import commands as screen_commands
+    screen = await screen_commands.handle(request.command, remote=intent.remote_request.get())
+    if screen is not None:
+        if request.speak:
+            from interfaces.api.routes.voice import _speak_in_background
+            _speak_in_background(screen.message, cache=False, local_only=True)
+        return SystemResponse(command=request.command, success=screen.success, action="system_control", result=screen.message)
 
     # This endpoint cannot complete chat/voice's yes/no confirmation exchange.
     if intent.is_awaiting_confirmation():
@@ -75,6 +82,7 @@ class SpotifyStatus(BaseModel):
 class RuntimeStatus(BaseModel):
     mode: ModeStatus
     spotify: SpotifyStatus
+    screen_watch: dict = Field(default_factory=dict)
 
 
 @router.get("/system/status", response_model=RuntimeStatus)
@@ -89,7 +97,22 @@ def get_runtime_status():
         spotify = SpotifyStatus(configured=spotify_auth.is_configured(), connected=spotify_auth.is_connected())
     except (ValueError, OSError):
         spotify = SpotifyStatus(configured=None, connected=None)
-    return RuntimeStatus(mode=mode, spotify=spotify)
+    from services.screen_watch import service as screen_watch
+    try:
+        screen = screen_watch.watch.status()
+    except Exception:
+        screen = {"enabled": False, "paused": True, "state": "unavailable", "local_only": True}
+    return RuntimeStatus(mode=mode, spotify=spotify, screen_watch=screen)
+
+
+class ScreenIndicator(BaseModel):
+    hwnd: int = Field(ge=0, le=2**64 - 1)
+
+
+@router.post("/screen-watch/indicator")
+def screen_indicator(body: ScreenIndicator):
+    from services.screen_watch import service as screen_watch
+    return {"accepted": screen_watch.watch.heartbeat(body.hwnd)}
 
 
 class NotifyResponse(BaseModel):

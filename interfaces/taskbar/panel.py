@@ -69,6 +69,7 @@ class ControlPanel:
                 self.buttons.clear()
                 self.__dict__.pop("_photo", None)
                 self.__dict__.pop("_menu_variables", None)
+                self.__dict__.pop("screen_badge", None)
                 for key in ("status", "detail", "_menu"):
                     self.__dict__.pop(key, None)
                 self.root = None
@@ -139,6 +140,7 @@ class ControlPanel:
                     row=row, column=col, sticky="ew", padx=(0, 5) if col == 0 else (5, 0), pady=5)
 
         self._button(content, "speech", "Speak voice replies: On", self.tray.toggle_speak_replies).pack(fill="x", pady=5)
+        self._button(content, "screen", "Screen awareness: Off", self._screen_control).pack(fill="x", pady=5)
         lifecycle = tk.Frame(content, bg=BG)
         lifecycle.pack(fill="x")
         for col, (key, text) in enumerate((("start", "Start FRIDAY"), ("restart", "Restart"), ("stop", "Stop FRIDAY"))):
@@ -158,6 +160,16 @@ class ControlPanel:
         style = win32gui.GetWindowLong(self._hwnd, win32con.GWL_EXSTYLE)
         win32gui.SetWindowLong(self._hwnd, win32con.GWL_EXSTYLE,
                               (style | win32con.WS_EX_TOOLWINDOW) & ~win32con.WS_EX_APPWINDOW)
+        from interfaces.taskbar.screen_badge import ScreenBadge
+        self.screen_badge = ScreenBadge(self.root, self.tray)
+
+    def _screen_control(self):
+        state = (self.tray.runtime_status or {}).get("screen_watch") or {}
+        if state.get("enabled") and not state.get("paused") and not self.screen_badge._pending_pause:
+            self.screen_badge.pause()
+        else:
+            self.screen_badge._pending_pause = False
+            self.tray._command_action("resume screen awareness")()
 
     def hide(self):
         self._visible = False
@@ -294,6 +306,11 @@ class ControlPanel:
         self.buttons["wake"].configure(text=f'"Hey Friday": {"On" if self.tray.wake_on else "Off"}')
         self.buttons["conversation"].configure(text=f'Conversation: {"On" if self.tray.in_conversation else "Off"}')
         self.buttons["speech"].configure(text=f'Speak voice replies: {"On" if backend.settings.speak_replies else "Off"}')
+        screen = (self.tray.runtime_status or {}).get("screen_watch") or {}
+        screen_line = "Paused locally - resume" if self.screen_badge._pending_pause else screen.get("state", "off").replace("_", " ")
+        self.buttons["screen"].configure(text="Screen: " + screen_line,
+                                         state="normal" if online and not busy else "disabled")
+        self.screen_badge.update()
         for key in ("restart", "stop"):
             self.buttons[key].configure(state="normal" if self.runtime.owned and not busy else "disabled")
         self.buttons["start"].configure(state="normal" if not online and not busy else "disabled")

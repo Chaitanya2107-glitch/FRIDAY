@@ -65,6 +65,31 @@ def test_silence_is_a_complete_decision_and_unchanged_context_is_not_repolled(br
     assert len(calls) == 1
 
 
+def test_app_verification_uses_exact_local_candidate_and_survives_recording(brain, monkeypatch):
+    from services.mind import app_learning, curiosity, knowledge, talk
+    control, state = brain
+    with knowledge.db() as db:
+        knowledge.see(db, "app", "mystery", "other", NOW)
+        app_learning.stage(db, "app:mystery", app_learning.revision(db, "app:mystery"),
+                           "An app for notes.", "documents", "test model", NOW)
+    state["evidence"] = app_learning.evidence()
+    ref, proposal = next(iter(state["evidence"].items()))
+    gap = curiosity.gaps(state["evidence"])[0]
+    chosen = decision(question="Is this app a game?", topic="model paraphrase", basis=[ref], purpose={
+        "gap": gap["id"], "decision": "Whether to save or discard the proposed app definition.",
+        "if_answer_a": {"answer": "The definition is correct", "next_step": "Save exactly the displayed definition."},
+        "if_answer_b": {"answer": "The definition is wrong", "next_step": "Discard the unverified model definition."},
+        "usefulness": "changes_decision"})
+    thinker(monkeypatch, control, chosen)
+    line = asyncio.run(control.propose(NOW))
+    assert line["say"] == app_learning.question(proposal)
+    assert "category: documents" in line["say"] and "game" not in line["say"]
+    assert line["app_verification"] == app_learning.identity(proposal)
+    talk._record(line, "chill", NOW.timestamp())
+    pending = talk.load()["pending"]
+    assert pending["app_verification"] == line["app_verification"] and not pending["offered"]
+
+
 @pytest.mark.parametrize('field,value', [('busy', True), ('idle', 1), ('idle', 180),
     ('pending', True), ('speaking', True), ('listening', True), ('mic_in_use', True), ('commitment_soon', True)])
 def test_inappropriate_time_never_calls_model(brain, monkeypatch, field, value):

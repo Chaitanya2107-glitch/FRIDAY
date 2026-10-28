@@ -65,11 +65,11 @@ def test_strangers_are_ignored_silently(tg):
     assert tg.sent == [] and tg.asked == []
 
 
-def test_stale_and_forwarded_messages_are_not_run(tg):
-    run(message("shutdown", age=600))
+def test_offline_commands_run_but_forwarded_messages_are_refused(tg):
+    run(message("open chrome", age=600))
     run(message("open chrome", forward_date=int(time.time())))
-    assert tg.asked == []
-    assert "offline" in tg.texts()[0] and "forwarded" in tg.texts()[1]
+    assert tg.asked == [("open chrome", True)]
+    assert "forwarded" in tg.texts()[1]
 
 
 def test_clipboard_and_logins_are_refused_remotely():

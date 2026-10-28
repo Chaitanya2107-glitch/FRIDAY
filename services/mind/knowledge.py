@@ -9,8 +9,8 @@ at which hours. services/mind/brain.py feeds it on every move and thinks from it
 What she can't place she's curious about:
   1. her own rules first (services/activity/categories.py)
   2. then she looks it up: ONE bare question to the AI model — "What is <name>?" — with the name (and, for
-     a program, its window title) and nothing about the Boss. The answer (what it is + a category) is
-     stored here, so she never asks twice, and from then on the activity log sorts it into that category.
+     a program, never its private window title). The answer is staged as an unverified proposal.
+     Only owner confirmation or correction promotes it into knowledge and activity categories.
   3. model unavailable (the small local fallback model isn't trusted with facts), or it doesn't know:
      she asks the Boss (brain.py makes that a thought), and the
      answer is stored the same way (teach).
@@ -134,6 +134,8 @@ def _connect() -> sqlite3.Connection:
         if "recorded_at" not in columns:
             conn.execute("ALTER TABLE foresight_labels ADD COLUMN recorded_at TEXT")
             conn.commit()
+        from services.mind.app_learning import initialize
+        initialize(conn)
         _ready_for = db_path
     return conn
 
@@ -189,6 +191,8 @@ def see(conn, kind: str, name: str, category: str, now: datetime, hint: str | No
     row = conn.execute("SELECT * FROM things WHERE key = ?", (key,)).fetchone()
     stamp = now.isoformat(timespec="seconds")
     if row is None:
+        from services.mind.app_learning import supersede
+        supersede(conn, key)
         hours = [0] * 24
         hours[now.hour] = 1
         conn.execute("INSERT INTO things (key, kind, name, category, first_seen, last_seen, times, days, hours, "
@@ -232,7 +236,7 @@ def refresh_learned() -> None:
     learned = {"app": {}, "title": {}}
     try:
         with db() as conn:
-            for row in conn.execute("SELECT kind, name, category FROM things WHERE source != 'rule' "
+            for row in conn.execute("SELECT kind, name, category FROM things WHERE source IN ('boss','confirmed') "
                                     "AND category NOT IN ('other', 'browsing')"):
                 learned["app" if row["kind"] == "app" else "title"][row["name"].lower()] = row["category"]
     except sqlite3.Error as e:
@@ -257,16 +261,17 @@ def due_lookup(now: datetime) -> Thing | None:
         if today >= MAX_LOOKUPS_A_DAY:
             return None
         return _thing(conn.execute(
-            "SELECT * FROM things WHERE about IS NULL AND looked_up IS NULL AND ((kind = 'app' AND category = ? "
-            "AND seconds >= ?) OR (kind = 'topic' AND category = ? AND seconds >= ?)) ORDER BY seconds DESC LIMIT 1",
-            (UNPLACED["app"], APP_LOOKUP_MIN_SECONDS, UNPLACED["topic"], LOOKUP_MIN_SECONDS)).fetchone())
+            "SELECT * FROM things WHERE about IS NULL AND looked_up IS NULL AND kind='app' AND category=? "
+            "AND seconds>=? ORDER BY seconds DESC LIMIT 1",
+            (UNPLACED["app"], APP_LOOKUP_MIN_SECONDS)).fetchone())
 
 
-def _question(thing: Thing) -> str:
+def _question(thing: Thing, requested: bool = False) -> str:
     if thing.kind == "app":
-        window = f', and its window is titled "{thing.hint}"' if thing.hint else ""
-        return f'What is "{thing.name}"? It is the name of a Windows program{window}.'
-    return f'What is "{thing.name}"? It is the title of a web page or window.'
+        return f'What is "{thing.name}"? It is the name of a Windows program.'
+    if requested:
+        return f'What is "{thing.name}"? This is an explicitly requested general knowledge question.'
+    raise ValueError("Automatic knowledge lookups use app identity only.")
 
 
 def _parse(reply: str) -> dict | None:
@@ -278,41 +283,55 @@ def _parse(reply: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-async def look_up(thing: Thing, now: datetime) -> Thing | None:
+async def look_up(thing: Thing, now: datetime, *, requested: bool = False) -> Thing | None:
     """Ask the model what `thing` is. Returns the thing as she now knows it; None when no model answered
     (she'll try again later). A thing the model doesn't know comes back with no `about`."""
     from providers.failover import complete_with_failover
+    from services.mind import app_learning
+    from services.mind.training import teaching_for
 
-    if config.AI_ASSIST_ONLY and not config.AI_KNOWLEDGE_ENABLED:
+    if (thing.kind != "app" and not requested) or (config.AI_ASSIST_ONLY and not config.AI_KNOWLEDGE_ENABLED):
         return None
+    if teaching_for("subject", thing.key):
+        return None
+    with db() as conn:
+        expected = app_learning.revision(conn, thing.key)
+        current = conn.execute("SELECT source,about FROM things WHERE key=?", (thing.key,)).fetchone()
+        if not current or current["about"] or current["source"] in {"boss", "confirmed"}:
+            return None
 
+    reply = None
     try:
-        reply = await complete_with_failover(config.ACTIVE_PROVIDER, [Message(role="user", content=_question(thing))],
+        reply = await complete_with_failover(config.ACTIVE_PROVIDER, [Message(role="user", content=_question(thing, requested))],
                                              LOOKUP_PROMPT, 600, purpose="knowledge", attempt_timeout=8)
     except Exception as e:
-        logger.info(f"Lookup of {thing.name} skipped: {e}")
-        return None
-    if not config.AI_ASSIST_ONLY and reply.provider == "ollama" != config.ACTIVE_PROVIDER:
-        return None  # only the small local model answered (offline / providers down): it would make things up
-    data = _parse(reply.content) or {}
+        logger.info("App explanation unavailable (%s); owner clarification remains possible", type(e).__name__)
+    if reply and not config.AI_ASSIST_ONLY and reply.provider == "ollama" != config.ACTIVE_PROVIDER:
+        reply = None
+    if reply and (getattr(reply, "tool_calls", None) or (getattr(reply, "metadata", None) or {}).get("incomplete")
+                  or not isinstance(reply.content, str)):
+        reply = None
+    if teaching_for("subject", thing.key):
+        return get(thing.key)
+    data = (_parse(reply.content) if reply else None) or {}
     known = data.get("known") is True and isinstance(data.get("what"), str) and data["what"].strip()
     category = str(data.get("category") or "").strip().lower()
     with db() as conn:
-        if known:
-            conn.execute("UPDATE things SET about = ?, source = 'lookup', looked_up = ?, category = ? WHERE key = ?",
-                         (str(data["what"]).strip()[:300], now.isoformat(timespec="seconds"),
-                          category if category in KNOWN_CATEGORIES and category != "other" else thing.category, thing.key))
-        else:
-            conn.execute("UPDATE things SET looked_up = ? WHERE key = ?", (now.isoformat(timespec="seconds"), thing.key))
-    refresh_learned()
-    logger.info(f"Looked up {thing.name}: {'learned' if known else 'unknown'}")
+        app_learning.stage(conn, thing.key, expected, str(data["what"]).strip() if known else "",
+                           category if category in KNOWN_CATEGORIES else thing.category,
+                           reply.provider if reply else "unavailable", now)
+    logger.debug("App explanation %s; awaiting owner verification", "proposed" if known else "unavailable")
     return get(thing.key)
 
 
 def teach(key: str, text: str) -> Thing | None:
     """The Boss said what it is: kept in their words, and sorted by the words they used."""
     category = next((c for c, words in CATEGORY_WORDS if re.search(words, text, re.I)), None)
+    if re.search(r"\b(?:not|isn't|is not|don't|cannot)\b", text, re.I):
+        category = "other"
     with db() as conn:
+        from services.mind.app_learning import supersede
+        supersede(conn, key)
         conn.execute("UPDATE things SET about = ?, source = 'boss', category = COALESCE(?, category) WHERE key = ?",
                      (text.strip()[:300], category, key))
     refresh_learned()
@@ -323,18 +342,23 @@ def learned_on(day: str) -> list[Thing]:
     """What she looked up and understood that day."""
     with db() as conn:
         return [_thing(r) for r in conn.execute(
-            "SELECT * FROM things WHERE about IS NOT NULL AND source = 'lookup' AND looked_up LIKE ?", (day + "%",))]
+            "SELECT * FROM things WHERE about IS NOT NULL AND source = 'confirmed' AND looked_up LIKE ?", (day + "%",))]
 
 
 def describe(thing: Thing) -> str:
     """Everything she knows about one thing, in a line or two."""
     from services.activity.log import _duration
 
-    how = {"lookup": "I looked it up", "boss": "you told me", "rule": "worked out myself"}[thing.source]
+    how = {"lookup": "unverified model suggestion", "confirmed": "model explanation you confirmed",
+           "boss": "you told me", "rule": "local app/window rule"}[thing.source]
     what = f"{thing.about} ({how})" if thing.about else f"I file it under {thing.category} ({how})" \
         if thing.placed else "I still don't know what it is"
     busiest = max(range(24), key=lambda h: thing.hours[h])
     usual = f", mostly around {datetime(2000, 1, 1, busiest):%I %p}".replace(" 0", " ") if thing.days >= 3 else ""
+    from services.mind.app_learning import pending
+    proposed = pending(thing.key)
+    if proposed and proposed[0]["description"]:
+        what += f'. Unverified model suggestion: "{proposed[0]["description"]}"'
     return (f"{thing.name}: {what}. Seen {thing.times} time{'s' if thing.times != 1 else ''} on {thing.days} "
             f"day{'s' if thing.days != 1 else ''}, {_duration(thing.seconds)} in all{usual}; "
             f"first on {thing.first_seen:%d %b}, last on {thing.last_seen:%d %b}.")

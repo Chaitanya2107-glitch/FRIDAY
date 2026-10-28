@@ -30,6 +30,7 @@ system control lives in services/automation/.
 """
 
 import asyncio
+import contextvars
 import re
 import threading
 
@@ -50,6 +51,7 @@ from services.voice.stt import stt
 from services.voice.speech_stream import FirstSentenceSpeaker
 from services.voice.tts import tts
 from services.voice import wake as wake_log
+from services.voice.conversation_input import conversation_input
 from services.voice.wake import wake_listener
 from services.automation.intent import (
     cancel_pending_confirmation,
@@ -72,6 +74,8 @@ _memory = MemoryService()
 
 # asyncio only keeps weak references to tasks, so hold background speech until it's done.
 _speech_tasks: set[asyncio.Task] = set()
+_speech_generation = contextvars.ContextVar("voice_speech_generation", default=None)
+_conversation_request = asyncio.Lock()
 
 # Set by POST /voice/stop, so a listen still waiting for FRIDAY to finish speaking can be cancelled.
 _listen_cancelled = threading.Event()
@@ -84,6 +88,7 @@ _stopped_wake_sessions: set[str] = set()
 # ── Request / Response schemas ────────────────────────────────────────────────
 
 class VoiceRequest(BaseModel):
+    barge_in: bool = Field(False, description="Conversation mode: retain spoken interruptions during reply playback.")
     provider: str | None = Field(
         None,
         description="Override the active provider for this request only."
@@ -110,6 +115,7 @@ class WakeStopRequest(BaseModel):
 
 
 class VoiceResponse(BaseModel):
+    private: bool = False
     transcription: str   # What Whisper heard you say
     response:      str   # What FRIDAY replied or did
     provider:      str   # the provider that actually answered (may be a fallback)
@@ -122,10 +128,18 @@ class VoiceResponse(BaseModel):
     conversation: str | None = None  # "start" / "end": conversation mode (services/voice/conversation.py)
 
 
-def _speak_in_background(text: str, cache: bool = False) -> None:
+def _speak_in_background(text: str, cache: bool = False, *, local_only: bool = False) -> None:
+    generation = _speech_generation.get()
+    if generation is None:
+        generation = tts.generation
     async def speak():
         try:
-            await tts.speak(text, cache=cache)
+            if tts.generation != generation:
+                return
+            if local_only:
+                await tts.speak(text, cache=False, expected_generation=generation, local_only=True)
+            else:
+                await tts.speak(text, cache=cache, expected_generation=generation)
         except Exception as e:
             logger.warning(f"Couldn't speak the reply: {e}")
 
@@ -149,6 +163,9 @@ async def voice(request: VoiceRequest):
     Listen until the user stops (voice hotkey again, or silence), then reply.
     The reply is returned immediately and spoken in the background.
     """
+    if request.barge_in:
+        return await _conversation_voice(request)
+    await asyncio.to_thread(conversation_input.stop)
     logger.info(f"Voice request — listening | speak: {request.speak} | after speech: {request.after_speech}")
     _listen_cancelled.clear()
     _listen_discarded.clear()
@@ -164,6 +181,44 @@ async def voice(request: VoiceRequest):
     if _listen_discarded.is_set():
         raise FridayError("Stopped listening.", status_code=409)
     return await _reply(transcription, request)
+
+
+async def _conversation_voice(request):
+    if _conversation_request.locked():
+        raise FridayError("Another conversation turn is already listening.", status_code=409)
+    async with _conversation_request:
+        _listen_cancelled.clear()
+        _listen_discarded.clear()
+        token, monitor = None, None
+        try:
+            captured = await asyncio.to_thread(conversation_input.take)
+            if _listen_cancelled.is_set() or _listen_discarded.is_set():
+                raise FridayError("Stopped listening.", status_code=409)
+            if captured.interrupted and not captured.text:
+                return _quick_reply("wait", "Listening.", request)
+            token = _speech_generation.set(tts.generation)
+            monitor = conversation_input.start(replying=True, expected_epoch=captured.epoch)
+            result = await _reply(captured.text, request)
+            if result.conversation == "end":
+                await asyncio.to_thread(conversation_input.stop)
+            return result
+        except BaseException:
+            await asyncio.to_thread(conversation_input.stop)
+            raise
+        finally:
+            if monitor:
+                monitor.replying.clear()
+            if token is not None:
+                _speech_generation.reset(token)
+
+
+@router.post("/voice/conversation/stop")
+async def stop_conversation_input(silence: bool = True):
+    if silence:
+        _listen_cancelled.set()
+        tts.stop()
+    await asyncio.to_thread(conversation_input.stop)
+    return {"stopped": True}
 
 
 @router.post("/voice/wake", response_model=VoiceResponse)
@@ -239,7 +294,7 @@ async def stop_wake(request: WakeStopRequest):
 
 async def _record_command() -> str:
     audio = await asyncio.to_thread(recorder.record)
-    transcription = await asyncio.to_thread(stt.transcribe, audio)
+    transcription = await asyncio.to_thread(stt.transcribe, audio, log=False)
     if not transcription:
         raise FridayError("No speech detected. Please try again.", status_code=422)  # conversation mode counts these
     return transcription
@@ -250,6 +305,35 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     """Steps 2–5 for a transcribed voice command."""
     provider_name = request.provider or config.ACTIVE_PROVIDER
 
+    from services.phone import commands as phone_commands
+    if phone_commands.private_turn(transcription):
+        result = await phone_commands.handle(transcription, provider_name)
+        cognition_service.reply(result.message, safe_text=result.memory_message)
+        if request.speak:
+            _speak_in_background(result.message, cache=False)
+        return VoiceResponse(transcription=transcription, response=result.message, provider="local", private=True,
+                             model="system_control", tokens_used=0, action="system", action_success=result.success,
+                             awaiting_reply=is_awaiting_confirmation())
+
+    from services.screen_watch import commands as screen_commands
+    result = await screen_commands.handle(transcription, remote=remote_request.get())
+    if result is not None:
+        cognition_service.reply(result.message, safe_text=screen_commands.PRIVATE_MEMORY)
+        if request.speak:
+            _speak_in_background(result.message, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=result.message, provider="local", private=True,
+                             model="system_control", tokens_used=0, action="system", action_success=result.success)
+    from services.mind import app_verification
+    from services.activity.log import activity_log
+    result = await app_verification.handle(transcription, activity_log, remote=remote_request.get())
+    if result is not None:
+        app_verification.mark_returned(result.message, remote=remote_request.get())
+        cognition_service.reply(result.message)
+        if request.speak:
+            _speak_in_background(result.message, cache=False)
+        return VoiceResponse(transcription=transcription, response=result.message, provider="local", model="system_control",
+                             tokens_used=0, action="system", action_success=result.success,
+                             awaiting_reply=app_verification.awaiting())
     from services.browser.commands import match_command as automation_command
     if command := automation_command(transcription):
         from services.browser.service import automation
@@ -301,6 +385,7 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         system_result = await try_system_action(transcription, provider_name)
 
     if system_result is not None:
+        app_verification.mark_returned(system_result.message, remote=remote_request.get())
         if (config.AI_ASSIST_ONLY and system_result.success and not is_awaiting_confirmation()
                 and system_result.memory_message is None and not system_result.keyboard
                 and system_result.speech is None and system_result.repeatable):
@@ -363,7 +448,9 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         if search_context:
             system_prompt += "\n\n" + search_context
         if request.speak:
-            generation = tts.generation
+            generation = _speech_generation.get()
+            if generation is None:
+                generation = tts.generation
             speaker = FirstSentenceSpeaker(_speak_in_background, stopped=lambda: tts.generation != generation)
         result = await complete_with_failover(
             provider_name, messages, system_prompt, request.max_tokens,
@@ -409,4 +496,5 @@ async def stop_listening(discard: bool = False):
         _listen_discarded.set()
     _listen_cancelled.set()
     tts.stop()
+    await asyncio.to_thread(conversation_input.stop)
     return {"stopped": recorder.stop()}

@@ -23,6 +23,10 @@ def gaps(known):
             missing = 'blocker_status_or_timing' if row.get('blocker') else 'blocker_identity'
             goal = known.get(f"goal:{row.get('goal_id')}", {})
             rank = 0 if ref in selected or f"goal:{row.get('goal_id')}" in selected else 1 if goal.get('priority') in {3, 'high'} else 2
+        elif kind == 'app_verification' and row.get('state') == 'pending':
+            semantic = {key: row.get(key) for key in ('key', 'token', 'revision', 'description', 'category')}
+            subject = row.get('name', 'Unfamiliar app')
+            ident, missing, rank = ref + ':verify', 'verify_app_explanation', 2
         elif kind == 'temporal_interpretation' and row.get('status') in {'planned', 'uncertain', 'postponed'} and (
                 not row.get('start') or not row.get('end')) and not row.get('superseded_by'):
             subject = row.get('subject', '')
@@ -36,7 +40,6 @@ def gaps(known):
             continue
         result.append({'id': ident, 'version': fingerprint(semantic), 'basis': [ref],
                        'subject': str(subject)[:160], 'missing': missing, 'rank': rank})
-    # ponytail: bounded first increment; task blockers and undated commitments only.
     unique, ambiguous = {}, set()
     for row in result:
         if row['id'] in unique and unique[row['id']]['version'] != row['version']:

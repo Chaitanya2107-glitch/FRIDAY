@@ -111,6 +111,9 @@ SHORTCUT_OPEN = "\\o"
 # True for messages the Telegram bot passes in (services/telegram/bot.py): these can't read
 # the clipboard or use saved logins, since the reply would leave the laptop
 remote_request: contextvars.ContextVar[bool] = contextvars.ContextVar("remote_request", default=False)
+# Set only inside the authenticated owner's Telegram turn; never persisted.
+telegram_owner: contextvars.ContextVar[bool] = contextvars.ContextVar("telegram_owner", default=False)
+skip_confirmation: contextvars.ContextVar[bool] = contextvars.ContextVar("skip_confirmation", default=False)
 _language_proposal: contextvars.ContextVar[bool] = contextvars.ContextVar("language_proposal", default=False)
 _language_source: contextvars.ContextVar[str | None] = contextvars.ContextVar("language_source", default=None)
 NOT_OVER_TELEGRAM = {"read_clipboard", "list_clipboard_history", "restore_clipboard_item", "save_login", "log_in"}
@@ -155,6 +158,7 @@ NEGATIVE_REPLIES = {
 class PendingAction(NamedTuple):
     parsed: dict
     expires_at: float
+    asked_at: float = 0
 
 
 # Laptop chat/voice share a conversation; Telegram has its own pending action.
@@ -202,6 +206,8 @@ async def _handle_pending_reply(message: str, provider_name: str) -> ActionResul
     if pending.parsed.get("action") == "resume_project":
         return await _resume_project(pending.parsed["name"], provider_name,
                                      expected=pending.parsed.get('_project_snapshot', ...))
+    if pending.parsed.get("action") == "phone_reply":
+        return await asyncio.to_thread(_execute, pending.parsed, True)
     return _execute(pending.parsed, confirmed=True)
 
 
@@ -212,7 +218,7 @@ def _ask_to_organise(parsed: dict) -> ActionResult:
     if count == 0:
         return ActionResult(True, f"There's nothing to organise in {folder}.")
 
-    _pending[remote_request.get()] = PendingAction(parsed, time.monotonic() + CONFIRM_TIMEOUT_SECONDS)
+    _pending[remote_request.get()] = PendingAction(parsed, time.monotonic() + CONFIRM_TIMEOUT_SECONDS, time.time())
     files = "file" if count == 1 else "files"
     return ActionResult(
         True,
@@ -228,7 +234,7 @@ def _ask_first(parsed: dict, question: str) -> ActionResult:
         from services import settings_store
         with settings_store.lock:
             parsed = {**parsed, '_project_snapshot': copy.deepcopy(projects.load().get(parsed['name']))}
-    _pending[remote_request.get()] = PendingAction(parsed, time.monotonic() + CONFIRM_TIMEOUT_SECONDS)
+    _pending[remote_request.get()] = PendingAction(parsed, time.monotonic() + CONFIRM_TIMEOUT_SECONDS, time.time())
     return ActionResult(True, question, repeatable=False)
 
 
@@ -303,7 +309,7 @@ def _execute(parsed: dict, confirmed: bool = False) -> ActionResult | None:
     intention = cognition.record('action_intent', 'system', str(parsed.get('action', 'system action')),
                                  status='started', public=True)
     try:
-        result = _run_action(parsed, confirmed)
+        result = _run_action(parsed, confirmed or (telegram_owner.get() and skip_confirmation.get()))
     except BaseException:
         cognition.finish(intention, 'failed')
         raise
@@ -314,7 +320,8 @@ def _execute(parsed: dict, confirmed: bool = False) -> ActionResult | None:
                          status="awaiting_confirmation" if is_awaiting_confirmation() else
                          "completed" if result.success else "failed", public=True)
     if result is not None and not is_awaiting_confirmation():  # "are you sure?" isn't done yet
-        activity_log.log_command(parsed, result.success)
+        activity_log.log_command({"action": parsed["action"]} if parsed.get("action", "").startswith("phone_")
+                                 else parsed, result.success)
     return result
 
 
@@ -326,6 +333,16 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     """
     if commands_run.get() is not None:  # a routine / mode step inside a request: seasoned at the top
         return await _try_system_action(message, provider_name)
+    from services.phone import commands as phone_commands
+    if phone_commands.private_turn(message):
+        return await phone_commands.handle(message, provider_name)
+    from services.screen_watch import commands as screen_commands
+    if seen := await screen_commands.handle(message, remote=remote_request.get()):
+        return seen
+    from services.mind import app_verification
+    if aware := await app_verification.handle(message, activity_log, remote=remote_request.get()):
+        app_verification.mark_returned(aware.message, remote=remote_request.get())
+        return aware
     token = commands_run.set([])
     try:
         cognition.record('intent', 'telegram' if remote_request.get() else 'system',
@@ -373,6 +390,9 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         return _execute(shortcut)
 
     message = words.rephrase_command(message)
+    from services.spotify.dj import match_command as match_dj
+    if dj_command := match_dj(message):
+        return await asyncio.to_thread(_execute, dj_command)
     # Preserve short stop controls before normalization drops filler such as "now".
     control = talk.match_talk_command(words.strip_leading_filler(message))
     if control and control['action'] in {'talk_off', 'talk_pause'}:
@@ -551,6 +571,8 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         logger.info(f"Project command match: {project_match['action']}")
         if project_match["action"] == "suggest_resume_project":
             name = project_match["name"]
+            if telegram_owner.get() and skip_confirmation.get():
+                return await _resume_project(name, provider_name)
             return _ask_first(
                 {"type": "system", "action": "resume_project", "name": name},
                 f"Do you want me to resume {name}? Say yes to open the project, or no to cancel.",

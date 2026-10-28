@@ -112,6 +112,20 @@ class Recorder:
         finally:
             self._busy.release()
 
+    @contextmanager
+    def conversation_capture(self, cancelled):
+        """Conversation input shares the ordinary microphone lock and stop control."""
+        if cancelled() or not self._busy.acquire(blocking=False):
+            raise RecorderError("FRIDAY is already listening or this turn was cancelled.", status_code=409)
+        try:
+            if cancelled():
+                raise RecorderError("Stopped listening.", status_code=409)
+            self._stop.clear()
+            with _open_microphone() as read_chunk:
+                yield read_chunk, lambda: cancelled() or self._stop.is_set()
+        finally:
+            self._busy.release()
+
     def _capture(self, read_chunk) -> np.ndarray:
         chunks: list[np.ndarray] = []
         speech_seen = False

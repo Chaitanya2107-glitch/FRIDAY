@@ -125,6 +125,7 @@ class FridayTray:
         self.stats_lines: list[str] = []
         self.files_line = ""
         self.runtime_status: dict | None = None
+        self.screen_indicator = 0
         self._stopping = threading.Event()
         self.icon = pystray.Icon(
             "friday", make_icon("offline"), "F.R.I.D.A.Y — offline", menu=self._build_menu()
@@ -203,6 +204,14 @@ class FridayTray:
             Item("Routines", Menu(self._routine_menu_items), enabled=online),
             Item("Customize FRIDAY…", self.open_customization),
             Item("System stats", Menu(self._stats_menu_items), enabled=online),
+            Item("Screen awareness", Menu(
+                Item("Start / resume", self._command_action("resume screen awareness")),
+                Item("Pause", self._command_action("pause screen awareness")),
+                Item("Stop", self._command_action("stop watching my screen")),
+                Item("Status", self._command_action("screen awareness status")),
+                Item("Recent screen memory", self._command_action("screen memory")),
+                Item("Forget screen memory", self._command_action("forget screen memory")),
+            ), enabled=online),
             Item("Clipboard history", Menu(self._clipboard_menu_items), enabled=online),
             Item("File search", Menu(
                 Item(lambda item: self.files_line or "Reading…", None, enabled=False),
@@ -284,7 +293,8 @@ class FridayTray:
 
     def _show_voice(self, result: dict, transient: bool = False) -> None:
         self.notify(f"You: {result['transcription']}\nFRIDAY: {result['response']}",
-                    transient=transient or is_quick_command(result.get("action") == "system", result["response"]))
+                    transient=transient or is_quick_command(result.get("action") == "system", result["response"]),
+                    private=result.get("private", False))
         if result.get("keyboard"):
             self._type(result["keyboard"])
 
@@ -328,9 +338,8 @@ class FridayTray:
         if self.in_conversation:
             self.in_conversation = False
             self._typed_done.set()  # don't leave the loop waiting for a typed reply
-            if self.listening:
-                self._stop_requested = True
-                _in_background(self._api.stop_listening, True)
+            self._stop_requested = True
+            _in_background(self._api.stop_listening, True)
             self.refresh()
             return
         self.start_conversation()
@@ -357,7 +366,7 @@ class FridayTray:
                 self._stop_requested = False
                 self._set_listening(True)
                 try:
-                    # after_speech: she finishes her reply (or "I'm all ears") before the mic opens
+                    # Conversation mode keeps a bounded interruption capture during reply playback.
                     result = self._api.voice(after_speech=True, speak=True)
                 except self._api.BackendError as e:
                     if self._typed_turn:
@@ -383,6 +392,10 @@ class FridayTray:
                     return
         finally:
             self.in_conversation = self._api.settings.conversation = False
+            try:
+                self._api.stop_conversation_input()
+            except self._api.BackendError:
+                pass
             self.refresh()
 
     def _typing_recently(self) -> bool:
@@ -525,7 +538,8 @@ class FridayTray:
 
     def run_command(self, command: str) -> None:
         try:
-            self.notify(self._api.chat(command).text)
+            reply = self._api.chat(command)
+            self.notify(reply.text, private=getattr(reply, "private", False))
         except self._api.BackendError as e:
             self.notify(str(e))
         finally:
@@ -619,12 +633,16 @@ class FridayTray:
         self.icon.title = _one_line(f"{title} | {self.mode_text()}" if self.online else title, 127)
         self.icon.update_menu()
 
-    def notify(self, text: str, transient: bool = False) -> None:
+    def notify(self, text: str, transient: bool = False, *, private: bool = False) -> None:
         """transient: a quick command's confirmation ("Opening Chrome.") — it disappears by itself."""
         if len(text) > NOTIFY_LIMIT:
             text = text[:NOTIFY_LIMIT - 1] + "…"
         # PowerShell toast, not icon.notify: pystray's balloon is silently dropped on Win11
-        show_toast("F.R.I.D.A.Y", text, transient=transient)
+        if private:
+            show_toast("F.R.I.D.A.Y", text, transient=True, mirror_telegram=False,
+                       cognition_text="Private local assistant response")
+        else:
+            show_toast("F.R.I.D.A.Y", text, transient=transient)
 
     def check_status(self) -> None:
         online = self._api.is_online()
@@ -637,6 +655,11 @@ class FridayTray:
                 runtime = self._api.runtime_status()
             except self._api.BackendError:
                 runtime = None
+            if getattr(self, "screen_indicator", 0) and hasattr(self._api, "screen_indicator"):
+                try:
+                    self._api.screen_indicator(self.screen_indicator)
+                except self._api.BackendError:
+                    pass  # No valid lease means the backend cannot capture.
             if provider is None:
                 try:
                     provider = self._api.active_provider()

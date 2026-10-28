@@ -395,27 +395,41 @@ class TextToSpeech:
                 logger.warning(f"{e} — using the Windows voice")
         try:
             engine = self._get_offline_engine()
+            if generation != self._generation:
+                return
             logger.info("pyttsx3 offline TTS speaking")
             engine.setProperty("rate", int(WINDOWS_VOICE_RATE * (1 + self.rate / 100)))
-            engine.say(text)
-            engine.runAndWait()
+            # SAPI callbacks execute on this audio thread; stop it here, not
+            # from the microphone thread (COM objects belong to their thread).
+            callback = engine.connect("started-word", lambda **_: engine.stop()
+                                      if generation != self._generation else None)
+            try:
+                engine.say(text)
+                engine.runAndWait()
+            finally:
+                engine.disconnect(callback)
         except TTSError:
             raise
         except Exception as e:
             raise TTSError(f"Offline TTS failed: {str(e)}")
 
-    async def speak(self, text: str, cache: bool = False) -> None:
+    async def speak(self, text: str, cache: bool = False, expected_generation: int | None = None, *, local_only: bool = False) -> None:
         from services.mind.cognition import cognition
 
-        generation = self._generation
+        generation = self._generation if expected_generation is None else expected_generation
+        if generation != self._generation:
+            return
         # Speech can contain clipboard/typed text. Record its lifecycle, not its
         # payload. The owning reply/notification already records permitted text.
         with cognition.operation("speech", "voice", "Spoken output") as event:
-            await self._speak(text, cache)
+            if local_only:
+                await self._speak(text, False, expected_generation=generation, local_only=True)
+            else:
+                await self._speak(text, cache, expected_generation=generation)
             if self._generation != generation:
                 event.finish("cancelled")
 
-    async def _speak(self, text: str, cache: bool = False) -> None:
+    async def _speak(self, text: str, cache: bool = False, expected_generation: int | None = None, *, local_only: bool = False) -> None:
         """
         Speak text out loud. cache=True keeps the audio so the same text plays
         instantly next time — use it only for short, non-private confirmations.
@@ -425,9 +439,14 @@ class TextToSpeech:
             logger.warning("TTS speak() called with empty text — skipping")
             return
 
-        generation = self._generation
+        generation = self._generation if expected_generation is None else expected_generation
+        if generation != self._generation:
+            return
         self._saying.append(text)
         try:
+            if local_only:
+                await self._on_audio_thread(self._speak_offline, text, generation)
+                return
             cached = self._cached(text)
             if cached is not None:
                 await self._on_audio_thread(self._play, [cached], generation)

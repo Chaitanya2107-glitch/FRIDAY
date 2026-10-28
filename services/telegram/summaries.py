@@ -6,12 +6,12 @@ classes does not suppress a phone summary. No AI processes private activity data
 
 import asyncio
 import json
-import re
 from datetime import datetime, timedelta
 
 from core.config import config
 from core.logger import logger
 from services.telegram import capabilities, client
+from services.telegram.formatting import activity_lines, section, weekly_text
 
 state_path = config.MEMORY_DIR / "telegram_summaries.json"
 RETRY_SECONDS = 300
@@ -23,18 +23,18 @@ _busy = False
 def build(kind: str, now: datetime) -> str:
     from services.activity.log import activity_log
     from services.activity import weekly
-    from services.proactive import briefing, deadlines
+    from services.proactive import briefing
 
     if kind == "morning":
-        return f"FRIDAY — Daily briefing ({now:%d %B %Y})\n" + briefing.build(now)
+        return briefing.build(now, structured=True)
     if kind == "nightly":
-        return (f"FRIDAY — Nightly recap ({now:%d %B %Y})\n" + activity_log.day_summary(now)
-                + "\n" + deadlines.briefing_line(now))
+        parts = [section("📊 Activity", activity_lines(activity_log.day_summary(now))),
+                 section("⏰ Due soon", briefing._deadlines(now, structured=True))]
+        return (f"🌙 FRIDAY — Nightly recap\n{now:%A, %d %B %Y}\n\n"
+                + "\n\n".join(part for part in parts if part))
     if kind == "weekly":
         report = weekly.build(weekly.monday_of(now.date()), activity_log)
-        # Plain text in Telegram: no fragile Markdown escaping or raw headings.
-        report = re.sub(r"(?m)^#+\s*", "", report).replace("**", "")
-        body = "FRIDAY — Weekly recap\n" + report
+        body = "📈 FRIDAY — Weekly recap\n\n" + weekly_text(report)
         if getattr(config, 'LEARNING_DATA_ENABLED', False):
             from services.learning import reports
             # Ingest at the real observation time even when catching up an old cutoff.

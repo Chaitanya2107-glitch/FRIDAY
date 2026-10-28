@@ -147,12 +147,19 @@ def run_memory_command(parsed: dict) -> str:
     if action == "forget_memory":
         from services.memory import schedule
         from services.mind.training import reviews
+        from services.mind.activity_awareness import forget as forget_activity
+        activity = forget_activity(parsed["text"])
+        from services.screen_watch.store import ScreenStore
+        screen_count = ScreenStore().forget(parsed["text"])
+        if screen_count:
+            activity.append(f"{screen_count} provisional screen summaries")
         lessons = reviews.forget_facts(parsed["text"])
         if lessons:
-            return "Withdrew reviewed memories: " + "; ".join(lessons)
+            return "Withdrew reviewed memories: " + "; ".join(lessons + activity)
         forgotten = reasoning_store.forget(parsed["text"])
         operational = schedule.forget(parsed["text"])
         forgotten = forgotten or operational or semantic_memory.forget(parsed["text"])
+        forgotten = forgotten or "; ".join(activity)
         return f"Forgot: {forgotten}." if forgotten else "I don't remember anything like that."
     if action == "memories_about":
         who = parsed["who"]
@@ -343,8 +350,13 @@ class SemanticMemory:
 
     def forget_all(self) -> int:
         from services.memory import schedule
+        from services.mind import activity_awareness, app_learning
+        activity_count = len(activity_awareness.forget()) + app_learning.forget() if self is semantic_memory else 0
+        if self is semantic_memory:
+            from services.screen_watch.store import ScreenStore
+            activity_count += ScreenStore().forget()
         with self._lock:
-            return self._change("DELETE FROM memories") + schedule.forget_all(self.db_path) + (reasoning_store.forget_all() if self is semantic_memory else 0)
+            return activity_count + self._change("DELETE FROM memories") + schedule.forget_all(self.db_path) + (reasoning_store.forget_all() if self is semantic_memory else 0)
 
     def learned_since(self, since: str) -> list[str]:
         """Memories FRIDAY learned by itself (not told) since an ISO time, oldest first."""

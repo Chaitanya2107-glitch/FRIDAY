@@ -23,8 +23,8 @@ def match_command(text):
 
 async def run(parsed):
     from services.mind import reasoning, reasoning_effects
-    from services.automation.intent import remote_request
-    if remote_request.get():
+    from services.automation.intent import remote_request, telegram_owner
+    if remote_request.get() and not (telegram_owner.get() and parsed["action"] == "show"):
         return ActionResult(False, 'Reasoning evidence and controls are local-only. Ask me at the laptop.', repeatable=False)
     try:
         if parsed["action"] == "review":
@@ -43,7 +43,8 @@ async def run(parsed):
                     f"{source['id']} ({source['noted']}): " +
                     (f"answer to {source['question']!r}: " if source.get('question') else '') + source['text']
                     for source in memory['excerpts']) + '. Original reports, not verified current facts.')
-            return ActionResult(True, "\n".join(lines) or "No current reasoning conclusions recorded.", repeatable=False)
+            return ActionResult(True, "\n".join(lines) or "No current reasoning conclusions recorded.",
+                                memory_message="Reviewed local reasoning facts and proposals.", repeatable=False)
         ident = int(parsed["id"])
         if parsed["action"] == "reject":
             claim = await asyncio.to_thread(reasoning_store.get, ident, datetime.now())

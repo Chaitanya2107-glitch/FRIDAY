@@ -189,6 +189,9 @@ def hear(message: str, now: float | None = None) -> str | None:
             return None  # an unrelated command must not become an answer about the owner
         now = time.time() if now is None else now
         state = load()
+        if (state.get("pending") or {}).get("app_verification"):
+            from services.mind.app_verification import handle_reply
+            return "answered" if handle_reply(message, now=now) else None
         pending = state.pop("pending", None)
         if not pending:
             return None
@@ -248,7 +251,7 @@ def _learn_answer(question: str, answer: str) -> None:
 
 def _expire(state: dict, now: float) -> None:
     pending = state.get("pending")
-    if pending and now - pending["at"] > ANSWER_SECONDS:  # no answer at all
+    if pending and now - pending.get("offered_at", pending["at"]) > ANSWER_SECONDS:  # no answer at all
         from services.mind.reviews import evidence
         evidence(pending.get("review_id"), reaction="ignored")
         state.pop("pending")
@@ -445,6 +448,12 @@ def _record(line: dict, where: str, now_ts: float) -> None:
                                           "wondered": line.get("wondered"),
                                           "decision_id": line.get("decision_id")})
     state['pending']['inquiry_id'] = line.get('inquiry_id')
+    if line.get('app_verification'):
+        state['pending']['app_verification'] = line['app_verification']
+        from services.mind.app_verification import SESSION
+        state['pending']['app_session'] = SESSION
+        if 'app_generation' in line:
+            state['pending']['app_generation'] = line['app_generation']
     state['pending'].update(behavior_context=line.get('behavior_context'),
                             explicit=line.get('explicit', where in {'asked', 'day_review', 'learning'}), offered=False)
     state["recent"] = (state.get("recent", []) + [line["say"]])[-10:]
@@ -482,6 +491,11 @@ async def deliver(text: str) -> None:
     if not state.get('on', True) or state.get('paused_until', 0) > time.time():
         return
     pending = state.get('pending') or {}
+    if pending.get('app_verification'):
+        from services.mind.app_verification import offer_current
+        if not offer_current(pending):
+            retire_question()
+            return
     if pending.get('inquiry_id') and pending.get('question') == text:
         try:
             allowed = await asyncio.to_thread(inquiry.deliverable, pending['inquiry_id'])
@@ -521,6 +535,7 @@ async def deliver(text: str) -> None:
     state = load()
     if (state.get('pending') or {}).get('inquiry_id') == pending.get('inquiry_id') and (state.get('pending') or {}).get('question') == text:
         state['pending']['offered'] = True  # offered/attempted, never proof the owner read or heard it
+        state['pending']['offered_at'] = time.time()
         _save(state)
 
 

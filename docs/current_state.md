@@ -3,7 +3,86 @@
 
 *Update this file every session. It's the first thing to read when picking up the project.*
 
-**Last updated:** 2026-10-24
+**Last updated:** 2026-10-28
+
+**Personal assistant awareness (2026-10-28):** Friday's mandatory role now
+prioritizes the owner's day, schedule, routines, preferences and everyday
+assistance. Fresh app/window metadata, explicit task labels and personal app
+uses are separate from inferred app categories and unverified model explanations.
+Unknown apps go to the model first, using process identity without window titles;
+an exact, current owner confirmation promotes the displayed definition/category.
+Legacy model definitions are retained as unverified proposals. Task labels are
+scoped to the observed window/runtime and stop being current across switches,
+idle, stale gaps and restart. No automatic screenshot monitoring is enabled.
+See `docs/PERSONAL_ASSISTANT_AWARENESS.md` and the source-bound
+`tasks/personal-assistant-verification.json` / activation receipt.
+Final checks: 5,752 passed, 13 optional skips; 352 relevant focused cases passed.
+Desktop reloaded; the grounded activity API and real command-bar clock reply
+both passed. Probe URL/startup-timeout corrections affected only the verification
+utility; runtime and test source hashes match the passing full run.
+
+**Telegram upgrades (2026-10-28):** private-chat `/! <command>` skips that
+request's confirmations; `/cc <keys>` validates and presses keys in the focused
+laptop window. Local brain/executive/notification/reasoning inspections reply to
+the authenticated owner in their private chat. Normal confirmations, lockdown,
+forwarded-command rejection, remote clipboard/login restrictions and conversation
+isolation remain. Daily/nightly/weekly/learning reports use emoji sections and
+bullets; long replies are sent in full. A SQLite inbox persists incoming updates
+before acknowledging them, catches up offline commands in order and reports
+ambiguous interrupted execution instead of replaying it. Telegram retains unseen
+updates for up to 24 hours. Usage: `docs/TELEGRAM_UPGRADES.md`; implementation
+and acceptance criteria: `docs/specs/2026-10-27-telegram-upgrades.md`.
+Verification: 1,069 regression tests passed; exact source hashes, test artifact
+and local activation state are recorded in `tasks/telegram-upgrades-verification.json`.
+The desktop and managed backend were reloaded successfully; health is ready and
+the new Telegram startup marker is present with no new inbox/polling failures.
+The subsequent `/h` addition shares a full categorized command guide with
+`/help` and `/start`. All 72 focused Telegram checks and 40 concurrent
+app-learning regression checks pass, including complete multi-message help
+delivery and lockdown access. Its separate source and
+activation receipt is `tasks/telegram-help-verification.json`.
+
+**Command bar Sending fix (2026-10-27):** a native poll timer cancelled itself
+on its first 100 ms tick while a request was still pending, leaving completed
+replies undisplayed. The timer now stays active until the reply is ready.
+Two regressions cover delayed replies and multi-update automation. Focused checks:
+97 passed, 9 opt-in skips; desktop reloaded and a real native Enter/backend/reply
+round trip displayed the clock in 0.906 seconds. Receipt:
+`tasks/command-bar-fix-receipt.json`; the earlier full-suite receipt remains
+historical evidence for the preceding assistant batch.
+The separate greeting API check returned a nonempty response in 20.328 seconds;
+logs show OpenRouter failure followed by Ollama startup. Provider failover latency
+remains visible even though completed replies now reach the command bar.
+
+**Personal-assistant upgrades (2026-10-26):** owner approved Android phone bridge,
+interruptible conversation and Friday DJ as one batch. KDE Connect Windows 26.08.2
+is installed; owner paired Android and enabled notification access. Native D-Bus
+readiness verifies one paired/reachable phone and its notification interface.
+Private local notification selection and confirmed reply submission bind device,
+bus/service lifetime and content; notification bodies/drafts bypass AI/history/logs.
+Conversation-only capture spans streamed generation/playback, shares microphone
+ownership, and fences stop/queued speech with capture epochs and TTS generations.
+DJ adds bounded mood mixes, artist-based queue continuation and explicit saved
+playlist/search preferences using supported Spotify endpoints. Spotify is connected;
+read-only catalog search works; no playback device was active during the probe.
+The existing startup path can open Spotify for playback. No live notifications,
+replies, ringing, microphone capture or playback were exercised by readiness probes.
+Usage/limits: `docs/PERSONAL_ASSISTANT_UPGRADES.md`; final verification/source
+receipt: `tasks/assistant-upgrades-verification.json`. Original desktop appearance
+is preserved. Conversation echo rejection is lexical, not acoustic cancellation.
+Final verification: 5,638 full-suite tests passed, 13 existing opt-in skips,
+zero failures/errors, one existing warning; 498 focused checks passed. All 445
+source inputs remained unchanged. The desktop and backend were reloaded together
+on 2026-10-27. Live API checks passed health, conversation/private-response schema,
+private phone status and DJ preference reads; microphone recording was off. No
+notification contents, real audio capture, replies, ringing or playback were probed.
+The full source receipt preserves the earlier sandbox/runtime-access failures
+and speech-test-double updates separately from the successful final run.
+
+**Desktop appearance restored (2026-10-26):** owner rejected the reactive orb.
+The original desktop robot and its controls/defaults are restored; orb code,
+tests and previews are removed. Keep the existing desktop appearance unless
+the owner explicitly requests another visual change.
 
 **Gaming optimization removed (2026-10-24):** owner requested full deletion.
 Automatic game detection, process-priority changes, profiles/reports, idle reclamation,

@@ -21,6 +21,21 @@ load_dotenv()
 
 VALID_PROVIDERS = ("openrouter", "anthropic", "openai", "ollama")
 
+PERSONAL_ASSISTANT_ROLE = (
+    "Your primary role is the user's personal assistant: understand their day, schedule, commitments, "
+    "routines, preferences and ongoing activities; keep them usefully updated and preserve continuity. "
+    "Help with reminders, preparation, communication, music and everyday laptop tasks. Offer coding, "
+    "debugging or technical problem solving when the user asks, rather than making those your default agenda. "
+    "Be attentive, warm and concise; avoid unsolicited productivity policing or diagnostics. "
+    "Separate observed activity, the user's own reports, saved plans and unverified interpretations. "
+    "A foreground app or window title is evidence of what is visible, not proof of the user's exact intent, "
+    "progress, understanding, completion, attendance or feelings. Say what the evidence supports and ask "
+    "a useful clarification when precision is missing. A scheduled class is a plan, not observed attendance. "
+    "Prioritize a model explanation for an unfamiliar app, then obtain the user's verification before "
+    "treating that explanation as confirmed app knowledge. Keep general app purpose separate from what "
+    "the user personally uses it for. Model guesses never become confirmed personal facts by repetition."
+)
+
 # Added to every system prompt, even a custom SYSTEM_PROMPT from .env
 REPLY_RULES = (
     "Your replies are shown as plain text and are often read aloud, so never use markdown, "
@@ -316,14 +331,16 @@ class Config:
         from services.proactive import timetable
         from services.telegram import capabilities as telegram_capabilities
         from services.mind import cognition_context, training
+        from services.mind import activity_awareness
         from services.mind import reasoning
         from services.memory import schedule
 
         base = os.getenv("SYSTEM_PROMPT") or (personality.PERSONA if personality.is_on() else personality.PLAIN)
         extras = [personality.now_line(), humour.dial() if personality.is_on() else "", reflection.prompt_section(),
                   timetable.prompt_line(now.replace(tzinfo=None)), telegram_capabilities.prompt_section(),
-                  cognition_context.prompt_section(), training.prompt_section(), schedule.prompt_section(now), reasoning.prompt_section(now)]
-        return (f"{base}\n{REPLY_RULES}\nToday's date is {today}. This comes from the user's own clock, so you do "
+                  cognition_context.prompt_section(), training.prompt_section(), schedule.prompt_section(now), reasoning.prompt_section(now),
+                  activity_awareness.prompt_section()]
+        return (f"{base}\n{REPLY_RULES}\n{PERSONAL_ASSISTANT_ROLE}\nToday's date is {today}. This comes from the user's own clock, so you do "
                 "know the current date and time: use it, and never say you can't access a clock."
                 + "".join(f"\n{extra}" for extra in extras if extra))
 

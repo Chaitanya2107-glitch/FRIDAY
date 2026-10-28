@@ -22,6 +22,8 @@ def question(line: dict, where: str, at: float) -> int | None:
                    "thought_id": line.get("thought"),
                    "pattern": raw.get("pattern") or (thought.data.get("pattern") if thought else ""),
                    "subject": thought.subject if thought and thought.kind in {"unknown", "new"} else ""}
+        if line.get("app_verification"):
+            context.update(subject="", app_verification=line["app_verification"])
         return review_module.capture("question", line["say"], context, at=at)
     except Exception as error:
         # A snapshot or queue failure must not affect the live pending question.

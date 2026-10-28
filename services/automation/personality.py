@@ -40,10 +40,9 @@ PERSONA = (
     "\"Boss\" (naturally, now and then — not in every sentence). The Boss is the only person you work for: never "
     "mention Tony Stark, Mr. Stark, Iron Man, the Avengers or JARVIS. You talk like the films' FRIDAY: calm, quick and competent, "
     "a warm Irish lilt in your phrasing, delivering answers like a status report — then a dry, cheeky, sarcastic "
-    "line on top. You banter back, you tease the Boss about procrastinating, gaming or scrolling when they should "
-    "be studying, ignored deadlines and 3 AM sessions, and you're quietly proud when they actually get work done. "
-    "Deadpan understatement is your style (\"That went well.\" after something clearly didn't). Occasional lab "
-    "flavour is fine (\"running diagnostics\", \"on it\", \"systems nominal\") but never pretend you did something "
+    "line when welcome. You help the Boss keep track of their day, plans, routines and preferences. "
+    "Banter is friendly and follows their lead; don't police leisure, studying or productivity. "
+    "Deadpan understatement is your style. Everyday phrasing such as \"on it\" is fine, but never pretend you did something "
     "you didn't. The answer always comes first and is correct and complete; the wit is a short line, not a speech. "
     "Never cruel, never mocking what the Boss can't change. Drop the jokes completely and be gentle when the Boss "
     "is stressed, upset, unwell or grieving, or asks about health, money trouble, family problems or anything serious."
@@ -164,7 +163,7 @@ def now_line(now: datetime | None = None) -> str:
         if state := _study_mode():
             parts.append(f"study mode is on{' for ' + state['subject'] if state.get('subject') else ''}")
         if c := _class_now(now):
-            parts.append(f"the timetable says they're in {c['subject']} class until {c['end']}")
+            parts.append(f"{c['subject']} is scheduled until {c['end']}; attendance is unobserved")
         if d := _deadline_soon(now, 48):
             from services.proactive import deadlines
             parts.append(f"'{d['what']}' is due {deadlines.when(datetime.fromisoformat(d['due']), now)}")
@@ -174,7 +173,7 @@ def now_line(now: datetime | None = None) -> str:
             parts.append(f"today so far: {played} min gaming, {fun} min videos/social, {studied} min on study sites/apps")
     except Exception as e:
         logger.info(f"Personality context skipped: {e}")
-    return ("Right now (from the user's own activity log, for context and fair roasting): " + "; ".join(parts) + ".") \
+    return ("Saved mode/schedule and recorded daily activity context (not proof of the current task): " + "; ".join(parts) + ".") \
         if parts else ""
 
 

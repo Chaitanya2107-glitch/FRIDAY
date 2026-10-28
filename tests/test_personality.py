@@ -86,3 +86,22 @@ def test_routine_steps_are_seasoned_once_at_the_top(sarcastic, monkeypatch):
     monkeypatch.setattr(personality, "season", lambda result, ran, now=None: seen.append(len(ran)) or result)
     asyncio.run(intent.try_system_action("be serious", "ollama"))
     assert seen == [1]
+
+
+def test_personal_assistant_role_survives_custom_prompt_and_serious_mode(monkeypatch):
+    monkeypatch.setenv("SYSTEM_PROMPT", "Keep replies very brief.")
+    personality.run({"action": "sarcasm_off"})
+    prompt = config.SYSTEM_PROMPT
+    assert "Keep replies very brief." in prompt
+    assert "primary role is the user's personal assistant" in prompt
+    assert "schedule, commitments" in prompt
+    assert "when the user asks" in prompt and "unverified interpretations" in prompt
+    assert "Boss" not in prompt
+
+
+def test_timetable_is_a_plan_not_observed_attendance(sarcastic):
+    timetable._save([{"day": "tuesday", "start": "09:30", "end": "10:30", "subject": "DBMS", "room": None}])
+    prompt = personality.now_line(TUESDAY)
+    assert "DBMS is scheduled until" in prompt
+    assert "attendance is unobserved" in prompt
+    assert "they're in DBMS" not in prompt

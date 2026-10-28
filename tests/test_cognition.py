@@ -168,7 +168,7 @@ def test_tts_stop_is_cancelled_and_never_records_private_payload(monkeypatch):
 
     speaker = TextToSpeech()
 
-    async def interrupted(*a):
+    async def interrupted(*a, expected_generation=None):
         speaker._generation += 1
 
     monkeypatch.setattr(speaker, "_speak", interrupted)

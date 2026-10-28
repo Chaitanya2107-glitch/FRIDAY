@@ -93,6 +93,8 @@ class ReasoningStore:
                 'source': 'observed_pattern_or_hypothesis', 'thought_kind': thought.kind,
                 'subject': thought.subject, 'data': thought.data, 'noted': thought.at.isoformat()}
         from services.mind.temporal_memory import TemporalMemory
+        from services.mind import app_learning
+        known.update(app_learning.evidence())
         known.update(TemporalMemory(self.store).evidence())
         recent_episodes = BrainMemory(self.store).evidence()
         known.update(recent_episodes)

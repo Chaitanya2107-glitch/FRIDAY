@@ -6,7 +6,45 @@
 > Then read `docs/FEATURES.md` (everything she can do), `docs/CHANGELOG.md` (newest first, with the why)
 > and `docs/roadmap.md` (backlog).
 
-*Last updated: 2026-10-24*
+*Last updated: 2026-10-28*
+
+**Personal assistant role/awareness (2026-10-28):** make Friday's default agenda
+the owner's schedule, routines, preferences and activities. Keep observed metadata,
+owner-reported tasks, general app purpose and model guesses distinct. App lookup
+is model-first and identity-only; confirmation promotes an exact versioned
+definition/category. Do not restore automatic model-to-fact/category learning.
+App confirmations bypass generic owner-fact extraction. Preserve stale-result,
+inquiry-epoch, session/channel and single-use guards. Task labels attach to
+app/title/window/runtime and expire on switches, gaps, idle/restart or age.
+Automatic screenshots remain off. Usage, boundaries and local storage:
+`docs/PERSONAL_ASSISTANT_AWARENESS.md`. Validation:
+`tasks/personal-assistant-verification.json` and `tasks/personal-assistant-activation.json`.
+Final suite: 5,752 passed / 13 optional skips, including 352 relevant focused cases.
+Desktop activation, grounded activity response and native clock display passed.
+
+**Command-bar repair (2026-10-27):** keep the response timer running during an
+in-flight request; it previously cancelled at 100 ms before most replies arrived.
+97 focused passes / 9 opt-in skips; native clock round trip passed after reload.
+See `tests/test_popup_responses.py` and `tasks/command-bar-fix-receipt.json`.
+
+**Personal assistant batch (2026-10-26):** owner approved phone bridge, interruptible
+conversation and Spotify DJ together. Android KDE Connect is paired; Windows 26.08.2
+is installed. See `docs/PERSONAL_ASSISTANT_UPGRADES.md` for commands and limits and
+`tasks/assistant-upgrades-verification.json` for exact validation/source bindings.
+Phone text stays out of history/chat models/logs; requested speech uses existing TTS settings.
+Replies use local single-use confirmation
+and device/bus/service/content rechecks. Conversation input uses one bounded worker
+with shared recorder ownership, cancellation epochs and generation-bound speech.
+DJ uses supported track search/playlist playback/queue endpoints, explicit mood
+preferences and partial-failure reporting. The owner rejected the orb; preserve the
+original desktop robot. No model, voice, provider policy or desktop appearance change
+is authorized by this batch. Native phone and Spotify read-only readiness passed;
+notification contents, reply delivery, real microphone echo and live playback are
+separate from that readiness evidence.
+Final: 5,638 full-suite passes / 13 existing opt-in skips, 498 focused passes,
+no failures/errors; 445 source inputs unchanged. Desktop/backend reloaded together
+on 2026-10-27 and live health/schema/private-phone-status/DJ-preference reads passed.
+Microphone recording was off. See `tasks/assistant-upgrades-activation.json`.
 
 **Gaming optimization removed (2026-10-24):** owner requested full deletion.
 Automatic game detection, process-priority changes, profiles/reports, idle reclamation,

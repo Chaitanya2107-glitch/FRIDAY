@@ -273,6 +273,12 @@ def test_offline_uses_piper_then_the_windows_voice(monkeypatch):
     monkeypatch.setattr(speaker, "_speak_piper", lambda text, generation: used.append(("piper", text)))
 
     class FakeEngine:
+        def connect(self, *args):
+            return "callback"
+
+        def disconnect(self, token):
+            pass
+
         def say(self, text):
             used.append(("windows", text))
 
@@ -417,7 +423,7 @@ def test_mp3_decoder_plays_audio_that_arrives_in_small_pieces():
 def test_reply_is_not_held_up_by_speech(monkeypatch):
     order = []
 
-    async def slow_speak(text, cache=False):
+    async def slow_speak(text, cache=False, expected_generation=None):
         await asyncio.sleep(0.05)
         order.append(f"spoke: {text}")
     monkeypatch.setattr(voice_route.tts, "speak", slow_speak)
@@ -432,7 +438,7 @@ def test_reply_is_not_held_up_by_speech(monkeypatch):
 
 
 def test_speech_failures_are_logged_not_raised(monkeypatch):
-    async def broken_speak(text, cache=False):
+    async def broken_speak(text, cache=False, expected_generation=None):
         raise RuntimeError("no audio device")
     monkeypatch.setattr(voice_route.tts, "speak", broken_speak)
 
@@ -499,7 +505,7 @@ def voice_api(monkeypatch):
         return state.not_cancelled
     monkeypatch.setattr(voice_route, "_wait_until_done_speaking", wait_until_done_speaking)
 
-    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio: state.heard)
+    monkeypatch.setattr(voice_route.stt, "transcribe", lambda audio, log=True: state.heard)
     monkeypatch.setattr(
         voice_route, "_speak_in_background", lambda text, cache=False: state.spoken.append((text, cache))
     )

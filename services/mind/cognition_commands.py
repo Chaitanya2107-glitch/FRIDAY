@@ -34,8 +34,10 @@ def match_command(message: str) -> str | None:
 
 def run(kind: str, *, remote: bool = False) -> ActionResult:
     mark_introspection()
+    from services.automation.intent import telegram_owner
+    owner_inspection = telegram_owner.get()
     if kind == 'brain_status':
-        if remote:
+        if remote and not owner_inspection:
             return ActionResult(False, 'Brain decisions and dialogue memory are local-only. Ask me at the laptop.', repeatable=False)
         from services.mind.inquiry import inquiry
         from services.mind.brain_memory import brain_memory
@@ -78,7 +80,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
         text += ' ' + describe(latest())
         return ActionResult(True, text, memory_message='Reviewed local brain attention and inquiry status.', repeatable=False)
     if kind in {"executive_status", "executive_on", "executive_off", "executive_why"}:
-        if remote:
+        if remote and (not owner_inspection or kind in {"executive_on", "executive_off"}):
             return ActionResult(False, "Executive cognition controls and decisions are local-only. Ask me at the laptop.", repeatable=False)
         from services.mind.executive import executive
         if kind in {"executive_on", "executive_off"}:
@@ -86,7 +88,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
         return ActionResult(True, executive.describe(why=kind == "executive_why"),
                             memory_message="Reviewed or changed local executive cognition controls.", repeatable=False)
     if kind in {"notification_status", "notification_why", "reminder_retry"}:
-        if remote:
+        if remote and (not owner_inspection or kind == "reminder_retry"):
             return ActionResult(False, "Notification decisions and recovery controls are local-only. Ask me at the laptop.",
                                 repeatable=False)
         from services.mind import notification_status
@@ -119,7 +121,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
     event = cognition.latest(kind)
     if not event:
         return ActionResult(False, f"I haven't recorded a {kind.replace('_', ' ')} yet.", repeatable=False)
-    if remote and not event["public"]:
+    if remote and not owner_inspection and not event["public"]:
         return ActionResult(False, "That event's contents are local-only. Ask me at the laptop.", repeatable=False)
     when = datetime.fromtimestamp(event["at"]).strftime("%I:%M %p")
     text = f"{kind.replace('_', ' ').title()} at {when} ({event['channel']}, {event['status']}):\n{event['text']}"

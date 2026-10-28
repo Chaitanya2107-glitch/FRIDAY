@@ -60,7 +60,7 @@ def execution_evidence(store):
 def clear_derived(conn):
     """Forget derived private context, invalidating active workers without resetting budgets."""
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    for table in ("executive_reviews", "executive_situations", "executive_decisions", "executive_outcomes", "owner_episodes", "inquiry_jobs", "temporal_situations", "life_reactions", 'action_outcomes', 'memory_threads', 'consolidated_sources', 'dialogue_clarifications'):
+    for table in ("executive_reviews", "executive_situations", "executive_decisions", "executive_outcomes", "owner_episodes", "inquiry_jobs", "temporal_situations", "life_reactions", 'action_outcomes', 'memory_threads', 'consolidated_sources', 'dialogue_clarifications', 'screen_observations'):
         if table in tables:
             conn.execute(f"DELETE FROM {table}")
     if 'workspace_reference_context' in tables:
@@ -71,6 +71,8 @@ def clear_derived(conn):
         conn.execute('UPDATE inquiry_meta SET epoch=epoch+1 WHERE id=1')
     if 'outcome_settings' in tables:
         conn.execute('UPDATE outcome_settings SET epoch=epoch+1 WHERE id=1')
+    if 'screen_settings' in tables:
+        conn.execute('UPDATE screen_settings SET epoch=epoch+1 WHERE id=1')
 
 
 class ExecutiveControl:

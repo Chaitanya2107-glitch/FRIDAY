@@ -62,8 +62,8 @@ def _run_desktop(runtime):
         ask_done=command_bar.request_ask_done,
         stop_backend=stop_friday,
     )
-    command_bar.set_reply_listener(lambda text, is_command=False: tray.notify(
-        text, transient=is_quick_command(is_command, text)))
+    command_bar.set_reply_listener(lambda text, is_command=False, private=False: tray.notify(
+        text, transient=is_quick_command(is_command, text), private=private))
     command_bar.set_submit_listener(tray.bar_submitted)
     command_bar.set_voice_hotkey_listener(tray.toggle_listening)
     command_bar.set_wake_hotkey_listener(tray.toggle_wake)

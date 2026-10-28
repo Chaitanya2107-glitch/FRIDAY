@@ -74,11 +74,13 @@ def _send_chat_message(text, generation=None):
         _state["response"], _state["awaiting_reply"] = reply.text, reply.awaiting_reply
         _state["keyboard"] = reply.keyboard
         _state["command"] = reply.command
+        _state["private"] = getattr(reply, "private", False)
         automation_job = reply.automation_job
     except backend.BackendError as e:
         if _state["request_generation"] != generation:
             return
         _state["response"], _state["awaiting_reply"], _state["command"] = str(e), False, False
+        _state["private"] = False
     _state["automation_polling"] = automation_job is not None
     _state["response_ready"] = True
     if _chat_done_listener:
@@ -144,6 +146,9 @@ def _next_guess(edit_hwnd):
 
 def _report_guesses(sent):
     """Tell FRIDAY which shown guess was used (sent text), or that none was (None: closed) — training data."""
+    from services.phone.commands import match_command as phone_command
+    if sent and (phone_command(sent) or (_state.get("private") and _state.get("awaiting_reply"))):
+        sent = None  # phone drafts and their confirmation never become suggestion training data
     offered, _state["offered"] = _state["offered"], []
     if offered:
         threading.Thread(target=backend.bar_outcome, args=(offered, sent), daemon=True).start()
@@ -276,7 +281,10 @@ def _show_reply(hwnd, edit_hwnd):
     reply = _state["response"]
     user32.SetWindowTextW(edit_hwnd, reply)
     if _reply_listener:  # a quick command's confirmation disappears by itself; answers stay
-        _reply_listener(reply, _state.get("command", False))
+        if _state.get("private"):
+            _reply_listener(reply, _state.get("command", False), True)
+        else:
+            _reply_listener(reply, _state.get("command", False))
 
     if _state["awaiting_reply"]:
         # FRIDAY asked a yes/no question: stay open with the question selected,
@@ -335,8 +343,6 @@ def _make_wndproc(hwnd_box):
                     user32.KillTimer(hwnd, POLL_TIMER_ID)
                 _state["response_ready"] = False
                 _show_reply(hwnd, hwnd_box["edit"])
-            elif wparam == POLL_TIMER_ID and not _state.get("automation_polling"):
-                user32.KillTimer(hwnd, POLL_TIMER_ID)
             elif wparam == RESULT_TIMER_ID:
                 user32.KillTimer(hwnd, RESULT_TIMER_ID)
                 _hide(hwnd)

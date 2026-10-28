@@ -90,41 +90,44 @@ def build(now: datetime | None = None, freeze_key: str | None = None,
     except (TypeError, ValueError):
         tracking = 'unavailable'
     count = lambda key: int(data.get(key, 0))
-    lines = ['Learning data quality (local, rule-screened)',
-             f'Period: {start:%Y-%m-%d %H:%M} through {end:%Y-%m-%d %H:%M} (laptop local time; cutoff excluded)',
-             f'Tracking started: {tracking}',
-             f'Categories — Active: {count("categories_active")}; Created: {count("categories_created")}',
-             f'Source records — Collected: {count("collected")}; Appropriate: {count("appropriate")}; '
-             f'Excluded: {count("excluded")}; Quarantined: {count("quarantined")}; Pending screening: {count("pending_screening")}',
-             f'Historical backfill: {count("backfilled")} (separate from collected); '
-             f'Revisions: {count("revisions")}; Removed: {count("removed")}',
-             'Appropriate means passed source rules; it does not guarantee factual truth.']
+    lines = ['🧠 Learning data quality (local, rule-screened)', '', '📅 Reporting window',
+             f'• Period: {start:%Y-%m-%d %H:%M} through {end:%Y-%m-%d %H:%M} (laptop local time; cutoff excluded)',
+             f'• Tracking started: {tracking}', '', '📦 Source records',
+             f'• Categories — Active: {count("categories_active")}; Created: {count("categories_created")}',
+             f'• Collected: {count("collected")}', f'• Appropriate: {count("appropriate")}',
+             f'• Excluded: {count("excluded")}', f'• Quarantined: {count("quarantined")}',
+             f'• Pending screening: {count("pending_screening")}',
+             f'• Historical backfill: {count("backfilled")} (separate from collected)',
+             f'• Revisions: {count("revisions")}; Removed: {count("removed")}']
     for category in data.get('categories', []):
-        lines.append(f'  {_category(category["name"])}: {int(category.get("collected", 0))} collected records')
+        lines.append(f'• {_category(category["name"])}: {int(category.get("collected", 0))} collected records')
+    lines.extend(['', '🧹 Screening', '• Appropriate means passed source rules; it does not guarantee factual truth.'])
     reasons = data.get('reasons', {})
     for reason, total in sorted(reasons.items(), key=lambda item: -item[1])[:6]:
-        lines.append(f'  {_REASONS.get(reason, "Other screening reason")}: {int(total)}')
-    lines.extend([f'Next-app transition examples — Eligible: {count("eligible_examples")}; '
-                  f'Used for training: {count("used_training")}; Evaluated: {count("evaluated")}',
-                  f'Eligible dataset available at cutoff: {int(data.get("eligible_examples_available", count("eligible_examples")))} '
+        lines.append(f'• {_REASONS.get(reason, "Other screening reason")}: {int(total)}')
+    lines.extend(['', '🎯 Next-app transition examples', f'• Eligible: {count("eligible_examples")}',
+                  f'• Used for training: {count("used_training")}', f'• Evaluated: {count("evaluated")}',
+                  f'• Eligible dataset available at cutoff: {int(data.get("eligible_examples_available", count("eligible_examples")))} '
                   '(stock; Eligible above counts new examples in this period).',
-                  'Unique examples, not repetitions; training/evaluation counts can overlap across runs.',
-                  f'Policy: {POLICY_VERSION}; settled sessions ≥{config.LEARNING_MIN_SESSION_SECONDS} seconds; '
+                  '• Unique examples, not repetitions; training/evaluation counts can overlap across runs.',
+                  f'• Policy: {POLICY_VERSION}; settled sessions ≥{config.LEARNING_MIN_SESSION_SECONDS} seconds; '
                   f'unobserved gap ≤{config.LEARNING_MAX_GAP_SECONDS} seconds.',
-                  'Facts, conversations and forecast confirmations alone are not observed next-app labels.'])
+                  '• Facts, conversations and forecast confirmations alone are not observed next-app labels.'])
     if not int(data.get('eligible_examples_available', count('eligible_examples'))):
-        lines.append('No eligible observed transitions yet. Unknown app origin, autonomous actions and continuity '
+        lines.append('• No eligible observed transitions yet. Unknown app origin, autonomous actions and continuity '
                      'boundaries can exclude transitions; counting remains available while attributable data accumulates.')
     eligibility_reasons = data.get('eligibility_reasons', {})
     if eligibility_reasons:
-        lines.append('Current dataset eligibility diagnostics (observations/boundaries; not additive with record counts):')
+        lines.extend(['', '🔎 Current dataset eligibility diagnostics',
+                      '• Observations/boundaries; not additive with record counts.'])
         for reason, total in sorted(eligibility_reasons.items(), key=lambda item: -item[1])[:6]:
-            lines.append(f'  {_REASONS.get(reason, "Other eligibility reason")}: {int(total)}')
+            lines.append(f'• {_REASONS.get(reason, "Other eligibility reason")}: {int(total)}')
+    lines.extend(['', '⚙️ Training'])
     training = data.get('latest_training')
     if training and training.get('purged_crossing_examples'):
-        lines.append(f'Examples crossing the training cutoff withheld: {int(training["purged_crossing_examples"])}.')
+        lines.append(f'• Examples crossing the training cutoff withheld: {int(training["purged_crossing_examples"])}.')
     if not training:
-        lines.append('No measured training run recorded yet. Training needs 300 earlier and 100 evaluation '
+        lines.append('• No measured training run recorded yet. Training needs 300 earlier and 100 evaluation '
                      'examples, with at least two target classes; counting remains available.')
     elif training.get('status') == 'skipped':
         skip_reasons = {'insufficient_training_examples': 'fewer than 300 earlier eligible examples',
@@ -136,30 +139,31 @@ def build(now: datetime | None = None, freeze_key: str | None = None,
         reason = skip_reasons.get(training.get('reason'), 'clean-data checks did not pass')
         fallback = ('The previous evaluated model remains in charge.' if training.get('in_charge') == 'model'
                     else 'Counting remains available.')
-        lines.append(f'Latest training skipped: {reason}. '
+        lines.append(f'• Latest training skipped: {reason}. '
                      f'Required: 300 earlier, 100 evaluation examples and at least two classes. {fallback}')
     else:
         model, baseline = training.get('model') or {}, training.get('counting') or {}
         if all(key in model and key in baseline for key in ('top1', 'top3')):
-            lines.append(f'Measured next-app accuracy — model top-1 {_percent(model["top1"])}, top-3 {_percent(model["top3"])}; '
+            lines.append(f'• Measured next-app accuracy — model top-1 {_percent(model["top1"])}, top-3 {_percent(model["top3"])}; '
                          f'counting top-1 {_percent(baseline["top1"])}, top-3 {_percent(baseline["top3"])}.')
-        lines.append('Promotion: ' + ('evaluated model selected.' if training.get('in_charge') == 'model' else 'counting retained.'))
+        lines.append('• Promotion: ' + ('evaluated model selected.' if training.get('in_charge') == 'model' else 'counting retained.'))
     measured = data.get('latest_measured_training')
     if measured and (not training or training.get('status') != 'completed'):
         model, baseline = measured.get('model') or {}, measured.get('counting') or {}
         if all(key in model and key in baseline for key in ('top1', 'top3')):
-            lines.append(f'Last measured accuracy — model top-1 {_percent(model["top1"])}, top-3 {_percent(model["top3"])}; '
+            lines.append(f'• Last measured accuracy — model top-1 {_percent(model["top1"])}, top-3 {_percent(model["top3"])}; '
                          f'counting top-1 {_percent(baseline["top1"])}, top-3 {_percent(baseline["top3"])} (earlier completed run).')
     # Fingerprints are generated internally; refuse arbitrary source strings.
     version = data.get('dataset_version') or (training or {}).get('dataset_version', (training or {}).get('dataset_fingerprint', ''))
     if re.fullmatch(r'[0-9a-f]{8,64}', str(version)):
-        lines.append('Latest dataset: ' + str(version)[:16])
+        lines.append('• Latest dataset: ' + str(version)[:16])
     diagnostics = {}
     for status in data.get('coverage', {}).values():
         description = _COVERAGE.get(status, 'Source coverage limited')
         diagnostics[description] = diagnostics.get(description, 0) + 1
     if diagnostics:
-        lines.append('Source coverage: ' + '; '.join(f'{description}: {total}' for description, total in diagnostics.items()))
+        lines.extend(['', '📡 Source coverage'])
+        lines.extend(f'• {description}: {total}' for description, total in diagnostics.items())
     return '\n'.join(lines)
 
 

@@ -181,11 +181,13 @@ def _toast_app_id() -> str:
 
 
 def show_toast(title: str, body: str, buttons: list[tuple[str, str]] | None = None, transient: bool = False,
-               *, cognition_public: bool = False, mirror_telegram: bool = True) -> bool:
+               *, cognition_public: bool = False, mirror_telegram: bool = True,
+               cognition_text: str | None = None) -> bool:
     """Record the exact local notification and whether Windows accepted it."""
     from services.mind.cognition import cognition
 
-    with cognition.operation("notification", "desktop", f"{title}\n{body}", public=cognition_public) as event:
+    recorded = f"{title}\n{body}" if cognition_text is None else cognition_text
+    with cognition.operation("notification", "desktop", recorded, public=cognition_public) as event:
         accepted = _show_toast(title, body, buttons, transient, mirror_telegram=mirror_telegram)
         event.finish("submitted" if accepted else "failed")
         return accepted

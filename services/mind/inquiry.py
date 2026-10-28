@@ -6,41 +6,14 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import config
 from core.logger import logger
 from services.mind.cognition import cognition, redact
 from services.mind.reasoning_store import fingerprint
+from services.mind.inquiry_models import AnswerBranch, Purpose, Decision
 
 GAP_SECONDS, DAILY_LIMIT, REVIEW_LIMIT, LEASE_SECONDS = 45 * 60, 3, 4, 90
-
-
-class AnswerBranch(BaseModel):
-    model_config = ConfigDict(strict=True, extra='forbid')
-    answer: str = Field(min_length=3, max_length=120)
-    next_step: str = Field(min_length=10, max_length=180)
-
-
-class Purpose(BaseModel):
-    model_config = ConfigDict(strict=True, extra='forbid')
-    gap: str = Field(min_length=1, max_length=100)
-    decision: str = Field(min_length=10, max_length=200)
-    if_answer_a: AnswerBranch
-    if_answer_b: AnswerBranch
-    usefulness: Literal['changes_decision', 'background_interest']
-
-
-class Decision(BaseModel):
-    model_config = ConfigDict(strict=True, extra='forbid')
-    ask: bool
-    question: str = Field(max_length=280)
-    topic: str = Field(max_length=80)
-    basis: list[str] = Field(max_length=6)
-    reason: str = Field(min_length=3, max_length=350)
-    purpose: Purpose | None
 
 
 class RepeatedQuestion(ValueError):
@@ -88,6 +61,9 @@ different conditional actions, use those as proposals without claiming either ha
 History marked historical_version refers to an earlier blocker/commitment. Its answers do not
 resolve a changed gap. Use the CURRENT source, not an earlier blocker mentioned in an old answer.
 Background interest alone is insufficient. For silence use purpose:null.
+For verify_app_explanation gaps, the model description is unverified. A useful decision is whether
+to save that proposed app definition or discard/correct it. General app purpose never establishes
+what the owner is personally doing. Do not ask the owner to identify an app before the model attempt.
 """
 
 
@@ -341,11 +317,21 @@ class Inquiry:
                     'No open decision-relevant evidence gap remains; no question or model call is needed.', now)
                 return None
             decision = await self.think(data)
+            from services.mind import app_learning
+            selected_gap = next((gap for gap in data['curiosity']['gaps']
+                                 if decision.purpose and gap['id'] == decision.purpose.gap), None)
+            proposal = None
+            if decision.ask and selected_gap and selected_gap['missing'] == 'verify_app_explanation':
+                proposal = data['evidence'][selected_gap['basis'][0]]
+                decision = decision.model_copy(update={'question': app_learning.question(proposal),
+                                                       'topic': 'app explanation ' + proposal['key']})
             self._validate(decision, data, now)
             line = {'say': decision.question, 'inquiry_id': job['id'], 'basis': decision.basis,
                     'reason': decision.reason, 'explicit': explicit,
                     'purpose': decision.purpose.model_dump() if decision.purpose else None,
                     'behavior_context': data.get('life_state', {}).get('context')}
+            if proposal:
+                line['app_verification'] = app_learning.identity(proposal)
             linked = [data['evidence'][ref].get('thought_id') for ref in decision.basis if ref in data['evidence']]
             linked = [ident for ident in linked if type(ident) is int]
             if len(set(linked)) == 1:
@@ -421,6 +407,15 @@ class Inquiry:
             return {'target': ref, 'version': basis[ref]}
         except (ValueError, TypeError, KeyError):
             return None
+
+    @contextmanager
+    def answer_guard(self, ident, question):
+        """Hold the inquiry epoch stable while a scoped offered answer is consumed."""
+        with self._db() as db:
+            row = db.execute("SELECT j.id FROM inquiry_jobs j JOIN inquiry_meta m ON m.id=1 "
+                "WHERE j.id=? AND j.epoch=m.epoch AND j.question=? "
+                "AND j.state IN ('submitted','attempted','failed')", (ident, question)).fetchone()
+            yield bool(row)
 
     def can_interrupt(self, now):
         with self._db() as db:

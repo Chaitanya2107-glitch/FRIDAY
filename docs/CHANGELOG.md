@@ -7,6 +7,73 @@ Format: [vX.Y.Z] Date — What changed and why.
 
 ---
 
+## [Unreleased] - 2026-10-28 - Personal assistant personality and verified app learning
+
+- Prioritize the owner's day, commitments, routines, preferences, communication
+  and continuity in default/custom/serious persona prompts. Coding is on request.
+- Ground current-activity answers in fresh foreground evidence and explicit
+  owner task labels. Keep general app purpose and personal app use separate
+  from today's intent. Timetables do not establish attendance.
+- Stage model-first app explanations instead of saving them as facts.
+  Display the proposed category, require exact current owner confirmation,
+  preserve owner corrections, and quarantine older model definitions without
+  removing usage history.
+- Bind approvals to offered questions, source revisions, session/channel and
+  inquiry epochs; fence delayed requests and exclude approval replies from
+  generic personal learning. Preserve uncertainty and shush controls.
+- Close task labels across app/title/window changes, idle, stale tracking
+  gaps and restarts; integrate owner-label deletion with memory/activity
+  controls. Automatic screenshots remain off.
+- Usage and verification: `docs/PERSONAL_ASSISTANT_AWARENESS.md`.
+
+## [Unreleased] - 2026-10-28 - Telegram commands and readable reports
+
+- Add `/h` as the full categorized command guide, shared with `/help` and
+  `/start`, covering slash shortcuts and ordinary requests. Long help messages
+  are delivered in full; help remains available during lockdown.
+- Add `/! <command>` to skip confirmations for one private Telegram request,
+  including file upload, typing and power actions; keep normal confirmations
+  for subsequent messages and retain remote action restrictions.
+- Add `/cc <keys>` for immediate validated keyboard presses, including
+  hyphenated arrow names, with Windows failure replies.
+- Process offline messages through a durable SQLite inbox with ordered delivery,
+  persistent cursors, duplicate suppression and interrupted-execution reporting.
+  Expire old cursors for Telegram's randomized IDs after inactivity. Queued old
+  confirmations cannot approve a fresh prompt.
+- Allow authenticated private-chat inspection of local brain, executive,
+  notification, reasoning and recorded-event status. Group chats retain private
+  data restrictions; local-only mutation controls remain at the laptop.
+- Format daily/nightly/weekly/learning reports with emoji headings and bullets;
+  retain full long replies across Telegram message boundaries.
+- Usage and delivery limits: `docs/TELEGRAM_UPGRADES.md`.
+
+## [Unreleased] - 2026-10-27 - Command bar reply polling
+
+- Keep polling while an HTTP reply is pending; the first 100 ms tick previously
+  disabled the timer and left the command bar stuck on Sending.
+- Add delayed-response and automation-update regressions. Focused checks: 97
+  passed, 9 opt-in skips. Reloaded desktop and verified an actual command-bar
+  Enter/backend/display round trip with a clock request.
+
+## [Unreleased] - 2026-10-26 - Phone bridge, interruptible conversation and DJ
+
+- Add local paired Android notification selection, confirmed reply submission,
+  ring requests and device selection through KDE Connect; keep private content
+  out of chat history, models, transcript logs and speech caches.
+- Capture conversation interruptions during streamed reply generation/playback;
+  retain the correction and fence cancelled captures and queued speech. Add
+  cancellation to the Windows voice fallback on its audio thread.
+- Add Spotify mood mixes, artist-based queue continuation and explicit saved
+  playlist/search preferences, preserving ordinary song commands and reporting
+  partial queue or optional preference-storage failures accurately.
+- Preserve the original desktop robot. Usage and limits:
+  `docs/PERSONAL_ASSISTANT_UPGRADES.md`.
+
+## [Unreleased] - 2026-10-26 - Restore original desktop robot
+
+- Revert the reactive orb at the owner's request and restore the previous
+  desktop robot, interactions, positioning and sound defaults.
+
 ## [Unreleased] - 2026-10-24 - Remove gaming optimization
 
 - Remove the optimizer, automatic game detection, process-priority changes,

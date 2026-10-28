@@ -202,7 +202,7 @@ class WakeListener:
 
     @staticmethod
     def _woke(command: str, interrupted: bool) -> Wake:
-        logger.info(f"Wake phrase heard — command: '{command}'")
+        logger.info("Wake phrase heard — command captured (%s characters)", len(command))
         return Wake(command, interrupted)
 
 

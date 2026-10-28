@@ -37,8 +37,21 @@ WEATHER_WORDS = {
 _places: dict[str, tuple[float, float, str]] = {}  # city → (latitude, longitude, name), looked up once
 
 
-def build(now: datetime | None = None) -> str:
+def build(now: datetime | None = None, *, structured: bool | None = None) -> str:
     now = now or datetime.now()
+    if structured is None:
+        from services.automation.intent import remote_request
+        structured = remote_request.get()
+    if structured:
+        from services.telegram.formatting import activity_lines, section
+        parts = [("🌤️ Weather", weather()), ("📚 Classes", _classes_today(now, structured=True)),
+                 ("📋 Attendance", _attendance(now)), ("⏰ Due soon", _deadlines(now, structured=True)),
+                 ("🗓️ Exams", _exams(now)), ("⚠️ Needs attention", _risk(now)),
+                 ("🔔 Reminders", _reminders_today(now, structured=True)), ("📝 Notes", notes.briefing_line()),
+                 ("🔋 Laptop", _system(structured=True)), ("📊 Yesterday", activity_lines(_yesterday(now)))]
+        sections = [section(title, body) for title, body in parts]
+        return (f"☀️ FRIDAY — Daily briefing\n{now:%A, %d %B %Y}\n{_greeting(now)}\n\n"
+                + "\n\n".join(part for part in sections if part))
     parts = [_greeting(now), weather(), _classes_today(now), _attendance(now), _deadlines(now), _exams(now),
              _risk(now), _reminders_today(now), notes.briefing_line(), _system(), _yesterday(now)]
     return " ".join(part for part in parts if part)
@@ -101,33 +114,45 @@ def weather(city: str | None = None) -> str:
     return text + "."
 
 
-def _deadlines(now: datetime) -> str:
+def _deadlines(now: datetime, *, structured: bool = False) -> str:
     from services.proactive import deadlines  # avoid an import cycle at startup
 
+    if structured:
+        soon = sorted((d for d in deadlines.load() if datetime.fromisoformat(d["due"]) - now <= deadlines.SOON),
+                      key=lambda d: d["due"])
+        return "\n".join(f"{d['what']} — {deadlines.when(datetime.fromisoformat(d['due']), now)}"
+                         + (" (overdue)" if datetime.fromisoformat(d['due']) < now else "") for d in soon)
     return deadlines.briefing_line(now)
 
 
-def _classes_today(now: datetime) -> str:
+def _classes_today(now: datetime, *, structured: bool = False) -> str:
     from services.proactive import timetable  # avoid an import cycle at startup
 
     try:
+        if structured:
+            if not timetable.load():
+                return ""
+            return "\n".join(timetable._describe(c) for c in timetable.classes_for_date(now.date())) or "No classes today."
         return timetable.today_line(now)
     except Exception as e:  # a broken timetable file mustn't break the briefing
         logger.warning(f"Timetable unavailable for the briefing: {e}")
         return ""
 
 
-def _reminders_today(now: datetime) -> str:
+def _reminders_today(now: datetime, *, structured: bool = False) -> str:
     today = [r for r in reminders.pending() if datetime.fromtimestamp(r.due_at).date() == now.date()]
     if not today:
         return "No reminders today."
+    if structured:
+        return "\n".join(f"{datetime.fromtimestamp(r.due_at):%I:%M %p} — {r.text}"
+                         for r in sorted(today, key=lambda r: r.due_at))
     listed = ", ".join(
         f"{r.text} at {datetime.fromtimestamp(r.due_at).strftime('%I:%M %p').lstrip('0')}" for r in today
     )
     return f"You have {len(today)} reminder{'s' if len(today) != 1 else ''} today: {listed}."
 
 
-def _system() -> str:
+def _system(*, structured: bool = False) -> str:
     """Battery, plus memory or disk only when they need attention."""
     parts = []
     try:
@@ -139,7 +164,7 @@ def _system() -> str:
             parts.append(system_stats.report("disk"))
     except (OSError, RuntimeError) as e:
         logger.warning(f"Briefing couldn't read the system: {e}")
-    return " ".join(parts)
+    return ("\n" if structured else " ").join(parts)
 
 
 def _yesterday(now: datetime) -> str:

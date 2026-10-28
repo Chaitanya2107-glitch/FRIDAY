@@ -24,7 +24,7 @@ from PIL import ImageTk
 
 from core.config import config
 from core.logger import logger
-from interfaces.body import presence, sensors, sounds, sprite
+from interfaces.body import sensors, sounds, sprite
 from interfaces.body.animator import Animator, Inputs
 
 state_path = config.MEMORY_DIR / "body" / "state.json"
@@ -59,17 +59,10 @@ class FridayBody:
         self._tray, self._bar, self._api = tray, command_bar, api or backend
         saved = load_state()
         self.visible = saved.get("visible", True)
-        self.appearance = saved.get("appearance", "orb")
-        if self.appearance not in ("orb", "robot"):
-            self.appearance = "orb"
-        self.reduced_motion = bool(saved.get("reduced_motion", False))
-        self.sounds_on = saved.get("sounds", False)
+        self.sounds_on = saved.get("sounds", True)
         self._saved_pos = saved.get("x"), saved.get("y")
         self._commands: queue.Queue = queue.Queue()  # other threads → the tk thread
         self._mind: dict = {}
-        self._mind_at = 0.0
-        self._attention_until = 0.0
-        self._expanded = False
         self._events: list = []
         self._events_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, name="friday-body", daemon=True)
@@ -219,24 +212,10 @@ class FridayBody:
             t=now, cursor=(cx - centre_x, cy - centre_y), over_head=over_head and not self._dragging,
             keys=keys, wheel=wheel, idle=sensors.idle_seconds(), dragging=self._dragging,
             drag_velocity=self._drag_v, mind=dict(self._mind), events=events))
-        if self.appearance == "orb":
-            self._expanded = self._x <= cx <= self._x + self._w and self._y <= cy <= self._y + self._h
-            if any(e.get("kind") in ("say", "alert", "permission") for e in events):
-                self._attention_until = now + 5
-            state = presence.state_for(self._mind, fresh=0 <= now - self._mind_at < presence.STALE_SECONDS,
-                                       attention=now < self._attention_until)
-            fps = 12 if state in ("ready", "reconnecting") and not self._expanded else 24
-            phase = 0 if self.reduced_motion else int(now * fps)
-            render_key = ("orb", state, phase, self._expanded, self._dragging)
-        else:
-            render_key = frame.pose
-        if render_key != self._last_pose:
-            image = (presence.render(state, phase / fps, expanded=self._expanded,
-                                     reduced_motion=self.reduced_motion, dragging=self._dragging)
-                     if self.appearance == "orb" else sprite.render(frame.pose))
-            self._photo = ImageTk.PhotoImage(image, master=self._root)
+        if frame.pose != self._last_pose:
+            self._photo = ImageTk.PhotoImage(sprite.render(frame.pose), master=self._root)
             self._label.configure(image=self._photo)
-            self._last_pose = render_key
+            self._last_pose = frame.pose
         if self.sounds_on:
             for name in frame.sounds[-1:]:
                 sounds.play(self._sound_files[name])
@@ -303,22 +282,7 @@ class FridayBody:
         was_dragging, self._dragging, self._drag = self._dragging, False, None
         self._drag_v = (0.0, 0.0)
         if was_dragging:
-            left, top, right, bottom = sensors.work_area()
-            self._x = max(left, min(self._x, right - self._w))
-            self._y = max(top, min(self._y, bottom - self._h))
-            self._root.geometry(f"+{self._x}+{self._y}")
             self._save()
-            return
-        control = (presence.control_at(event.x_root - self._x, event.y_root - self._y,
-                                       expanded=self._expanded) if self.appearance == "orb" else None)
-        if control:
-            if self._click_timer:
-                self._root.after_cancel(self._click_timer)
-                self._click_timer = None
-            if control == "chat":
-                self._bar.request_show()
-            else:
-                self._tray.toggle_listening()
             return
         if self._click_timer:  # the second click: the command bar
             self._root.after_cancel(self._click_timer)
@@ -338,13 +302,6 @@ class FridayBody:
         menu.add_command(label="Talk to FRIDAY", command=self._tray.toggle_listening)
         menu.add_command(label="Open command bar", command=self._bar.request_show)
         menu.add_separator()
-        appearance = tk.StringVar(master=self._root, value=self.appearance)
-        for value, label in (("orb", "Reactive orb"), ("robot", "Classic robot")):
-            menu.add_radiobutton(label=label, variable=appearance, value=value,
-                                 command=lambda v=value: self._set_appearance(v))
-        motion = tk.BooleanVar(master=self._root, value=self.reduced_motion)
-        menu.add_checkbutton(label="Reduce motion", variable=motion, command=self._toggle_motion)
-        menu.add_separator()
         menu.add_checkbutton(label="Let FRIDAY talk on her own", variable=talk, command=self._tray.toggle_talk)
         menu.add_checkbutton(label="Body sounds", variable=chirps, command=self._toggle_sounds)
         menu.add_command(label="Hide me (All controls → Show FRIDAY's body)", command=lambda: self.set_visible(False))
@@ -360,23 +317,11 @@ class FridayBody:
         self.sounds_on = not self.sounds_on
         self._save()
 
-    def _set_appearance(self, appearance: str) -> None:
-        self.appearance = appearance
-        self._last_pose = None
-        self._hide_bubble()
-        self._save()
-
-    def _toggle_motion(self) -> None:
-        self.reduced_motion = not self.reduced_motion
-        self._last_pose = None
-        self._save()
-
     def _save(self) -> None:
         try:
             state_path.parent.mkdir(parents=True, exist_ok=True)
             state_path.write_text(json.dumps({"x": self._x, "y": self._y, "visible": self.visible,
-                                              "sounds": self.sounds_on, "appearance": self.appearance,
-                                              "reduced_motion": self.reduced_motion}), encoding="utf-8")
+                                              "sounds": self.sounds_on}), encoding="utf-8")
         except OSError as e:
             logger.warning(f"Couldn't save FRIDAY's body settings: {e}")
 
@@ -397,8 +342,6 @@ class FridayBody:
                         self._events.extend(events)
                 last = data.pop("last", last or 0)
                 self._mind = data
-                self._mind_at = time.monotonic()
             except Exception:
                 self._mind = {}
-                self._mind_at = 0.0
             time.sleep(POLL_SECONDS)

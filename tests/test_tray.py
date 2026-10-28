@@ -68,6 +68,9 @@ class FakeApi:
     def stop_listening(self, discard=False):
         self.sent.append("stop listening" + (" (discard)" if discard else ""))
 
+    def stop_conversation_input(self):
+        pass
+
     def talk_on(self):
         return getattr(self, "talking", False)
 

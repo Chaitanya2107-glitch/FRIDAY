@@ -55,7 +55,9 @@ async def lifespan(app: FastAPI):
         except Exception as error:
             logger.warning("Learning-data startup refresh unavailable: %s", type(error).__name__)
     from services.mind import cognitive_runtime
+    from services.screen_watch import service as screen_watch
     background_loops = [
+        asyncio.create_task(screen_watch.watch.run()),
         asyncio.create_task(cognitive_runtime.run()),
         asyncio.create_task(run_scheduler(reminders)),
         asyncio.create_task(watch_clipboard(clipboard_history)),
@@ -118,7 +120,7 @@ def create_app() -> FastAPI:
                     "status_code": 403,
                 },
             )
-        if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice'}:
+        if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator'}:
             from services.mind.cognition import cognition
             with cognition.operation('feature_request', 'api', request.method + ' local feature operation') as operation:
                 response = await call_next(request)

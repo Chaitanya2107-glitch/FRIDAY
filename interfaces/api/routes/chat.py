@@ -77,6 +77,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    private: bool = False  # desktop must not persist/mirror private phone replies
     response: str
     provider: str  # the provider that actually answered (may be a fallback)
     model: str
@@ -103,6 +104,32 @@ async def chat(request: ChatRequest):
     Send a message, get a response. Memory is handled automatically.
     """
     logger.info(f"Chat request received — provider override: {request.provider or 'none'}")
+    from services.phone import commands as phone_commands
+    if phone_commands.private_turn(request.message):
+        result = await phone_commands.handle(request.message, request.provider or config.ACTIVE_PROVIDER)
+        cognition_service.reply(result.message, safe_text=result.memory_message)
+        if request.speak:
+            _speak_in_background(result.message, cache=False)
+        return ChatResponse(response=result.message, provider="local", model="system_control", tokens_used=0, private=True,
+                            action_success=result.success, awaiting_reply=is_awaiting_confirmation())
+    from services.screen_watch import commands as screen_commands
+    result = await screen_commands.handle(request.message, remote=remote_request.get())
+    if result is not None:
+        cognition_service.reply(result.message, safe_text=screen_commands.PRIVATE_MEMORY)
+        if request.speak:
+            _speak_in_background(result.message, cache=False, local_only=True)
+        return ChatResponse(response=result.message, provider="local", model="system_control", tokens_used=0, private=True,
+                            action_success=result.success)
+    from services.mind import app_verification
+    from services.activity.log import activity_log
+    result = await app_verification.handle(request.message, activity_log, remote=remote_request.get())
+    if result is not None:
+        app_verification.mark_returned(result.message, remote=remote_request.get())
+        cognition_service.reply(result.message)
+        if request.speak:
+            _speak_in_background(result.message, cache=False)
+        return ChatResponse(response=result.message, provider="local", model="system_control", tokens_used=0,
+                            action_success=result.success, awaiting_reply=app_verification.awaiting())
     from services.browser.commands import match_command as automation_command
     if automation_command(request.message):
         from services.browser.service import automation
@@ -181,6 +208,7 @@ async def chat(request: ChatRequest):
     if not (screen_question or search_context):
         system_result = await try_system_action(request.message, provider_name)
     if system_result is not None:
+        app_verification.mark_returned(system_result.message, remote=remote_request.get())
         success, message = system_result.success, system_result.message
         if (config.AI_ASSIST_ONLY and success and not is_awaiting_confirmation()
                 and system_result.memory_message is None and not system_result.keyboard

@@ -15,7 +15,8 @@ chat, memory and FRIDAY's yes/no confirmations all work. On top of that:
   - "/status", "/lockdown" (undone only by "unlock telegram" at the laptop)
   - send-to-laptop: a link opens in the browser, a file/photo is saved to Downloads\\FRIDAY and
     shown in Explorer (never opened or run), "copy <text>" puts the text on the clipboard
-Only TELEGRAM_USER_ID is answered; forwarded and stale messages are never run.
+Only TELEGRAM_USER_ID is answered; forwarded commands are never run.
+Offline commands catch up from Telegram and a persistent local inbox.
 """
 
 import asyncio
@@ -34,27 +35,16 @@ from services.automation import intent, keyboard
 from services.automation.system_control import system
 from services.network.status import network
 from services.proactive import buttons
-from services.telegram import client
+from services.telegram import client, inbox
 from services.telegram.client import TelegramError
+from services.telegram.help import HELP
 
 POLL_SECONDS = 25            # Telegram holds each request open this long waiting for a message
-STALE_SECONDS = 120          # older messages (sent while FRIDAY was off) are not run
 CONFIRM_SECONDS = 120
 MAX_UPLOAD_BYTES = client.MAX_UPLOAD_BYTES
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # the most a bot may fetch from Telegram
 RECEIVED_DIR = Path.home() / "Downloads" / "FRIDAY"  # tests point this elsewhere
 FILE_KINDS = {"document": "", "photo": ".jpg", "video": ".mp4", "audio": ".mp3"}  # message key → extension if unnamed
-HELP = (
-    "I'm FRIDAY. Send me anything you'd type into the command bar, or a voice note.\n"
-    "/status — battery, what's in use, whether you're away\n"
-    "/send <file> — send a file from the laptop\n"
-    "Send a link, file or photo to put it on the laptop; \"copy <text>\" copies text there\n"
-    "\"note <text>\" saves a note; \"tell me when blender closes\" (or when it's charged, or <url> changes)\n"
-    "/menu — buttons for your usual commands\n"
-    "/lock, /sleep, /shutdown [minutes], /restart, /cancel — the laptop's power (sleep/shutdown/restart ask first)\n"
-    "/away — pause, lock, and send notifications here straight away until you're back\n"
-    "/lockdown — turn off remote control (undo it at the laptop: \"unlock telegram\")"
-)
 _LINK = re.compile(r"https?://\S+", re.I)
 _COPY = re.compile(r"^copy\s+(?P<text>.+?)(?:\s+(?:to|into|onto)\s+(?:the\s+|my\s+)?clipboard)?$", re.I | re.S)
 _SEND_FILE = re.compile(r"^(?:/send\s+|send\s+me\s+(?:my|the)\s+)(?P<query>.+?)(?:\s+file)?$", re.I)
@@ -66,7 +56,10 @@ _ignored: set[int] = set()
 
 async def say(chat_id: int, text: str, links: list[tuple[str, str]] | None = None) -> None:
     try:
-        await asyncio.to_thread(client.send, chat_id, text, links)
+        if links or len(text) <= client.TEXT_LIMIT:
+            await asyncio.to_thread(client.send, chat_id, text, links)
+        else:
+            await asyncio.to_thread(client.send_long, chat_id, text)
     except TelegramError as e:
         logger.warning(f"Telegram: couldn't reply: {e}")
 
@@ -78,7 +71,9 @@ def _yes_no(text: str) -> bool | None:
 
 def _ask(question: str, do) -> str:
     global _pending
-    _pending = {"do": do, "expires": time.monotonic() + CONFIRM_SECONDS}
+    if intent.telegram_owner.get() and intent.skip_confirmation.get():
+        return do()
+    _pending = {"do": do, "expires": time.monotonic() + CONFIRM_SECONDS, "asked_at": time.time()}
     return f"{question} Reply yes or no."
 
 
@@ -141,28 +136,14 @@ async def handle(update: dict) -> None:
             _ignored.add(user)
             logger.warning(f"Telegram: ignoring messages from user {user} (not TELEGRAM_USER_ID)")
         return
-    if message.get("date", 0) < max(started_at, time.time() - STALE_SECONDS):
-        return await say(chat_id, "That came in while I was offline, so I didn't run it. Send it again if you still want it.")
     kind = next((key for key in FILE_KINDS if key in message), None)  # a file is only saved: fine forwarded too
     if ("forward_origin" in message or "forward_date" in message) and not kind:
         return await say(chat_id, "I don't run forwarded messages. Type it yourself if you want it done.")
 
     text = (message.get("text") or "").strip()
-    command = text.split("@")[0].lower()  # "/status@FridayBot" in group-style clients
-    if command in ("/start", "/help"):
-        return await say(chat_id, HELP)
-    if command == "/status":
-        return await say(chat_id, await asyncio.to_thread(status_text))
-    if command == "/lockdown":
-        client.set_locked(True)
-        return await say(chat_id, 'Remote control is off. Notifications still come here. Say "unlock telegram" at the laptop to turn it back on.')
-    if client.locked():
-        return await say(chat_id, 'Remote control is locked. Say "unlock telegram" at the laptop to turn it back on.')
-    if command == "/menu":
-        return await say(chat_id, "Your usual commands:", [(label, f"c|{label}") for label in await asyncio.to_thread(menu)])
-    text = slash_command(text) or text
-
     if kind:
+        if client.locked():
+            return await say(chat_id, 'Remote control is locked. Say "unlock telegram" at the laptop to turn it back on.')
         return await _receive_file(chat_id, message, kind)
     if "voice" in message:
         try:
@@ -175,16 +156,37 @@ async def handle(update: dict) -> None:
         await say(chat_id, f'Heard: "{text}"')
     if not text:
         return await say(chat_id, "I can read text and voice notes.")
+    shared_pending = intent._pending.get(True)
+    asked_at = _pending.get("asked_at", 0) if _pending else shared_pending.asked_at if shared_pending else 0
+    received_at = update.get("_friday_received_at", time.time())
+    if _yes_no(text) is True and (received_at < asked_at or
+            message.get("date", 0) < max(int(started_at), time.time() - CONFIRM_SECONDS)):
+        return await say(chat_id, "That confirmation was queued while I was offline. Reply to the current confirmation if you still want it.")
     await _run(chat_id, text)
 
 
 async def _run(chat_id: int, text: str) -> None:
     # Shortcut handlers and their worker threads belong to Telegram too, not
     # just requests that reach the shared chat route.
+    if not text.strip():
+        return await say(chat_id, "Send a command or use /h.")
     token = intent.remote_request.set(True)
+    owner = intent.telegram_owner.set(chat_id == config.TELEGRAM_USER_ID)
+    word, *tail = text.split(maxsplit=1)
+    rest = tail[0] if tail else ""
+    bypass = word == "/!"
+    flag = intent.skip_confirmation.set(bypass)
     try:
-        await _run_remote(chat_id, text)
+        if bypass and not intent.telegram_owner.get():
+            return await say(chat_id, "Use /! in your private chat with FRIDAY.")
+        if bypass and not rest.strip():
+            return await say(chat_id, "Use /! <command>, for example /! /sleep. This applies to one command only.")
+        await _run_remote(chat_id, rest.strip() if bypass else text)
+    except (FridayError, TelegramError, keyboard.KeyboardError, OSError) as e:
+        await say(chat_id, f"That didn't work: {getattr(e, 'message', e)}")
     finally:
+        intent.skip_confirmation.reset(flag)
+        intent.telegram_owner.reset(owner)
         intent.remote_request.reset(token)
 
 
@@ -198,6 +200,29 @@ def _drop_command_followups() -> None:
 
 async def _run_remote(chat_id: int, text: str) -> None:
     global _pending
+    command, *tail = text.split(maxsplit=1)
+    rest = tail[0] if tail else ""
+    command = command.split("@")[0].lower()
+    if command in ("/h", "/start", "/help"):
+        return await say(chat_id, HELP)
+    if command == "/status":
+        return await say(chat_id, await asyncio.to_thread(status_text))
+    if command == "/lockdown":
+        client.set_locked(True)
+        return await say(chat_id, 'Remote control is off. Notifications still come here. Say "unlock telegram" at the laptop to turn it back on.')
+    if client.locked():
+        return await say(chat_id, 'Remote control is locked. Say "unlock telegram" at the laptop to turn it back on.')
+    if command == "/menu":
+        return await say(chat_id, "Your usual commands:", [(label, f"c|{label}") for label in await asyncio.to_thread(menu)])
+    if command == "/cc":
+        _pending = None
+        _drop_command_followups()
+        keys = re.sub(r"\b(up|down|left|right)-arrow\b", r"\1 arrow", rest.strip(), flags=re.I)
+        if keyboard.parse_keys(keys) is None:
+            return await say(chat_id, "Use /cc <keys>, for example /cc right-arrow, /cc enter or /cc ctrl+s.")
+        await asyncio.to_thread(keyboard.press_keys, keys)
+        return await say(chat_id, f"Pressed {keyboard.describe_keys(keys)}.")
+    text = slash_command(text) or text
     pending, _pending = _pending, None
     if pending and (answer := _yes_no(text)) is not None:  # any other message drops the question
         _drop_command_followups()
@@ -235,7 +260,7 @@ async def _run_remote(chat_id: int, text: str) -> None:
         def upload():
             client.send_file(chat_id, Path(hit.path))
             return f"Sent {hit.name}."
-        return await say(chat_id, _ask(f"Send {hit.name} ({_size(size)})?", upload))
+        return await say(chat_id, await asyncio.to_thread(_ask, f"Send {hit.name} ({_size(size)})?", upload))
 
     from interfaces.api.routes.chat import ChatRequest, chat  # the command bar's path
 
@@ -251,7 +276,7 @@ async def _run_remote(chat_id: int, text: str) -> None:
         except (TelegramError, OSError) as e:
             await say(chat_id, f"Couldn't send the screenshot: {e}")
     if response.keyboard:
-        await say(chat_id, _confirm_typing(response.keyboard))
+        await say(chat_id, await asyncio.to_thread(_confirm_typing, response.keyboard))
 
 
 def shared_link(text: str) -> str | None:
@@ -370,6 +395,25 @@ async def _on_button(query: dict) -> None:
 
 # ── The loop ──────────────────────────────────────────────────────────────────
 
+async def _drain_inbox() -> None:
+    for update, interrupted in await asyncio.to_thread(inbox.pending):
+        ident = update["update_id"]
+        if interrupted:
+            source = update.get("message") or update.get("callback_query", {}).get("message", {})
+            if chat_id := source.get("chat", {}).get("id"):
+                await say(chat_id, "A command was interrupted during execution. I couldn't verify its result, so I won't repeat it automatically. Check the laptop before sending it again.")
+        else:
+            await asyncio.to_thread(inbox.start, ident)
+            try:
+                await handle(update)
+            except Exception:
+                logger.exception("Telegram update %s failed", ident)
+                source = update.get("message", {})
+                if chat_id := source.get("chat", {}).get("id"):
+                    await say(chat_id, "I couldn't finish that command. Check its result before trying again.")
+        await asyncio.to_thread(inbox.finish, ident)
+
+
 async def run_bot() -> None:
     """Runs for the lifetime of the API process; started from app.py's lifespan. Off without a token."""
     global started_at
@@ -377,25 +421,23 @@ async def run_bot() -> None:
         return
     started_at = time.time()
     logger.info("Telegram bot started" + ("" if config.TELEGRAM_USER_ID else " — waiting for TELEGRAM_USER_ID"))
-    offset, delay = 0, 1
+    delay = 1
     while True:
         if not network.online:  # no internet: nothing to ask Telegram
             await asyncio.sleep(10)
             continue
         try:
+            await _drain_inbox()
             updates = await asyncio.to_thread(
                 client.call, "getUpdates", http_timeout=POLL_SECONDS + 10,
-                offset=offset, timeout=POLL_SECONDS, allowed_updates=["message", "callback_query"],
+                offset=await asyncio.to_thread(inbox.offset), timeout=POLL_SECONDS,
+                allowed_updates=["message", "callback_query"],
             )
+            await asyncio.to_thread(inbox.enqueue, updates)
+            await _drain_inbox()
             delay = 1
-        except TelegramError as e:
-            logger.warning(f"Telegram: {e}")
+        except Exception as e:
+            logger.warning("Telegram polling/inbox failed: %s", type(e).__name__)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
             continue
-        for update in updates:
-            offset = update["update_id"] + 1
-            try:
-                await handle(update)
-            except Exception as e:
-                logger.error(f"Telegram message failed: {e}", exc_info=True)

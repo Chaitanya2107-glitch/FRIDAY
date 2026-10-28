@@ -8,7 +8,7 @@ import pytest
 from services.activity import categories
 from services.activity.log import ActivityLog
 from services.automation import intent
-from services.mind import brain, knowledge, life, talk, thoughts, wording
+from services.mind import app_learning, brain, knowledge, life, talk, thoughts, wording
 
 NOW = datetime(2026, 10, 1, 15, 0)
 
@@ -123,8 +123,9 @@ def test_the_day_is_cut_into_episodes_and_glances_are_folded_in(tmp_path):
 
 def test_the_timeline_tells_past_present_and_what_was_left(tmp_path):
     text = brain.timeline(log_with(tmp_path, DAY), NOW)
-    assert text.startswith("Right now: watching things (Lofi mix - YouTube)")
-    assert "Before that:" in text and "Left hanging: coding (assignment.py - dbms)" in text
+    assert text.startswith("Right now: I don't have a fresh activity observation")
+    assert "Recorded earlier" in text and "Earlier focus: coding (assignment.py - dbms)" in text
+    assert "completion is unknown" in text
 
 
 def test_something_left_hanging_and_a_jump_out_of_work_make_her_wonder(tmp_path):
@@ -186,30 +187,34 @@ def test_she_looks_up_what_she_cant_place_with_only_its_name(tmp_path, monkeypat
     lookup_says(monkeypatch, '{"known": true, "what": "God of War, an action-adventure game.", "category": "gaming"}', asked)
     log = log_with(tmp_path, [])
     asyncio.run(brain.learn_something(log, NOW))
-    assert asked == ['What is "gow"? It is the name of a Windows program, and its window is titled "God of War".']
+    assert asked == ['What is "gow"? It is the name of a Windows program.']
     thing = knowledge.get("app:gow")
-    assert thing.about.startswith("God of War") and thing.category == "gaming" and thing.source == "lookup"
-    assert categories.app_category("gow") == "gaming"          # the activity log now sorts it there
-    assert kinds() == ["learned"] and knowledge.due_lookup(NOW) is None  # never asked twice
-    assert "Learned what gow is" in life.day_line(NOW.date().isoformat())
+    assert thing.about is None and thing.category == "other" and thing.source == "rule"
+    proposal = app_learning.pending(thing.key)[0]
+    assert proposal["description"].startswith("God of War")
+    assert categories.app_category("gow") == "other"
+    assert kinds() == [] and knowledge.due_lookup(NOW) is None
+    assert app_learning.resolve(app_learning.identity(proposal), "yes", NOW) == "confirmed"
+    assert categories.app_category("gow") == "gaming"
 
 
 def test_what_the_model_doesnt_know_she_asks_the_boss_and_the_answer_teaches_her(tmp_path, monkeypatch):
     unplaced_app()
     lookup_says(monkeypatch, '{"known": false, "what": "", "category": "other"}')
     asyncio.run(brain.learn_something(log_with(tmp_path, []), NOW))
-    thought = thoughts.top(NOW)
-    assert thought.kind == "unknown" and thought.data["name"] == "gow"
-    brain.answered(thought.id, "it's a game, God of War", NOW)
+    proposal = app_learning.pending("app:gow")[0]
+    assert proposal["description"] == "" and proposal["name"] == "gow"
+    app_learning.resolve(app_learning.identity(proposal), "it's a game, God of War", NOW)
     thing = knowledge.get("app:gow")
     assert thing.source == "boss" and thing.category == "gaming" and categories.app_category("gow") == "gaming"
 
 
-def test_with_no_model_she_still_wonders_and_tries_again_later(tmp_path, monkeypatch):
+def test_with_no_model_she_leaves_an_owner_clarification(tmp_path, monkeypatch):
     unplaced_app()
     lookup_says(monkeypatch, RuntimeError("offline"))
     asyncio.run(brain.learn_something(log_with(tmp_path, []), NOW))
-    assert kinds() == ["unknown"] and knowledge.due_lookup(NOW).name == "gow"
+    assert kinds() == [] and knowledge.due_lookup(NOW) is None
+    assert app_learning.pending("app:gow")[0]["description"] == ""
 
 
 def test_the_small_local_model_isnt_trusted_with_facts(tmp_path, monkeypatch):
@@ -222,11 +227,12 @@ def test_the_small_local_model_isnt_trusted_with_facts(tmp_path, monkeypatch):
     monkeypatch.setattr("providers.failover.complete_with_failover", only_ollama)
     log = log_with(tmp_path, [])
     asyncio.run(brain.learn_something(log, NOW))
-    assert knowledge.get("app:gow").about is None and kinds() == ["unknown"]
+    assert knowledge.get("app:gow").about is None and kinds() == []
+    assert app_learning.pending("app:gow")[0]["description"] == ""
     asyncio.run(brain.learn_something(log, NOW + timedelta(minutes=1)))
     assert len(asked) == 1  # and she doesn't keep trying every minute
     asyncio.run(brain.learn_something(log, NOW + brain.LOOKUP_RETRY))
-    assert len(asked) == 2
+    assert len(asked) == 1  # owner clarification stays pending; no repeated background lookup
 
 
 def test_a_short_interlude_doesnt_split_an_episode(tmp_path):

@@ -110,6 +110,9 @@ def match_media_command(message: str, has_player) -> dict | None:
     Music commands. has_player() is only called for short words like "next" or
     "back", which are only music commands while a player is open.
     """
+    from services.spotify.dj import match_command as match_dj
+    if dj := match_dj(message):
+        return dj
     full = normalize_command(message).lower()
     if words.PLAY_MUSIC.match(full):
         return _action("play_music")

@@ -19,10 +19,15 @@ use tauri::{Emitter, Manager, State, WebviewWindow};
 pub struct RuntimeStatus {
     mode: String,
     hotkey_errors: Vec<String>,
-    acrylic: bool,
+    max_width: f64,
+    max_height: f64,
     reduce_motion: bool,
     #[serde(skip)]
     previous_window: usize,
+    #[serde(skip)]
+    width: f64,
+    #[serde(skip)]
+    height: f64,
 }
 pub struct AppState {
     path: PathBuf,
@@ -93,7 +98,12 @@ fn set_mode(
             }
         }
         windows::passive(&window, !deliberate)?;
-        windows::geometry(&window, matches!(mode, Mode::Sneak))?;
+        windows::geometry(
+            &window,
+            runtime.width,
+            runtime.height,
+            matches!(mode, Mode::Sneak),
+        )?;
     }
     if deliberate {
         window.set_focus().map_err(|e| e.to_string())?;
@@ -113,13 +123,26 @@ fn set_mode(
 
 #[cfg(windows)]
 #[tauri::command]
-fn set_regions(rects: Vec<windows::HitRect>, window: WebviewWindow) -> Result<(), String> {
+fn set_regions(
+    width: f64,
+    height: f64,
+    rects: Vec<windows::HitRect>,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if !width.is_finite() || !height.is_finite() || width < 1.0 || height < 1.0 {
+        return Err("Invalid island size".into());
+    }
+    let mut runtime = state.runtime.lock().unwrap();
+    runtime.width = width;
+    runtime.height = height;
+    windows::geometry(&window, width, height, runtime.mode == "sneak")?;
     windows::regions(&window, rects)
 }
 #[cfg(not(windows))]
 #[tauri::command]
-fn set_regions(rects: Vec<serde_json::Value>) {
-    let _ = rects;
+fn set_regions(width: f64, height: f64, rects: Vec<serde_json::Value>) {
+    let _ = (width, height, rects);
 }
 
 #[tauri::command]
@@ -222,6 +245,10 @@ fn main() {
             let (sender, receiver) = mpsc::channel();
             let mut runtime = RuntimeStatus {
                 mode: "rest".into(),
+                width: 298.0,
+                height: 54.0,
+                max_width: 720.0,
+                max_height: 560.0,
                 ..Default::default()
             };
             let window = app
@@ -231,9 +258,9 @@ fn main() {
             {
                 windows::passive(&window, true)?;
                 windows::regions(&window, vec![])?;
-                windows::geometry(&window, false)?;
-                runtime.acrylic =
-                    window_vibrancy::apply_acrylic(&window, Some((15, 16, 19, 175))).is_ok();
+                window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)))?;
+                windows::geometry(&window, runtime.width, runtime.height, false)?;
+                (runtime.max_width, runtime.max_height) = windows::limits(&window)?;
                 runtime.reduce_motion = windows::reduce_motion();
             }
             app.manage(AppState {

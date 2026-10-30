@@ -97,7 +97,7 @@ export class Settings {
       port.onchange = () => void this.change(c => { c.connection.port = Number(port.value); });
       this.root.append(el('div', 'connection-label', this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline'), field('Backend port', port, '127.0.0.1 only. Restart the Python bridge after changing this.'));
       this.root.append(el('p', 'muted', native ? 'Apps, projects and settings work without the backend. Config lives in %APPDATA%\\FRIDAY\\island\\config.json.' : 'Browser preview. Launch with npm run tauri dev for desktop controls.'));
-      this.root.append(el('p', 'muted', this.host.status().acrylic ? 'Windows acrylic active.' : 'Using the dark surface fallback.'));
+      this.root.append(el('p', 'muted', 'Transparent window · glass is drawn only on the island.'));
       this.root.append(textButton('Reload config', async () => { await this.host.reload(); this.host.message('Config reloaded'); this.render(); }, 'back'));
       this.root.append(textButton('Quit Island', () => call('quit'), 'power'));
     }

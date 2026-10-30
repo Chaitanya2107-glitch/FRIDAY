@@ -1045,7 +1045,6 @@ dependencies = [
  "tauri-plugin-single-instance",
  "url",
  "uuid",
- "window-vibrancy",
  "windows-sys 0.59.0",
 ]
 

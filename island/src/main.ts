@@ -26,7 +26,8 @@ const results = el('div', 'suggestions'); results.id = 'suggestions'; results.se
 const body = el('div', 'expanded-body');
 const tabs = el('nav', 'tabs'); tabs.setAttribute('aria-label', 'Island tabs');
 const panels = el('div', 'panels');
-body.append(tabs, panels); surface.append(row, results, body);
+const expandedInner = el('div', 'expanded-inner'); expandedInner.append(tabs, panels);
+body.append(expandedInner); surface.append(row, results, body);
 const feedback = el('div', 'feedback'); feedback.dataset.hit = ''; feedback.setAttribute('role', 'status'); feedback.hidden = true;
 root.append(surface, feedback);
 
@@ -37,7 +38,7 @@ let connection: Connection;
 let online = false;
 let snippet = '';
 let manifests: Manifest[] = [];
-let nativeStatus: NativeStatus = { mode: 'rest', hotkey_errors: [], acrylic: false, reduce_motion: false };
+let nativeStatus: NativeStatus = { mode: 'rest', hotkey_errors: [], max_width: 720, max_height: 560, reduce_motion: false };
 let suggestions: Suggestion[] = [];
 let selected = -1;
 let busy = false;
@@ -73,15 +74,22 @@ function mood(value?: string, duration = 0) {
   surface.dataset.mood = value ?? (!online ? 'offline' : mode === 'hidden' || mode === 'sneak' || Date.now() - lastActivity > 60000 ? 'sleepy' : command.value ? 'listening' : 'idle');
   if (duration) moodTimer = setTimeout(() => mood(), duration);
 }
+let lastLayout = '';
 function syncRegions() {
   if (!native) return;
-  const rects = mode === 'hidden' ? [] : [surface, ...(feedback.hidden ? [] : [feedback])].map(node => {
+  const nodes = [surface, ...(feedback.hidden ? [] : [feedback])];
+  const width = mode === 'hidden' ? 1 : Math.ceil(Math.max(...nodes.map(n => n.getBoundingClientRect().width)) + 20);
+  const height = mode === 'hidden' ? 1 : Math.ceil(Math.max(...nodes.map(n => n.getBoundingClientRect().bottom)) + 10);
+  const rects = mode === 'hidden' ? [] : nodes.map(node => {
     const r = node.getBoundingClientRect();
     const style = getComputedStyle(node);
-    return { x: r.x, y: r.y, width: r.width, height: r.height, radius: parseFloat(style.borderBottomLeftRadius) || 0,
+    return { x: (width - r.width) / 2, y: r.y, width: r.width, height: r.height, radius: parseFloat(style.borderBottomLeftRadius) || 0,
       top_square: parseFloat(style.borderTopLeftRadius) === 0 };
   });
-  void call('set_regions', { rects }).catch(() => {});
+  const layout = JSON.stringify({ width, height, rects });
+  if (layout === lastLayout) return;
+  lastLayout = layout;
+  void call('set_regions', { width, height, rects }).catch(() => { lastLayout = ''; });
 }
 let animationUntil = 0;
 let animating = false;
@@ -272,10 +280,11 @@ async function boot() {
   try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
   catch (error) { message(String(error), true); }
   applyConfig(); connect();
+  applyLimits();
   document.documentElement.classList.toggle('reduce-motion', nativeStatus.reduce_motion);
   await on<string>('hotkey', event => { if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape'); });
   await on<NativeStatus>('native-status', status => {
-    nativeStatus = status; document.documentElement.classList.toggle('reduce-motion', status.reduce_motion);
+    nativeStatus = status; applyLimits(); document.documentElement.classList.toggle('reduce-motion', status.reduce_motion);
     if (mode === 'expanded' && tab === 'settings' && settings.section === 'hotkeys') settings.render();
   });
   await on<{ x: number; y: number; reveal: boolean }>('pointer', point => {
@@ -292,3 +301,9 @@ async function boot() {
   syncRegions();
 }
 void boot();
+
+function applyLimits() {
+  document.documentElement.style.setProperty('--layout-width', `${nativeStatus.max_width || 720}px`);
+  document.documentElement.style.setProperty('--layout-height', `${nativeStatus.max_height || 560}px`);
+  syncRegions();
+}

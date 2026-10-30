@@ -178,6 +178,8 @@ def main():
             for p in paths:
                 if p.is_file(): archive.write(p, str(p.relative_to(ROOT)))
         evidence["rest_region"] = rest = region()
+        evidence['rest_size'] = [bounds.right - bounds.left, bounds.bottom - bounds.top]
+        assert evidence['rest_size'][0] < 400 * evidence['dpi'] / 96 and evidence['rest_size'][1] < 90 * evidence['dpi'] / 96
         assert all(evidence[k] for k in ["no_activate", "tool_window", "always_on_top", "top_edge"]), evidence
         handle = g.CreateRectRgn(0, 0, 0, 0); u.GetWindowRgn(hwnd, handle)
         assert not g.PtInRegion(handle, 0, 0), "Empty area blocks clicks"
@@ -225,7 +227,8 @@ def main():
         key([0x11, 0x10, 0x12, 0x86])
         sneak = region(); evidence["sneak_region"] = sneak
         assert u.GetForegroundWindow() == hwnd, "Sneak did not focus"
-        evidence["sneak_centered"] = sneak[1] > 100
+        sneak_bounds = w.RECT(); u.GetWindowRect(hwnd, c.byref(sneak_bounds))
+        evidence["sneak_centered"] = abs((sneak_bounds.top + sneak_bounds.bottom) / 2 - u.GetSystemMetrics(1) / 2) < 3
         assert evidence["sneak_centered"]
         if online:
             for letter in 'NEXT': key([ord(letter)])

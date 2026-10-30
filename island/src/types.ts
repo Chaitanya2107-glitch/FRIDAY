@@ -14,4 +14,4 @@ export interface Suggestion { text: string; detail?: string }
 export interface CommandResult { text: string; ok: boolean; action?: { kind: 'settings' | 'pin' | 'project'; id?: string } }
 export interface Manifest { id: string; name: string; version: number; commands: string[]; widget: boolean }
 export interface Widget { title: string; text: string; placeholder?: boolean }
-export interface NativeStatus { mode: string; hotkey_errors: string[]; acrylic: boolean; reduce_motion: boolean }
+export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean }

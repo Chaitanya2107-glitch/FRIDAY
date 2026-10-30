@@ -12,7 +12,8 @@
   "app": {
     "windows": [{
       "label": "main", "title": "FRIDAY Island",
-      "width": 720, "height": 560, "visible": false,
+      "width": 298, "height": 54, "visible": false,
+      "backgroundColor": "#00000000",
       "decorations": false, "transparent": true, "shadow": false,
       "resizable": false, "maximizable": false, "minimizable": false,
       "alwaysOnTop": true, "skipTaskbar": true, "focus": false, "focusable": false,

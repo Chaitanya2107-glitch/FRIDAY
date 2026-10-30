@@ -69,7 +69,10 @@ does not add note storage or a focus timer.
 The character is drawn in SVG code, with CSS breathing/blinking and mood changes.
 The global pointer sample updates eyes at most 12.5 times/second; it does not
 capture the screen. Animations stop while hidden/offline and honor Windows reduced
-motion. Acrylic falls back to the same dark surface when unavailable.
+motion. The native window and WebView are fully transparent. The dark glass,
+CSS backdrop blur, border and shadow belong only to the island element; no
+native acrylic/mica/vibrancy is applied. Native size follows the animated
+element bounds, keeping the top-center anchor (or centered Sneak box).
 
 ## Pins and projects
 

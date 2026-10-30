@@ -1,5 +1,28 @@
 # FRIDAY Island v1 validation
 
+## Transparency regression fix
+
+The original v1 native-acrylic/fixed-canvas approach below is superseded.
+Whole-window vibrancy was removed, both backgrounds use zero alpha, and the
+native window follows the measured DOM island bounds. Intrinsic layout limits
+are independent of viewport size so resizing cannot repeatedly shrink the UI.
+Width and card-height transitions drive the native resize without activation.
+
+`check_transparency.py --release` uses an owned, headed Chromium window beneath
+the real island. At **120 DPI / 125% scaling**, real Windows clicks/typing reached
+its input under the old empty canvas, and desktop pixels outside the pill were
+byte-for-byte unchanged. Measured physical window sizes: Rest **373×69**, Peek
+**888×92**, Expanded **888×452**, Sneak **800×99**. Sneak centers its actual box;
+other states retain the top-center anchor. Native rounded regions exclude empty
+gutters. Run the regression with:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_transparency.py --release
+```
+
+The historical CPU measurements and old native-acrylic assertions below describe
+the initial v1 build, not this corrected window implementation.
+
 Validated locally on **Windows, 120 DPI (125% scaling)** with Python 3.12.8,
 Node 24.18.0, Rust 1.98.1 and Edge WebView2. No existing FRIDAY source was changed.
 Pre-existing unrelated working changes were preserved. The work is in isolated

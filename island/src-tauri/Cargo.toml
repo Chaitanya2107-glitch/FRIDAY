@@ -20,7 +20,6 @@ fs2 = "0.4"
 url = "2"
 
 [target.'cfg(windows)'.dependencies]
-window-vibrancy = "0.8"
 base64 = "0.22"
 png = "0.17"
 windows-sys = { version = "0.59", features = [

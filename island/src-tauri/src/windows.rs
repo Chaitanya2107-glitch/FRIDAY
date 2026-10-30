@@ -106,7 +106,23 @@ pub fn regions(window: &WebviewWindow, rects: Vec<HitRect>) -> Result<(), String
     Ok(())
 }
 
-pub fn geometry(window: &WebviewWindow, sneak: bool) -> Result<(), String> {
+pub fn limits(window: &WebviewWindow) -> Result<(f64, f64), String> {
+    let monitor = window
+        .primary_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("No primary monitor")?;
+    Ok((
+        720.0_f64.min(monitor.size().width as f64 / monitor.scale_factor()),
+        560.0_f64.min(monitor.size().height as f64 / monitor.scale_factor()),
+    ))
+}
+
+pub fn geometry(
+    window: &WebviewWindow,
+    width: f64,
+    height: f64,
+    sneak: bool,
+) -> Result<(), String> {
     let monitor = window
         .primary_monitor()
         .map_err(|e| e.to_string())?
@@ -114,21 +130,38 @@ pub fn geometry(window: &WebviewWindow, sneak: bool) -> Result<(), String> {
     let scale = monitor.scale_factor();
     let size = monitor.size();
     let origin = monitor.position();
-    let width = 720.0_f64.min(size.width as f64 / scale);
-    let height = 560.0_f64.min(size.height as f64 / scale);
-    let x = origin.x + ((size.width as f64 - width * scale) / 2.0).round() as i32;
+    let width = (width * scale).ceil().clamp(1.0, size.width as f64) as i32;
+    let height = (height * scale).ceil().clamp(1.0, size.height as f64) as i32;
+    let x = origin.x + (size.width as i32 - width) / 2;
     let y = origin.y
         + if sneak {
-            ((size.height as f64 - height * scale) / 2.0).max(0.0) as i32
+            (size.height as i32 - height) / 2
         } else {
             0
         };
-    window
-        .set_size(tauri::LogicalSize::new(width, height))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_position(tauri::PhysicalPosition::new(x, y))
-        .map_err(|e| e.to_string())?;
+    unsafe {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as HWND;
+        let mut current: RECT = zeroed();
+        GetWindowRect(hwnd, &mut current);
+        if (
+            current.left,
+            current.top,
+            current.right - current.left,
+            current.bottom - current.top,
+        ) != (x, y, width, height)
+            && SetWindowPos(
+                hwnd,
+                null_mut(),
+                x,
+                y,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            ) == 0
+        {
+            return Err("Could not resize island".into());
+        }
+    }
     Ok(())
 }
 
@@ -274,7 +307,9 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 }
             }
             if count.is_multiple_of(12) {
-                let sneak = app.state::<crate::AppState>().runtime.lock().unwrap().mode == "sneak";
+                let state = app.state::<crate::AppState>();
+                let runtime = state.runtime.lock().unwrap().clone();
+                let sneak = runtime.mode == "sneak";
                 if let Ok(Some(primary)) = window.primary_monitor() {
                     let key = format!(
                         "{:?}{:?}{}{sneak}",
@@ -286,8 +321,14 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                         last_geometry = key;
                         let owned = window.clone();
                         let _ = window.run_on_main_thread(move || {
-                            let _ = geometry(&owned, sneak);
+                            let _ = geometry(&owned, runtime.width, runtime.height, sneak);
                         });
+                        if let Ok((width, height)) = limits(&window) {
+                            let mut status = state.runtime.lock().unwrap();
+                            status.max_width = width;
+                            status.max_height = height;
+                            let _ = app.emit("native-status", status.clone());
+                        }
                     }
                 }
                 let reduced = reduce_motion();

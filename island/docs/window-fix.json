@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "policy": {
+    "decision": "allowed",
+    "authority": "User requested transparency fix first, verification in the running app, then a separate commit",
+    "scope": "Island window, CSS, regression tests and documentation",
+    "release_authority": false
+  },
+  "source_sha256": "14a2fa761f7e0e28403c25392a9d4c4537bb9e2a6911b5be17fb79dc86c112b9",
+  "artifact_sha256": "d1538faae826bb4d7863196f8e54d767bbff6a7f14f0a3fe3477d2c05040f3ad",
+  "dpi": 120,
+  "physical_window_sizes": {
+    "rest": [373, 69],
+    "peek": [888, 92],
+    "expanded": [888, 452],
+    "sneak": [800, 99]
+  },
+  "observed_checks": {
+    "desktop_pixels_unchanged_outside_pill": true,
+    "real_windows_click_and_typing_reach_underlying_chromium": true,
+    "startup_and_hover_preserve_focus": true,
+    "deliberate_hotkeys_focus_input": true,
+    "escape_restores_previous_app": true,
+    "clicking_elsewhere_preserves_new_focus": true,
+    "rounded_corners_and_empty_gutters_click_through": true,
+    "sneak_box_centered": true,
+    "frontend_tests": 5,
+    "rust_tests": 4,
+    "chromium_bridge_suite": "passed",
+    "standalone_release_build": "passed"
+  }
+}

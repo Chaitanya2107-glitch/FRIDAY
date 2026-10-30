@@ -12,7 +12,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from services.friday_island_server.config import IslandConfig, Pin, Project, load_config
 from services.friday_island_server.engine import Engine
-from services.friday_island_server.plugins import CollegePlugin, Registry
+from services.friday_island_server.plugins import CollegePlugin, Manifest, Registry
 from services.friday_island_server.server import Bridge, ORIGINS
 
 
@@ -135,6 +135,12 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ws.close_code, 1008)
 
     async def test_authenticated_messages_errors_and_recovery(self):
+        class CommandOnly:
+            manifest = Manifest("command_only", "Commands only", ("helpme",), widget=False)
+            def snippet(self): return ""
+            async def command(self, text): return {"ok": True, "text": "Hello"}
+
+        self.bridge.registry.register(CommandOnly())
         async with connect(self.url, origin=ORIGINS[0]) as ws:
             await self.handshake(ws)
             self.assertTrue((await self.response(ws, "handshake"))["ok"])
@@ -144,6 +150,8 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 await ws.send(json.dumps({"v": 1, "type": kind, "id": kind, **data}))
                 expected = "command_result" if kind == "command" else kind
                 self.assertEqual((await self.response(ws, expected))["id"], kind)
+            await ws.send(json.dumps({"v": 1, "type": "plugin_widget", "id": "optional", "plugin": "command_only"}))
+            self.assertEqual((await self.response(ws, "plugin_widget", "optional"))["widget"], {"title": "Commands only", "text": ""})
             await ws.send("{bad json")
             self.assertEqual((await self.response(ws, "error"))["code"], "invalid_request")
             await ws.send(json.dumps({"v": 1, "type": "command", "id": "err", "text": "fail"}))

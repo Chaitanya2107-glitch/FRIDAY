@@ -70,7 +70,7 @@ function message(text: string, bad = false) {
 }
 function mood(value?: string, duration = 0) {
   clearTimeout(moodTimer);
-  surface.dataset.mood = value ?? (!online ? 'offline' : mode === 'hidden' || Date.now() - lastActivity > 60000 ? 'sleepy' : command.value ? 'listening' : 'idle');
+  surface.dataset.mood = value ?? (!online ? 'offline' : mode === 'hidden' || mode === 'sneak' || Date.now() - lastActivity > 60000 ? 'sleepy' : command.value ? 'listening' : 'idle');
   if (duration) moodTimer = setTimeout(() => mood(), duration);
 }
 function syncRegions() {
@@ -104,7 +104,8 @@ async function setMode(next: Mode, activate = false) {
   command.placeholder = next === 'sneak' ? 'What would you like to do?' : 'A thought, a command…';
   if (next === 'rest' || next === 'hidden') { command.value = ''; clearSuggestions(); feedback.hidden = true; }
   if (next === 'sneak') feedback.hidden = true;
-  if (next === 'expanded') renderPanel();
+  body.inert = next !== 'expanded';
+  if (next === 'expanded') { clearSuggestions(); renderPanel(); }
   mood(); animateRegions();
   try { if (native) await call('set_mode', { mode: next, activate: active }); if (active) command.focus(); }
   catch (error) { message(String(error), true); }
@@ -201,6 +202,7 @@ function renderSuggestions() {
     node.onpointerdown = event => event.preventDefault(); node.onclick = () => void run(item.text); results.append(node);
   });
   results.hidden = !suggestions.length;
+  surface.style.setProperty('--results-height', `${results.hidden ? 0 : results.offsetHeight}px`);
   syncRegions();
 }
 function clearSuggestions() {

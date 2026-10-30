@@ -89,14 +89,22 @@ async def main():
                 await expect(page.get_by_role("textbox", name="New app display name")).to_be_visible()
                 await page.get_by_role("button", name="Move New app up", exact=True).click()
                 assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[2] == "New app"
+                await page.locator('.config-row').first.drag_to(page.locator('.config-row').last)
+                assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[-1] == 'Notes'
+                await page.get_by_role('button', name='Remove New app', exact=True).click()
+                await page.get_by_role('button', name='Remove New app', exact=True).click()
+                assert len(await page.evaluate('window.fixture.pins')) == 3
                 await page.get_by_role("button", name="Projects", exact=True).last.click()
                 await page.get_by_role("button", name="Add project", exact=True).click()
                 await page.get_by_role("button", name="Save project", exact=True).click()
                 assert len(await page.evaluate("window.fixture.projects")) == 2
+                await page.get_by_role('button', name='Move Workspace up', exact=True).click()
+                assert (await page.evaluate('window.fixture.projects'))[0]['name'] == 'Workspace'
                 await page.keyboard.press("Escape")
                 await expect(surface).to_have_attribute("data-mode", "rest")
                 await page.evaluate("window.__emit('hotkey','sneak')")
                 await expect(surface).to_have_attribute("data-mode", "sneak")
+                await expect(surface).to_have_attribute('data-mood', 'sleepy')
                 command = page.get_by_role("combobox", name="FRIDAY command")
                 await command.fill("ne")
                 await expect(page.get_by_role("option").first).to_contain_text("next")
@@ -115,12 +123,14 @@ async def main():
                 await command.fill("settings")
                 await command.press("Enter")
                 await expect(surface).to_have_attribute("data-mode", "expanded")
+                async with serve(bridge.handle, '127.0.0.1', sample['connection']['port'], origins=ORIGINS):
+                    await expect(page.locator('.live-line')).to_have_text('Next: DBMS · 10:30', timeout=10000)
                 await page.emulate_media(reduced_motion="reduce")
-                assert await page.locator(".orb-body").evaluate("node => getComputedStyle(node).animationName") == "none"
+                assert await page.locator(".character > svg").evaluate("node => getComputedStyle(node).animationName") == "none"
                 assert not errors, errors
                 assert not await page.evaluate("window.launches.length")
                 await browser.close()
-                print("PASS: real bridge/Chromium, four states, passive hover, suggestions + Tab/Enter, plugins, app/project persistence, offline settings, reduced motion")
+                print("PASS: real bridge/Chromium, four states, passive hover, suggestions + Tab/Enter, plugins, app/project persistence/reorder, offline settings, reconnect, reduced motion")
 
 
 if __name__ == "__main__":

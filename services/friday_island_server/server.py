@@ -35,7 +35,7 @@ class Request(BaseModel):
 
 class Bridge:
     def __init__(self, path: Path | None = None, registry: Registry | None = None, engine: Engine | None = None):
-        self.path = path
+        self.path = path.resolve() if path is not None else None
         self.registry = registry or Registry()
         self.engine = engine or Engine(self.registry)
         self.clients: set[ServerConnection] = set()
@@ -99,7 +99,8 @@ class Bridge:
                         plugin = self.registry.plugins.get(request.plugin)
                         if not plugin:
                             raise ValueError("Unknown plugin")
-                        widget = await asyncio.to_thread(plugin.widget)
+                        widget = await asyncio.to_thread(plugin.widget) if plugin.manifest.widget else {
+                            "title": plugin.manifest.name, "text": ""}
                         await self.send(ws, "plugin_widget", request.id, plugin=request.plugin, widget=widget)
                     elif request.type == "status":
                         await self.send(ws, "status", request.id, online=True)

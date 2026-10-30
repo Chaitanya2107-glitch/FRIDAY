@@ -12,6 +12,8 @@ def score(query: str, name: str) -> float:
     query, name = query.casefold().strip(), name.casefold()
     if not query:
         return 0.5
+    if name == query:
+        return 4.0
     if name.startswith(query):
         return 3.0
     if query in name:

@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "FRIDAY's quiet desktop companion"
 edition = "2021"
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

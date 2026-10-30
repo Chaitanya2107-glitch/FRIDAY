@@ -17,6 +17,17 @@ from services.friday_island_server.server import Bridge, ORIGINS
 
 
 class ConfigTests(unittest.TestCase):
+    def test_missing_token_is_materialized_without_losing_hand_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            for partial in [{"appearance": {"glow": "#FF9900"}}, {"connection": {"port": 18001}}]:
+                path.write_text(json.dumps(partial), encoding="utf-8")
+                first = load_config(path)
+                self.assertEqual(first.connection.token, load_config(path).connection.token)
+                saved = json.loads(path.read_text())
+                self.assertEqual(first.connection.token, saved["connection"]["token"])
+                self.assertEqual(first.appearance.glow, partial.get("appearance", {}).get("glow", "#FFB347"))
+
     def test_first_run_roundtrip_and_corruption_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -71,6 +82,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.engine.execute("open editor", self.config))["ok"])
         self.config.projects.append(Project(id="other", name="FRIDAY Test", path="C:/test"))
         self.assertFalse((await self.engine.execute("proj fri", self.config))["ok"])
+        self.assertEqual((await self.engine.execute("proj FRIDAY", self.config))["action"]["id"], "friday")
 
     async def test_plugins_suggestions_and_conversation(self):
         self.assertIn("DBMS", (await self.engine.execute("next", self.config))["text"])

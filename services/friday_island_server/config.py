@@ -61,7 +61,7 @@ class OpenAction(Model):
         if self.kind == "url":
             from urllib.parse import urlparse
             parsed = urlparse(self.url)
-            if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username:
+            if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username is not None or parsed.password is not None:
                 raise ValueError("Use an http(s) URL without credentials")
         return self
 
@@ -165,10 +165,14 @@ def load_config(path: Path | None = None) -> IslandConfig:
     path = path or config_path()
     with locked(path):
         if path.exists():
-            if path.stat().st_size > 1024 * 1024:
-                raise ValueError("Island config exceeds 1 MiB")
             try:
-                return IslandConfig.model_validate_json(path.read_text(encoding="utf-8-sig"))
+                if path.stat().st_size > 1024 * 1024:
+                    raise ValueError("Island config exceeds 1 MiB")
+                raw = path.read_text(encoding="utf-8-sig")
+                config = IslandConfig.model_validate_json(raw)
+                if "token" not in json.loads(raw).get("connection", {}):
+                    atomic_write(path, config)
+                return config
             except (ValueError, UnicodeError):
                 # Keep the exact damaged bytes; never silently discard hand edits.
                 backup = path.with_name(f"config.corrupt-{time.time_ns()}.json")

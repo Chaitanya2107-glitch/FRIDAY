@@ -74,7 +74,12 @@ class Registry:
             self.register(plugin)
 
     def register(self, plugin: Plugin) -> None:
+        import re
         m = plugin.manifest
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", m.id) or not m.name.strip() or len(m.name) > 80:
+            raise ValueError("Invalid plugin ID or name")
+        if len(set(m.commands)) != len(m.commands) or any(not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", c) or c in {"open", "proj", "settings"} for c in m.commands):
+            raise ValueError("Invalid or reserved plugin command")
         if m.version != 1 or m.id in self.plugins or any(c in self.commands for c in m.commands):
             raise ValueError("Duplicate plugin/command or unsupported manifest version")
         self.plugins[m.id] = plugin

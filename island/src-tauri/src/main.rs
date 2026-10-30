@@ -1,13 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+#[cfg(windows)]
+mod picker;
 mod shell;
-#[cfg(windows)] mod picker;
-#[cfg(windows)] mod windows;
+#[cfg(windows)]
+mod windows;
 
 use config::{Config, Hotkeys};
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::{mpsc, Mutex}};
+use std::{
+    path::PathBuf,
+    sync::{mpsc, Mutex},
+};
 use tauri::{Emitter, Manager, State, WebviewWindow};
 
 #[derive(Clone, Default, Serialize)]
@@ -16,7 +21,8 @@ pub struct RuntimeStatus {
     hotkey_errors: Vec<String>,
     acrylic: bool,
     reduce_motion: bool,
-    #[serde(skip)] previous_window: usize,
+    #[serde(skip)]
+    previous_window: usize,
 }
 pub struct AppState {
     path: PathBuf,
@@ -25,33 +31,66 @@ pub struct AppState {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Mode { Rest, Peek, Expanded, Sneak, Hidden }
+enum Mode {
+    Rest,
+    Peek,
+    Expanded,
+    Sneak,
+    Hidden,
+}
 
 #[tauri::command]
 async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
     let path = state.path.clone();
-    tauri::async_runtime::spawn_blocking(move || config::load(&path)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || config::load(&path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn save_config(next: Config, state: State<'_, AppState>) -> Result<Config, String> {
     let path = state.path.clone();
-    let saved = tauri::async_runtime::spawn_blocking(move || config::save(&path, next)).await.map_err(|e| e.to_string())??;
-    state.hotkeys.send(saved.hotkeys.clone()).map_err(|e| e.to_string())?;
+    let saved = tauri::async_runtime::spawn_blocking(move || config::save(&path, next))
+        .await
+        .map_err(|e| e.to_string())??;
+    state
+        .hotkeys
+        .send(saved.hotkeys.clone())
+        .map_err(|e| e.to_string())?;
     Ok(saved)
 }
 #[tauri::command]
-fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus { state.runtime.lock().unwrap().clone() }
+fn runtime_status(state: State<'_, AppState>) -> RuntimeStatus {
+    state.runtime.lock().unwrap().clone()
+}
 
 #[tauri::command]
-fn set_mode(mode: Mode, activate: bool, window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+fn set_mode(
+    mode: Mode,
+    activate: bool,
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let mut runtime = state.runtime.lock().unwrap();
-    runtime.mode = match mode { Mode::Rest => "rest", Mode::Peek => "peek", Mode::Expanded => "expanded", Mode::Sneak => "sneak", Mode::Hidden => "hidden" }.into();
+    runtime.mode = match mode {
+        Mode::Rest => "rest",
+        Mode::Peek => "peek",
+        Mode::Expanded => "expanded",
+        Mode::Sneak => "sneak",
+        Mode::Hidden => "hidden",
+    }
+    .into();
     let deliberate = activate && matches!(mode, Mode::Peek | Mode::Sneak | Mode::Expanded);
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    let was_foreground =
+        windows::foreground() == window.hwnd().map_err(|e| e.to_string())?.0 as usize;
+    #[cfg(windows)]
+    {
         if deliberate && runtime.previous_window == 0 {
             let current = windows::foreground();
             let own = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
-            if current != own { runtime.previous_window = current; }
+            if current != own {
+                runtime.previous_window = current;
+            }
         }
         windows::passive(&window, !deliberate)?;
         windows::geometry(&window, matches!(mode, Mode::Sneak))?;
@@ -59,21 +98,35 @@ fn set_mode(mode: Mode, activate: bool, window: WebviewWindow, state: State<'_, 
     if deliberate {
         window.set_focus().map_err(|e| e.to_string())?;
     } else if matches!(mode, Mode::Rest | Mode::Hidden) {
-        #[cfg(windows)] { windows::restore(runtime.previous_window); }
+        #[cfg(windows)]
+        {
+            if was_foreground {
+                windows::restore(runtime.previous_window);
+            }
+        }
         runtime.previous_window = 0;
     }
+    #[cfg(debug_assertions)]
+    eprintln!("Island mode: {} (keyboard: {deliberate})", runtime.mode);
     Ok(())
 }
 
 #[cfg(windows)]
 #[tauri::command]
-fn set_regions(rects: Vec<windows::HitRect>, window: WebviewWindow) -> Result<(), String> { windows::regions(&window, rects) }
+fn set_regions(rects: Vec<windows::HitRect>, window: WebviewWindow) -> Result<(), String> {
+    windows::regions(&window, rects)
+}
 #[cfg(not(windows))]
 #[tauri::command]
-fn set_regions(rects: Vec<serde_json::Value>) { let _ = rects; }
+fn set_regions(rects: Vec<serde_json::Value>) {
+    let _ = rects;
+}
 
 #[tauri::command]
-async fn local_command(text: String, state: State<'_, AppState>) -> Result<shell::LocalResult, String> {
+async fn local_command(
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<shell::LocalResult, String> {
     let config = get_config(state).await?;
     Ok(shell::local_command(&text, &config))
 }
@@ -84,57 +137,118 @@ async fn launch(kind: String, id: String, state: State<'_, AppState>) -> Result<
     tauri::async_runtime::spawn_blocking(move || {
         let mut config = config::load(&path)?;
         let result = shell::launch(&mut config, &kind, &id)?;
-        if kind == "project" { config::save(&path, config)?; }
+        if kind == "project" && config::save(&path, config).is_err() {
+            return Ok(format!(
+                "{result} · Last-opened time could not be saved; reload Settings."
+            ));
+        }
         Ok(result)
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(windows)]
 #[tauri::command]
-async fn choose_path(folder: bool, window: WebviewWindow) -> Result<Option<picker::Picked>, String> {
+async fn choose_path(
+    folder: bool,
+    window: WebviewWindow,
+) -> Result<Option<picker::Picked>, String> {
     // An explicit Settings button is the only caller of the native picker.
     let owner = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
-    tauri::async_runtime::spawn_blocking(move || picker::choose(folder, owner)).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || picker::choose(folder, owner))
+        .await
+        .map_err(|e| e.to_string())
 }
 #[cfg(not(windows))]
 #[tauri::command]
-fn choose_path(folder: bool) -> Result<Option<serde_json::Value>, String> { let _ = folder; Err("Native picker is Windows-only in v1".into()) }
+fn choose_path(folder: bool) -> Result<Option<serde_json::Value>, String> {
+    let _ = folder;
+    Err("Native picker is Windows-only in v1".into())
+}
 
 #[tauri::command]
 async fn pin_icon(id: String, state: State<'_, AppState>) -> Result<String, String> {
     let config = get_config(state).await?;
-    let pin = config.pins.iter().find(|p| p.id == id).ok_or("Unknown pin")?;
+    let pin = config
+        .pins
+        .iter()
+        .find(|p| p.id == id)
+        .ok_or("Unknown pin")?;
     let path = pin.path.clone();
-    #[cfg(windows)] { tauri::async_runtime::spawn_blocking(move || picker::icon(&path)).await.map_err(|e| e.to_string())? }
-    #[cfg(not(windows))] { let _ = path; Err("Icon extraction is Windows-only".into()) }
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || picker::icon(&path))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("Icon extraction is Windows-only".into())
+    }
 }
 #[tauri::command]
-fn quit(app: tauri::AppHandle) { app.exit(0); }
+fn quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| { let _ = app.emit("hotkey", "expand"); }))
-        .invoke_handler(tauri::generate_handler![get_config, save_config, runtime_status, set_mode,
-            set_regions, local_command, launch, choose_path, pin_icon, quit])
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            let _ = app.emit("hotkey", "expand");
+        }))
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            save_config,
+            runtime_status,
+            set_mode,
+            set_regions,
+            local_command,
+            launch,
+            choose_path,
+            pin_icon,
+            quit
+        ])
         .setup(|app| {
-            let path = std::env::var_os("FRIDAY_ISLAND_CONFIG").map(PathBuf::from).map(Ok).unwrap_or_else(config::path)?;
-            if !path.is_absolute() { return Err("FRIDAY_ISLAND_CONFIG must be absolute".into()); }
+            let path = std::env::var_os("FRIDAY_ISLAND_CONFIG")
+                .map(PathBuf::from)
+                .map(Ok)
+                .unwrap_or_else(config::path)?;
+            if !path.is_absolute() {
+                return Err("FRIDAY_ISLAND_CONFIG must be absolute".into());
+            }
             let config = config::load(&path)?;
             let (sender, receiver) = mpsc::channel();
-            let mut runtime = RuntimeStatus { mode: "rest".into(), ..Default::default() };
-            let window = app.get_webview_window("main").ok_or("Missing main window")?;
-            #[cfg(windows)] {
+            let mut runtime = RuntimeStatus {
+                mode: "rest".into(),
+                ..Default::default()
+            };
+            let window = app
+                .get_webview_window("main")
+                .ok_or("Missing main window")?;
+            #[cfg(windows)]
+            {
                 windows::passive(&window, true)?;
                 windows::regions(&window, vec![])?;
                 windows::geometry(&window, false)?;
-                runtime.acrylic = window_vibrancy::apply_acrylic(&window, Some((15, 16, 19, 175))).is_ok();
+                runtime.acrylic =
+                    window_vibrancy::apply_acrylic(&window, Some((15, 16, 19, 175))).is_ok();
                 runtime.reduce_motion = windows::reduce_motion();
             }
-            app.manage(AppState { path, runtime: Mutex::new(runtime), hotkeys: sender.clone() });
+            app.manage(AppState {
+                path,
+                runtime: Mutex::new(runtime),
+                hotkeys: sender.clone(),
+            });
             sender.send(config.hotkeys)?;
-            #[cfg(windows)] windows::start(app.handle().clone(), receiver);
-            #[cfg(not(windows))] drop(receiver);
+            #[cfg(windows)]
+            windows::start(app.handle().clone(), receiver);
+            #[cfg(not(windows))]
+            drop(receiver);
             window.show()?;
+            #[cfg(windows)]
+            windows::passive(&window, true)?;
             Ok(())
         })
         .run(tauri::generate_context!())

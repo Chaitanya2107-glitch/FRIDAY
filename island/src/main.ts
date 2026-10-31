@@ -152,7 +152,8 @@ function applyConfig() {
   if (config.appearance.idle_mode === 'hover' && mode === 'rest') void setMode('hidden');
 }
 function updateLive() {
-  live.textContent = online ? snippet || 'Here when you need me' : 'FRIDAY offline';
+  live.textContent = online ? snippet : 'FRIDAY offline';
+  root.classList.toggle('character-only', !config.appearance.snippet || (online && !snippet.trim()));
   live.title = live.textContent; surface.classList.toggle('offline', !online); mood();
 }
 function pinButton(pin: Config['pins'][number]) {

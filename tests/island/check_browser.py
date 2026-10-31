@@ -27,7 +27,8 @@ async def main():
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "config.json"
         config = load_config(path)
-        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"})])
+        from datetime import datetime
+        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"}, now=lambda: datetime(2026, 10, 31, 10, 20))])
         class DelayedBridge(Bridge):
             slow = False
             async def send(self, ws, kind, id=None, **data):
@@ -104,6 +105,12 @@ async def main():
                 await page.goto("http://127.0.0.1:1420")
                 surface = page.locator(".surface")
                 await expect(page.locator(".live-line")).to_have_text("Next: DBMS · 10:30")
+                for ws in tuple(bridge.clients):
+                    await bridge.send(ws, 'pill_snippet_update', text='', plugin=None)
+                await expect(page.locator('#app')).to_have_class('character-only')
+                for ws in tuple(bridge.clients):
+                    await bridge.send(ws, 'pill_snippet_update', text='Next: DBMS · 10:30', plugin='college_schedule')
+                await expect(page.locator('#app')).not_to_have_class('character-only')
                 await expect(surface).to_have_attribute("data-mode", "rest")
                 await surface.hover()
                 await expect(surface).to_have_attribute("data-mode", "peek")

@@ -79,7 +79,8 @@ def main():
         async def answer(_text): return 'Tool-free fixture reply'
 
         async def serve_fixture():
-            registry = Registry([CollegePlugin(lambda: {'subject': 'DBMS', 'start': '10:30'})])
+            from datetime import datetime
+            registry = Registry([CollegePlugin(lambda: {'subject': 'DBMS', 'start': '10:30'}, now=lambda: datetime(2026, 10, 31, 10, 20))])
             bridge = ObservedBridge(path, registry, Engine(registry, answer))
             try:
                 async with serve(bridge.handle, '127.0.0.1', 0, origins=ORIGINS) as server:

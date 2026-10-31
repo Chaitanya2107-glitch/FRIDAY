@@ -17,6 +17,26 @@ from services.friday_island_server.server import Bridge, ORIGINS
 
 
 class ConfigTests(unittest.TestCase):
+    def test_future_class_snippet_includes_weekday(self):
+        from datetime import datetime, timedelta
+        future = datetime.now().date() + timedelta(days=2)
+        plugin = CollegePlugin(lambda: {"subject": "PB", "start": "08:30", "date": future.isoformat()})
+        self.assertEqual(plugin.snippet(), "")
+        self.assertEqual(plugin.next_text(), f"Next: PB · {future.strftime('%a')} 08:30")
+        today = CollegePlugin(lambda: {"subject": "PB", "start": "10:30", "date": datetime.now().date().isoformat()})
+        self.assertEqual(today.next_text(), "Next: PB · 10:30")
+
+    def test_class_pill_only_in_fifteen_minute_window(self):
+        from datetime import datetime, timedelta
+        now = datetime(2026, 10, 31, 10, 0)
+        for minutes in [16, 15, 1, 0, -1, 1440]:
+            start = now + timedelta(minutes=minutes)
+            plugin = CollegePlugin(lambda: {"subject": "PB", "start": start.strftime('%H:%M'), "date": start.date().isoformat()}, now=lambda: now)
+            self.assertEqual(bool(plugin.snippet()), 0 < minutes <= 15)
+            self.assertIn('PB', plugin.next_text())
+        registry = Registry([CollegePlugin(lambda: None)])
+        self.assertEqual(registry.snippet()['text'], '')
+
     def test_indexed_favourites_and_recents_roundtrip(self):
         ref = "app-" + "a" * 32
         config = IslandConfig.model_validate({"pins": [{"id": ref, "name": "Calculator", "app_id": ref}],
@@ -108,7 +128,8 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "config.json"
         self.config = load_config(self.path)
-        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"})])
+        from datetime import datetime
+        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"}, now=lambda: datetime(2026, 10, 31, 10, 20))])
         self.bridge = Bridge(self.path, registry, Engine(registry, self.answer))
         self.server = await serve(self.bridge.handle, "127.0.0.1", 0, origins=ORIGINS, max_size=16384)
         self.url = f"ws://127.0.0.1:{self.server.sockets[0].getsockname()[1]}"

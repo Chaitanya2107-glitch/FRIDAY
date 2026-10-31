@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Awaitable, Callable, Protocol
 
 
@@ -28,19 +28,20 @@ class StubPlugin:
         self.manifest, self.text = manifest, text
 
     def snippet(self) -> str:
-        return self.text
+        return ""  # Stub plugins have no live event to announce.
 
     def widget(self) -> dict:
-        return {"title": self.manifest.name, "text": self.snippet(), "placeholder": True}
+        return {"title": self.manifest.name, "text": self.text, "placeholder": True}
 
     async def command(self, text: str) -> dict:
         return {"text": f"{self.manifest.name} is a v1 placeholder. Full tools arrive in v2.", "ok": True}
 
 
 class CollegePlugin(StubPlugin):
-    def __init__(self, next_class: Callable[[], dict | None] | None = None):
+    def __init__(self, next_class: Callable[[], dict | None] | None = None, now: Callable[[], datetime] = datetime.now):
         super().__init__(Manifest("college_schedule", "College schedule", ("next",)), "No timetable yet")
         self.next_class = next_class or self._next_class
+        self.now = now
 
     @staticmethod
     def _next_class() -> dict | None:
@@ -50,16 +51,36 @@ class CollegePlugin(StubPlugin):
     def snippet(self) -> str:
         try:
             row = self.next_class()
-            return f"Next: {str(row['subject'])[:38]} · {row['start']}" if row else "No upcoming classes"
+            if not row:
+                return ""
+            now = self.now()
+            start = datetime.fromisoformat(f"{row.get('date', now.date().isoformat())}T{row['start']}")
+            if not timedelta(0) < start - now <= timedelta(minutes=15):
+                return ""
+            return self.describe(row)
+        except Exception:
+            return ""
+
+    def describe(self, row: dict | None) -> str:
+        if not row:
+            return "No upcoming classes"
+        day = ""
+        if row.get("date") and row["date"] != self.now().date().isoformat():
+            day = datetime.fromisoformat(row["date"]).strftime("%a ")
+        return f"Next: {str(row['subject'])[:38]} · {day}{row['start']}"
+
+    def next_text(self) -> str:
+        try:
+            return self.describe(self.next_class())
         except Exception:
             return self.text
 
     def widget(self) -> dict:
-        return {"title": self.manifest.name, "text": self.snippet(), "placeholder": False}
+        return {"title": self.manifest.name, "text": self.next_text(), "placeholder": False}
 
     async def command(self, text: str) -> dict:
         import asyncio
-        return {"text": await asyncio.to_thread(self.snippet), "ok": True}
+        return {"text": await asyncio.to_thread(self.next_text), "ok": True}
 
 
 class Registry:

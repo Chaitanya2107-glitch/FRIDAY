@@ -14,6 +14,12 @@ const paths: Record<string, string> = {
   grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
   back: '<path d="m14 6-6 6 6 6"/>',
   power: '<path d="M12 3v9M6 6a9 9 0 1 0 12 0"/>',
+  battery: '<rect x="2" y="6" width="18" height="12" rx="3"/><path d="M22 10v4"/>',
+  music: '<path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="17" cy="16" rx="3" ry="3"/>',
+  play: '<path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/>',
+  pause: '<path d="M9 5v14M16 5v14" stroke-width="3"/>',
+  previous: '<path d="m18 5-10 7 10 7Z" fill="currentColor" stroke="none"/><path d="M5 5v14"/>',
+  next: '<path d="m6 5 10 7-10 7Z" fill="currentColor" stroke="none"/><path d="M19 5v14"/>',
 };
 export function icon(name: string): SVGElement {
   const holder = document.createElement('span');

@@ -53,6 +53,9 @@ async def main():
                 window.launches = [];
                 window.nativeModes = [];
                 window.rescans = 0;
+                window.desktop = {battery:{percent:74,charging:true,plugged_in:true},media:null};
+                window.mediaActions = [];
+                window.desktopReads = 0;
                 window.catalog = [
                     {id:'app-'+ 'a'.repeat(32),name:'Calculator',source:'Windows Store',kind:'app',pinned:false},
                     {id:'app-'+ 'b'.repeat(32),name:'Duplicate',source:'Start Menu',kind:'app',pinned:false},
@@ -66,6 +69,13 @@ async def main():
                     transformCallback(fn) { const id = ++next; callbacks.set(id, fn); return id; },
                     async invoke(cmd, args) {
                         if (cmd === 'get_config') return structuredClone(window.fixture);
+                        if (cmd === 'desktop_status') { window.desktopReads++; return structuredClone(window.desktop); }
+                        if (cmd === 'media_control') {
+                            if (args.source !== window.desktop.media.source) throw new Error('Player changed');
+                            window.mediaActions.push(args.action);
+                            if (args.action === 'toggle') window.desktop.media.playing = !window.desktop.media.playing;
+                            return;
+                        }
                         if (cmd === 'app_index_status') return {count:window.catalog.length,scanning:false,updated_at:1,errors:[]};
                         if (cmd === 'search_apps') return window.catalog.filter(a=>a.name.toLowerCase().includes(args.query.toLowerCase())).map(a=>({...a,pinned:window.fixture.pins.some(p=>p.app_id===a.id)}));
                         if (cmd === 'rescan_apps') { window.rescans++; return {count:window.catalog.length,scanning:false,updated_at:1,errors:[]}; }
@@ -98,10 +108,12 @@ async def main():
             """.replace("SAMPLE", json.dumps(sample))
             async with async_playwright() as playwright:
                 browser = await playwright.chromium.launch()
-                page = await browser.new_page(viewport={"width": 720, "height": 560}, device_scale_factor=1.5)
+                page = await browser.new_page(viewport={"width": 720, "height": 560}, device_scale_factor=1.5, timezone_id='UTC')
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 await page.add_init_script(script)
+                from datetime import timezone
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 0, 0, tzinfo=timezone.utc))
                 await page.goto("http://127.0.0.1:1420")
                 surface = page.locator(".surface")
                 await expect(page.locator(".live-line")).to_have_text("Next: DBMS · 10:30")
@@ -110,7 +122,35 @@ async def main():
                     await bridge.send(ws, 'pill_snippet_update', text='', plugin=None)
                 await expect(page.locator('#app')).to_have_class('character-only')
                 await page.wait_for_timeout(300)
-                assert abs((await page.locator('.surface').bounding_box())['width'] - 278) < 1, 'Quiet capsule shrank to character'
+                bounds = await surface.bounding_box()
+                assert abs(bounds['width'] - 360) < 1, 'Rest capsule changed width'
+                orb = await page.locator('.character').bounding_box()
+                assert abs(orb['x'] + orb['width'] / 2 - bounds['x'] - bounds['width'] / 2) < 0.5, 'Orb is not centered'
+                await expect(page.locator('.clock-time')).to_have_text('12:00')
+                await expect(page.locator('.clock-period')).to_have_text('AM')
+                await expect(page.locator('.clock-date')).to_have_text('31 Oct')
+                await expect(page.locator('.capsule-battery')).to_have_attribute('aria-label', 'Battery 74% · Charging')
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.clock-time')).to_have_text('12:00')
+                await expect(page.locator('.clock-period')).to_have_text('PM')
+                await page.clock.set_fixed_time(datetime(2026, 11, 1, 0, 0, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.clock-date')).to_have_text('1 Nov')
+                await expect(page.locator('.rest-clock .clock-secondary')).to_have_text('Sunday')
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 10, 3, tzinfo=timezone.utc))
+                await page.evaluate("""() => {
+                    window.desktop.media = {source:'fixture-player',title:'Golden hour',artist:'FRIDAY test artist',playing:true,can_toggle:true,can_previous:true,can_next:true};
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await expect(page.locator('.media-title')).to_have_text('Golden hour')
+                await page.screenshot(path='tasks/island-capsule.png')
+                await page.get_by_role('button', name='Pause', exact=True).click()
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await page.get_by_role('button', name='Play', exact=True).click()
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await page.mouse.move(0, 400)
                 for ws in tuple(bridge.clients):
                     await bridge.send(ws, 'pill_snippet_update', text='Next: DBMS · 10:30', plugin='college_schedule')
                 await expect(page.locator('#app')).not_to_have_class('character-only')
@@ -118,6 +158,25 @@ async def main():
                 await surface.hover()
                 await expect(surface).to_have_attribute("data-mode", "peek")
                 assert not any(v["activate"] for v in await page.evaluate("window.nativeModes"))
+                await page.get_by_role('button', name='Pause', exact=True).click()
+                await expect(page.get_by_role('button', name='Play', exact=True)).to_be_visible()
+                await page.get_by_role('button', name='Previous track', exact=True).click()
+                await page.get_by_role('button', name='Next track', exact=True).click()
+                assert await page.evaluate('window.mediaActions') == ['toggle', 'toggle', 'toggle', 'previous', 'next']
+                assert not any(v['activate'] for v in await page.evaluate('window.nativeModes')), 'Media stole focus'
+                await page.evaluate("""() => {
+                    window.desktop.battery = {percent:null,charging:false,plugged_in:null};
+                    window.desktop.media.title = '<img src=x onerror=alert(1)>';
+                    window.desktop.media.can_next = false;
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await expect(page.locator('.media-title')).to_have_text('<img src=x onerror=alert(1)>')
+                assert await page.locator('.media-title img').count() == 0, 'Media metadata interpreted as HTML'
+                await expect(page.get_by_role('button', name='Next track', exact=True)).to_be_disabled()
+                await expect(page.locator('.capsule-battery')).to_have_attribute('aria-label', 'Battery status unavailable')
+                await page.evaluate("window.desktop.media = null; window.desktop.battery = null; window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                await expect(page.locator('.capsule-battery')).to_be_hidden()
                 await page.evaluate("window.__emit('hotkey','expand')")
                 await expect(surface).to_have_attribute("data-mode", "expanded")
                 await page.screenshot(path="tasks/island-expanded.png")
@@ -150,8 +209,18 @@ async def main():
                 assert (await page.evaluate('window.fixture.projects'))[0]['name'] == 'Workspace'
                 await page.keyboard.press("Escape")
                 await expect(surface).to_have_attribute("data-mode", "rest")
+                await page.evaluate("""() => {
+                    window.desktop.media = {source:'fixture-player',title:'Local song',artist:'Test artist',playing:true,can_toggle:true,can_previous:false,can_next:false};
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await expect(page.locator('.capsule-media')).to_be_visible()
                 await page.evaluate("window.__emit('hotkey','sneak')")
                 await expect(surface).to_have_attribute("data-mode", "sneak")
+                await expect(page.locator('.rest-info').first).to_be_hidden()
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                reads = await page.evaluate('window.desktopReads')
+                await page.wait_for_timeout(2200)
+                assert await page.evaluate('window.desktopReads') == reads, 'Sneak kept polling Windows media'
                 await expect(surface).to_have_attribute('data-mood', 'sleepy')
                 command = page.get_by_role("combobox", name="FRIDAY command")
                 await command.fill("ne")
@@ -208,7 +277,7 @@ async def main():
                 assert not errors, errors
                 assert await page.evaluate("window.launches.length") == 2
                 await browser.close()
-                print("PASS: real bridge/Chromium, four states, app ID selection + Tab, pin/unpin, reorder, command priority, offline app search/launch, rescan, reconnect, reduced motion")
+                print("PASS: centered capsule, 12h midnight/noon + date rollover, battery, media + literal metadata + passive controls; real bridge/Chromium, four states, app search/pins/reorder, offline/reconnect, reduced motion")
 
 
 if __name__ == "__main__":

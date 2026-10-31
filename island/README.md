@@ -47,10 +47,11 @@ network behavior. The island UI itself connects only to `127.0.0.1`.
 
 ## Everyday use
 
-- **Rest:** a full capsule with the character and no visible text for now.
-  Hover reveals Peek. Snippet text and automatic shrinking are temporarily hidden
-  regardless of the saved appearance toggle. `next` still answers on demand;
-  the backend's class reminder window remains 15 minutes before class.
+- **Rest:** a centered amber orb, local **12-hour time** and weekday on the left,
+  date and battery percentage on the right. Charging has an amber indicator.
+  Hover the top row to reveal Peek; the song strip stays put when approached
+  directly, so its controls are immediately clickable. Timetable/plugin snippet
+  text stays hidden; `next` still answers on demand.
 - **Peek:** one command input, up to eight visible app icons, Projects and Settings.
   Hover does not activate the window. Clicking the input deliberately activates it.
 - **Expanded:** Projects · Plugins · Settings. Extra pinned apps appear above
@@ -78,6 +79,20 @@ motion. The native window and WebView are fully transparent. The dark glass,
 CSS backdrop blur, border and shadow belong only to the island element; no
 native acrylic/mica/vibrancy is applied. Native size follows the animated
 element bounds, keeping the top-center anchor (or centered Sneak box).
+
+When a Windows media session is playing or paused, a small **current-song strip**
+shows the title/artist with previous, play/pause and next buttons. It works with
+players and browser tabs that expose Windows system media controls. Unsupported
+buttons are disabled; closing the player hides the strip. No player is launched,
+no media keys are injected, and metadata is never fetched from the internet.
+Media clicks leave keyboard focus in your current app. The strip remains available
+in Peek/Expanded, and disappears with the rest of the island in Sneak.
+
+Time, date, battery and media are native/local and work **without Python**.
+The clock updates on minute boundaries; battery/media refresh about every two
+seconds while the island is visible. These timers pause in Hidden/Sneak, and resume
+on return. Unknown battery readings show a dash; a machine without a battery omits
+the indicator. Windows media requests time out rather than blocking the UI.
 
 ## Installed apps and favourites
 
@@ -150,7 +165,7 @@ private: do not publish this file or its corruption backups.
 | `appearance.glow` | `#FFB347` |
 | `appearance.idle_mode` | `always`, `auto-hide`, or `hover` |
 | `appearance.idle_seconds` | `30`; range 5–3600 |
-| `appearance.snippet` | `true`; false gives a character-only Rest |
+| `appearance.snippet` | `true`; retained for plugin snippets, currently hidden; clock capsule stays visible |
 | `connection.port` | `17321`; range 1024–65535 |
 | `connection.token` | 64 lowercase hex characters, generated on first run |
 
@@ -230,6 +245,21 @@ and verifies offline search/launch, icons, pin/unpin, rescanning and persistence
 ```powershell
 venv/Scripts/python.exe -B tests/island/check_apps_native.py
 ```
+
+To check the clock/battery/media capsule against real Windows APIs (close the
+normal Island first), run:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_capsule_native.py
+```
+
+It publishes an owned, local silent test player, verifies track metadata and
+real mouse playback controls without activation, and refuses stale/unknown
+actions. It never controls an existing player or needs the Python bridge.
+The native integration uses Microsoft's
+[Windows media-session API](https://devblogs.microsoft.com/oldnewthing/20231108-00/?p=108980)
+and [system power status](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-system_power_status).
+
 See [validation evidence](docs/VALIDATION.md) for measured checks and remaining
 manual coverage, and [the protocol](docs/PROTOCOL.md) for connection details.
 

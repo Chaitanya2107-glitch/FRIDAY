@@ -21,6 +21,7 @@ def main():
     # Test keys avoid FRIDAY's existing default binding.
     config.write_text(json.dumps({'hotkeys': {'sneak': 'Ctrl+Shift+Alt+F23', 'expand': 'Ctrl+Shift+Alt+F24'}}), encoding='utf-8')
     original_cursor = w.POINT(); u.GetCursorPos(c.byref(original_cursor))
+    u.SetCursorPos(u.GetSystemMetrics(0) // 2, 450)
     evidence = {}
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(str(output / 'browser-profile'), headless=False,
@@ -110,7 +111,7 @@ def main():
 
             evidence['dpi'] = u.GetDpiForWindow(hwnd)
             evidence['rest'] = bounds()
-            assert evidence['rest'][2] < 400 * ratio and evidence['rest'][3] < 90 * ratio, evidence
+            assert evidence['rest'][2] < 400 * ratio and evidence['rest'][3] < 120 * ratio, evidence
             # Re-establish the controlled stack after startup: this owned browser
             # under the Island, both above unrelated Chrome windows/overlays.
             page.bring_to_front()

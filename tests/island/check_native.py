@@ -122,6 +122,8 @@ def main():
 
     pump(); fixture_a = focus(host)
     cursor = w.POINT(); u.GetCursorPos(c.byref(cursor))
+    # Rest's initial size must not depend on where the owner left the pointer.
+    u.SetCursorPos(u.GetSystemMetrics(0) // 2, 450)
     env = dict(os.environ, FRIDAY_ISLAND_CONFIG=str(path))
     log = (output / "app.log").open("w", encoding="utf-8")
     executable = ROOT / 'island/src-tauri/target' / ('release' if release else 'debug') / 'friday-island.exe'
@@ -180,7 +182,8 @@ def main():
                 if p.is_file(): archive.write(p, str(p.relative_to(ROOT)))
         evidence["rest_region"] = rest = region()
         evidence['rest_size'] = [bounds.right - bounds.left, bounds.bottom - bounds.top]
-        assert evidence['rest_size'][0] < 400 * evidence['dpi'] / 96 and evidence['rest_size'][1] < 90 * evidence['dpi'] / 96
+        # The optional now-playing strip adds 38 logical pixels to the clock capsule.
+        assert evidence['rest_size'][0] < 400 * evidence['dpi'] / 96 and evidence['rest_size'][1] < 120 * evidence['dpi'] / 96, evidence
         assert all(evidence[k] for k in ["no_activate", "tool_window", "always_on_top", "top_edge"]), evidence
         handle = g.CreateRectRgn(0, 0, 0, 0); u.GetWindowRgn(hwnd, handle)
         assert not g.PtInRegion(handle, 0, 0), "Empty area blocks clicks"

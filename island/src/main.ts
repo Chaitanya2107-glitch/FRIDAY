@@ -1,6 +1,7 @@
 import './style.css';
 import { Connection } from './connection';
 import { Apps } from './apps';
+import { Capsule } from './capsule';
 import { call, native, on, previewConfig } from './native';
 import { character, icon } from './icons';
 import { button, Settings } from './settings';
@@ -12,6 +13,7 @@ const surface = el('section', 'surface'); surface.dataset.hit = ''; surface.data
 surface.setAttribute('aria-label', 'FRIDAY Island');
 const row = el('div', 'island-row');
 const orb = character();
+const capsule = new Capsule(message);
 const live = el('span', 'live-line', 'FRIDAY offline');
 const command = el('input', 'command');
 command.placeholder = 'A thought, a command…'; command.autocomplete = 'off'; command.spellcheck = false; command.maxLength = 4000;
@@ -22,13 +24,13 @@ const projectsButton = button('Projects', 'projects', () => openTab('projects'))
 const settingsButton = button('Settings', 'settings', () => openTab('settings'));
 const closeButton = button('Close · Esc', 'close', () => dispatch('escape'));
 const tools = el('div', 'tools'); tools.append(pins, projectsButton, settingsButton, closeButton);
-row.append(orb, live, command, tools);
+row.append(capsule.left, orb, capsule.right, live, command, tools);
 const results = el('div', 'suggestions'); results.id = 'suggestions'; results.setAttribute('role', 'listbox');
 const body = el('div', 'expanded-body');
 const tabs = el('nav', 'tabs'); tabs.setAttribute('aria-label', 'Island tabs');
 const panels = el('div', 'panels');
 const expandedInner = el('div', 'expanded-inner'); expandedInner.append(tabs, panels);
-body.append(expandedInner); surface.append(row, results, body);
+body.append(expandedInner); surface.append(row, capsule.media, results, body);
 const feedback = el('div', 'feedback'); feedback.dataset.hit = ''; feedback.setAttribute('role', 'status'); feedback.hidden = true;
 root.append(surface, feedback);
 
@@ -117,6 +119,7 @@ async function setMode(next: Mode, activate = false) {
   mode = next; active = activate && ['peek', 'expanded', 'sneak'].includes(next);
   surface.dataset.mode = next;
   root.dataset.mode = next;
+  capsule.setMode(next);
   command.placeholder = next === 'sneak' ? 'What would you like to do?' : 'A thought, a command…';
   if (next === 'rest' || next === 'hidden') { command.value = ''; clearSuggestions(); feedback.hidden = true; }
   if (next === 'sneak') feedback.hidden = true;
@@ -130,7 +133,9 @@ function dispatch(event: Parameters<typeof transition>[1], activate = false) {
   return setMode(transition(mode, event, config.appearance.idle_mode !== 'always'), activate);
 }
 async function openTab(next: Tab) { tab = next; await setMode('expanded', active); }
-surface.onpointerenter = () => { clearTimeout(leaveTimer); if (mode === 'rest') void dispatch('hover'); };
+surface.onpointerenter = () => clearTimeout(leaveTimer);
+// Entering the song strip keeps its controls stationary and immediately clickable.
+row.onpointerenter = () => { if (mode === 'rest') void dispatch('hover'); };
 surface.onpointerleave = () => {
   if (mode === 'peek' && !active && !command.value) leaveTimer = setTimeout(() => void dispatch('leave'), 400);
 };
@@ -319,6 +324,7 @@ async function boot() {
   try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
   catch (error) { message(String(error), true); }
   applyConfig(); connect();
+  capsule.setMode(mode);
   await apps.start(() => { icons.clear(); renderPins(); if (mode === 'expanded' && tab === 'settings' && settings.section === 'apps') settings.render(); });
   applyLimits();
   document.documentElement.classList.toggle('reduce-motion', nativeStatus.reduce_motion);

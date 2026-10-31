@@ -18,3 +18,9 @@ export interface CommandResult { text: string; ok: boolean; action?: { kind: 'se
 export interface Manifest { id: string; name: string; version: number; commands: string[]; widget: boolean }
 export interface Widget { title: string; text: string; placeholder?: boolean }
 export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean }
+export interface BatteryStatus { percent: number | null; charging: boolean; plugged_in: boolean | null }
+export interface MediaSession {
+  source: string; title: string; artist: string; playing: boolean;
+  can_toggle: boolean; can_previous: boolean; can_next: boolean;
+}
+export interface DesktopStatus { battery: BatteryStatus | null; media: MediaSession | null }

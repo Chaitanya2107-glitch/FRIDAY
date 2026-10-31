@@ -1,5 +1,50 @@
 # FRIDAY Island v1 validation
 
+## Clock, battery and media capsule — 2026-10-31
+
+Rest now uses a 360px capsule: 12-hour clock/weekday left, orb at the geometric
+center, date/battery right. A 38px song strip appears only for a Windows media
+session that is playing or paused. Plugin/timetable text remains hidden.
+This section supersedes the earlier Rest sizes and character-only behavior.
+
+The source/executable hashes and check commands are recorded in
+[capsule-validation.json](capsule-validation.json). Native integration was
+committed separately as `9860cf8`. No existing Python assistant module changed.
+
+- **Build:** TypeScript/Vite and standalone Tauri release passed offline, using
+  additional features of the existing Windows crate; no new package was added.
+- **Rust:** 9 passed; the pre-existing live app-discovery test stays opt-in.
+  Battery tests distinguish charging, missing batteries, unknown readings and 0%.
+  Media commands accept only previous/toggle/next.
+- **Frontend:** 5 unit tests passed. Chromium at 150% pixel scale checked exact orb
+  centering, midnight/noon AM/PM, date rollover, battery unknown/missing states,
+  direct Rest media clicks without expansion, safe literal song metadata,
+  capability-disabled controls, Sneak polling pause, and existing command flows.
+- **Real Windows, 120 DPI / 125%:** a local silent Chromium fixture supplied a
+  real SMTC session. Title/artist, play/pause/previous/next and battery matched
+  Windows. Real mouse clicks preserved the foreground application; invalid
+  actions and a different player source were rejected before any control fired.
+- **Native regression:** all four states, hover, hotkeys, rounded hit regions,
+  focus restoration and centered Sneak passed. Compositor pixels outside the
+  capsule remained unchanged and real mouse/keyboard input reached the browser
+  underneath. Rest measured 475×82 physical pixels without active media.
+- **Idle cost:** offline Rest across the Island and six WebView2 processes used
+  0.94% of one CPU core over five seconds after a five-second warm-up. This is a
+  short sample, not a battery-life estimate. Clock updates once per minute;
+  battery/media poll about every two seconds, paused in Hidden/Sneak.
+
+Run `tests/island/check_capsule_native.py` against the release build with the
+normal Island closed. It creates only its own local silent player, isolated
+config and temporary WebView2 inspection port; it never controls an owner player.
+The ordinary app has no inspection port. Full captures are under the ignored
+`tasks/island-capsule-native`, `tasks/island-native-release` and
+`tasks/island-transparency` directories.
+
+Manual follow-up: play a song in your usual Windows-media-aware player/browser;
+check title changes, pause/resume and track skipping while typing elsewhere.
+Plug/unplug the charger and check the charging indicator. Separate Windows 10
+hardware and changing display scale while running remain manual coverage.
+
 ## Installed-app launching follow-up
 
 The window fix was committed first as `689b48e`; the native catalog followed in

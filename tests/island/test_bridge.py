@@ -17,6 +17,16 @@ from services.friday_island_server.server import Bridge, ORIGINS
 
 
 class ConfigTests(unittest.TestCase):
+    def test_indexed_favourites_and_recents_roundtrip(self):
+        ref = "app-" + "a" * 32
+        config = IslandConfig.model_validate({"pins": [{"id": ref, "name": "Calculator", "app_id": ref}],
+                                              "recent_apps": [{"id": ref, "last_used": 12345, "count": 3}]})
+        self.assertEqual(config.pins[0].path, "")
+        self.assertEqual(IslandConfig.model_validate_json(config.model_dump_json()).recent_apps[0].count, 3)
+        for invalid in [{"pins": [{"id": "x", "name": "X", "app_id": ref, "path": "C:/app.exe"}]},
+                        {"pins": [{"id": "x", "name": "X", "app_id": "C:/app.exe"}]}]:
+            with self.assertRaises(ValidationError): IslandConfig.model_validate(invalid)
+
     def test_missing_token_is_materialized_without_losing_hand_edits(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -73,13 +83,14 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         result = await self.engine.execute("proj fri", self.config)
         self.assertEqual(result["action"], {"kind": "project", "id": "friday"})
         result = await self.engine.execute("open edit", self.config)
-        self.assertEqual(result["action"]["id"], "editor")
-        self.assertFalse((await self.engine.execute("open powershell; rm", self.config))["ok"])
+        self.assertEqual(result["action"], {"kind": "app_search", "query": "edit"})
+        # Python never resolves an executable or launches it; native catalog enforces this.
+        self.assertEqual((await self.engine.execute("open powershell; rm", self.config))["action"]["kind"], "app_search")
         self.assertEqual(self.seen, [])
 
     async def test_ambiguous_and_hidden_pins_are_not_launched(self):
         self.config.pins[0].visible = False
-        self.assertFalse((await self.engine.execute("open editor", self.config))["ok"])
+        self.assertEqual((await self.engine.execute("open editor", self.config))["action"]["kind"], "app_search")
         self.config.projects.append(Project(id="other", name="FRIDAY Test", path="C:/test"))
         self.assertFalse((await self.engine.execute("proj fri", self.config))["ok"])
         self.assertEqual((await self.engine.execute("proj FRIDAY", self.config))["action"]["id"], "friday")

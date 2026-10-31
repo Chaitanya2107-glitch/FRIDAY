@@ -1,4 +1,4 @@
-//! Only persisted configuration can name an executable, URL, or argument.
+//! Saved manual pins/projects. The installed-app catalog is the other launch authority.
 use crate::config::{Action, Config};
 use serde::Serialize;
 use std::{path::Path, process::Command};
@@ -9,7 +9,7 @@ pub fn wide(text: &str) -> Vec<u16> {
 }
 
 #[cfg(windows)]
-fn shell_open(path: &str) -> Result<(), String> {
+pub fn shell_open(path: &str) -> Result<(), String> {
     use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
     let target = wide(path);
     let result = unsafe {
@@ -32,7 +32,7 @@ fn shell_open(path: &str) -> Result<(), String> {
     }
 }
 #[cfg(not(windows))]
-fn shell_open(_path: &str) -> Result<(), String> {
+pub fn shell_open(_path: &str) -> Result<(), String> {
     Err("Launching is implemented for Windows in v1".into())
 }
 
@@ -59,8 +59,8 @@ pub fn launch(config: &mut Config, kind: &str, id: &str) -> Result<String, Strin
             let pin = config
                 .pins
                 .iter()
-                .find(|p| p.id == id && p.visible)
-                .ok_or("App is not configured or is hidden")?;
+                .find(|p| p.id == id && p.app_id.is_none())
+                .ok_or("Manual favourite not found")?;
             if !Path::new(&pin.path).is_file() {
                 return Err("Configured app is missing".into());
             }
@@ -103,7 +103,7 @@ pub fn launch(config: &mut Config, kind: &str, id: &str) -> Result<String, Strin
             );
             Ok(format!("Opened {}", project.name))
         }
-        _ => Err("Unsupported action; only configured apps/projects can launch".into()),
+        _ => Err("Unsupported launch action".into()),
     }
 }
 
@@ -160,15 +160,6 @@ pub fn local_command(text: &str, config: &Config) -> LocalResult {
         );
     }
     let (kind, items): (&str, Vec<(&str, &str)>) = match head.to_lowercase().as_str() {
-        "open" => (
-            "pin",
-            config
-                .pins
-                .iter()
-                .filter(|p| p.visible)
-                .map(|p| (p.id.as_str(), p.name.as_str()))
-                .collect(),
-        ),
         "proj" => (
             "project",
             config
@@ -191,7 +182,7 @@ pub fn local_command(text: &str, config: &Config) -> LocalResult {
         .collect();
     ranked.sort_by(|a, b| b.0.cmp(&a.0));
     if ranked.is_empty() {
-        return result("No configured match. Add it in Settings.", None);
+        return result("No project found. Add it in Settings.", None);
     }
     if ranked.len() > 1 && ranked[0].0 == ranked[1].0 {
         return result("More than one match. Use a longer name.", None);

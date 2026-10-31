@@ -69,7 +69,6 @@ pub fn choose(folder: bool, owner: usize) -> Option<Picked> {
 }
 
 pub fn icon(path: &str) -> Result<String, String> {
-    use base64::Engine;
     unsafe {
         let mut file: SHFILEINFOW = zeroed();
         if SHGetFileInfoW(
@@ -87,17 +86,25 @@ pub fn icon(path: &str) -> Result<String, String> {
             DestroyIcon(file.hIcon);
             return Err("Icon bitmap unavailable".into());
         }
+        let result = bitmap_png(info.hbmColor);
+        DeleteObject(info.hbmColor);
+        DeleteObject(info.hbmMask);
+        DestroyIcon(file.hIcon);
+        result
+    }
+}
+
+pub fn bitmap_png(handle: HBITMAP) -> Result<String, String> {
+    use base64::Engine;
+    unsafe {
         let mut bitmap: BITMAP = zeroed();
         GetObjectW(
-            info.hbmColor,
+            handle,
             size_of::<BITMAP>() as i32,
             &mut bitmap as *mut _ as _,
         );
         let (width, height) = (bitmap.bmWidth, bitmap.bmHeight);
         if width <= 0 || height <= 0 || width > 256 || height > 256 {
-            DeleteObject(info.hbmColor);
-            DeleteObject(info.hbmMask);
-            DestroyIcon(file.hIcon);
             return Err("Unsupported icon dimensions".into());
         }
         let dc = GetDC(null_mut());
@@ -111,7 +118,7 @@ pub fn icon(path: &str) -> Result<String, String> {
         let mut pixels = vec![0u8; width as usize * height as usize * 4];
         let copied = GetDIBits(
             dc,
-            info.hbmColor,
+            handle,
             0,
             height as u32,
             pixels.as_mut_ptr() as _,
@@ -119,9 +126,6 @@ pub fn icon(path: &str) -> Result<String, String> {
             DIB_RGB_COLORS,
         );
         ReleaseDC(null_mut(), dc);
-        DeleteObject(info.hbmColor);
-        DeleteObject(info.hbmMask);
-        DestroyIcon(file.hIcon);
         if copied == 0 {
             return Err("Could not read icon pixels".into());
         }

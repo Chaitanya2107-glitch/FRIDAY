@@ -18,6 +18,7 @@ pub struct Config {
     pub version: u32,
     pub revision: u64,
     pub pins: Vec<Pin>,
+    pub recent_apps: Vec<RecentApp>,
     pub projects: Vec<Project>,
     pub hotkeys: Hotkeys,
     pub appearance: Appearance,
@@ -27,9 +28,25 @@ pub struct Config {
 pub struct Pin {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub path: String,
+    #[serde(default)]
+    pub app_id: Option<String>,
     #[serde(default = "yes")]
     pub visible: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentApp {
+    pub id: String,
+    pub last_used: u64,
+    pub count: u32,
+}
+pub fn valid_app_id(value: &str) -> bool {
+    value.len() == 36
+        && value.starts_with("app-")
+        && value[4..]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
@@ -123,6 +140,7 @@ impl Default for Config {
             version: 1,
             revision: 0,
             pins: vec![],
+            recent_apps: vec![],
             projects: vec![],
             hotkeys: Hotkeys::default(),
             appearance: Appearance::default(),
@@ -208,7 +226,14 @@ impl Config {
         {
             return Err("Invalid or duplicate app/project IDs".into());
         }
+        let mut app_ids = HashSet::new();
         for pin in &self.pins {
+            if let Some(id) = &pin.app_id {
+                if !valid_app_id(id) || !pin.path.is_empty() || !app_ids.insert(id) {
+                    return Err("Invalid indexed favourite".into());
+                }
+                continue;
+            }
             if !safe_path(&pin.path)
                 || !["exe", "lnk"]
                     .iter()
@@ -216,6 +241,13 @@ impl Config {
             {
                 return Err("Pins must be absolute local .exe or .lnk paths".into());
             }
+        }
+        if self.recent_apps.len() > 100
+            || self.recent_apps.iter().any(|r| {
+                r.id.len() > 128 || r.id.is_empty() || r.id.chars().any(|c| c.is_control())
+            })
+        {
+            return Err("Invalid recent apps".into());
         }
         for project in &self.projects {
             if !safe_path(&project.path) || !color(&project.color) || project.actions.len() > 8 {
@@ -384,6 +416,7 @@ mod tests {
             id: "x".into(),
             name: "X".into(),
             path: "cmd.exe".into(),
+            app_id: None,
             visible: true,
         });
         assert!(invalid.validate().is_err());

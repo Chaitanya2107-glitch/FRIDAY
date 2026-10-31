@@ -19,16 +19,20 @@ class Model(BaseModel):
 class Pin(Model):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     name: str = Field(min_length=1, max_length=80)
-    path: str
+    path: str = ""
+    app_id: str | None = Field(default=None, pattern=r"^app-[a-f0-9]{32}$")
     visible: bool = True
 
-    @field_validator("path")
-    @classmethod
-    def executable(cls, value: str) -> str:
-        absolute_path(value)
-        if Path(value).suffix.lower() not in {".exe", ".lnk"}:
+    @model_validator(mode="after")
+    def executable(self):
+        if self.app_id is not None:
+            if self.path:
+                raise ValueError("Indexed favourites store only an app ID")
+            return self
+        absolute_path(self.path)
+        if Path(self.path).suffix.lower() not in {".exe", ".lnk"}:
             raise ValueError("Pins must be .exe or .lnk files")
-        return value
+        return self
 
 
 def absolute_path(value: str) -> str:
@@ -94,10 +98,17 @@ class Connection(Model):
     token: str = Field(default_factory=lambda: secrets.token_hex(32), pattern=r"^[a-f0-9]{64}$")
 
 
+class RecentApp(Model):
+    id: str = Field(min_length=1, max_length=128)
+    last_used: int = Field(ge=0, le=18446744073709551615)
+    count: int = Field(ge=0, le=4294967295)
+
+
 class IslandConfig(Model):
     version: Literal[1] = 1
     revision: int = Field(default=0, ge=0)
     pins: list[Pin] = Field(default_factory=list, max_length=64)
+    recent_apps: list[RecentApp] = Field(default_factory=list, max_length=100)
     projects: list[Project] = Field(default_factory=list, max_length=64)
     hotkeys: Hotkeys = Field(default_factory=Hotkeys)
     appearance: Appearance = Field(default_factory=Appearance)
@@ -108,6 +119,9 @@ class IslandConfig(Model):
         for items in (self.pins, self.projects):
             if len({p.id for p in items}) != len(items):
                 raise ValueError("Duplicate IDs")
+        app_ids = [p.app_id for p in self.pins if p.app_id is not None]
+        if len(set(app_ids)) != len(app_ids):
+            raise ValueError("Duplicate indexed favourites")
         return self
 
 

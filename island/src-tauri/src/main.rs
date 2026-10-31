@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod apps_commands;
+mod catalog;
 mod config;
+#[cfg(windows)]
+mod discovery;
 #[cfg(windows)]
 mod picker;
 mod shell;
@@ -11,7 +15,7 @@ use config::{Config, Hotkeys};
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Arc, Mutex},
 };
 use tauri::{Emitter, Manager, State, WebviewWindow};
 
@@ -33,6 +37,7 @@ pub struct AppState {
     path: PathBuf,
     runtime: Mutex<RuntimeStatus>,
     hotkeys: mpsc::Sender<Hotkeys>,
+    catalog: Arc<catalog::Catalog>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -150,25 +155,17 @@ async fn local_command(
     text: String,
     state: State<'_, AppState>,
 ) -> Result<shell::LocalResult, String> {
-    let config = get_config(state).await?;
-    Ok(shell::local_command(&text, &config))
+    let config = get_config(state.clone()).await?;
+    Ok(apps_commands::resolve(&text, &config, &state.catalog))
 }
 
 #[tauri::command]
 async fn launch(kind: String, id: String, state: State<'_, AppState>) -> Result<String, String> {
     let path = state.path.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut config = config::load(&path)?;
-        let result = shell::launch(&mut config, &kind, &id)?;
-        if kind == "project" && config::save(&path, config).is_err() {
-            return Ok(format!(
-                "{result} · Last-opened time could not be saved; reload Settings."
-            ));
-        }
-        Ok(result)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let catalog = Arc::clone(&state.catalog);
+    tauri::async_runtime::spawn_blocking(move || apps_commands::launch(&path, &catalog, &kind, &id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(windows)]
@@ -192,13 +189,20 @@ fn choose_path(folder: bool) -> Result<Option<serde_json::Value>, String> {
 
 #[tauri::command]
 async fn pin_icon(id: String, state: State<'_, AppState>) -> Result<String, String> {
-    let config = get_config(state).await?;
+    let config = get_config(state.clone()).await?;
     let pin = config
         .pins
         .iter()
         .find(|p| p.id == id)
         .ok_or("Unknown pin")?;
     let path = pin.path.clone();
+    if let Some(id) = &pin.app_id {
+        let catalog = Arc::clone(&state.catalog);
+        let id = id.clone();
+        return tauri::async_runtime::spawn_blocking(move || catalog.icon(&id))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     #[cfg(windows)]
     {
         tauri::async_runtime::spawn_blocking(move || picker::icon(&path))
@@ -231,6 +235,11 @@ fn main() {
             launch,
             choose_path,
             pin_icon,
+            apps_commands::search_apps,
+            apps_commands::app_index_status,
+            apps_commands::rescan_apps,
+            apps_commands::app_icon,
+            apps_commands::toggle_app_pin,
             quit
         ])
         .setup(|app| {
@@ -267,6 +276,7 @@ fn main() {
                 path,
                 runtime: Mutex::new(runtime),
                 hotkeys: sender.clone(),
+                catalog: Arc::new(catalog::Catalog::default()),
             });
             sender.send(config.hotkeys)?;
             #[cfg(windows)]
@@ -276,6 +286,7 @@ fn main() {
             window.show()?;
             #[cfg(windows)]
             windows::passive(&window, true)?;
+            catalog::Catalog::start(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

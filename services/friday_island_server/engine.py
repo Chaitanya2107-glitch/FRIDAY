@@ -38,8 +38,10 @@ class Engine:
     def suggestions(self, text: str, config: IslandConfig) -> list[dict]:
         head, _, tail = text.strip().partition(" ")
         candidates: list[tuple[str, str]] = []
-        if head in {"open", "proj"}:
-            items = [p for p in config.pins if p.visible] if head == "open" else config.projects
+        if head.casefold() == "open":
+            return []  # Installed apps and favourites are indexed natively.
+        if head == "proj":
+            items = config.projects
             candidates = [(f"{head} {p.name}", p.name) for p in items]
             query = tail
         else:
@@ -57,18 +59,21 @@ class Engine:
         head = head.casefold()
         if head == "settings":
             return {"text": "Settings", "ok": True, "action": {"kind": "settings"}}
-        if head in {"open", "proj"}:
-            items = [p for p in config.pins if p.visible] if head == "open" else config.projects
+        if head == "open":
+            return {"text": "Search installed apps", "ok": True,
+                    "action": {"kind": "app_search", "query": tail.strip()}}
+        if head == "proj":
+            items = config.projects
             if not tail.strip():
-                return {"text": "Choose a configured app or project.", "ok": False}
+                return {"text": "Choose a project.", "ok": False}
             ranked = sorted(items, key=lambda p: score(tail, p.name), reverse=True)
             if not ranked or score(tail, ranked[0].name) < 0.5:
-                return {"text": "No configured match. Add it in Settings.", "ok": False}
+                return {"text": "No project found. Add it in Settings.", "ok": False}
             best = ranked[0]
             if len(ranked) > 1 and score(tail, best.name) == score(tail, ranked[1].name):
                 return {"text": "More than one match. Use a longer name.", "ok": False}
             return {"text": f"Opening {best.name}", "ok": True,
-                    "action": {"kind": "pin" if head == "open" else "project", "id": best.id}}
+                    "action": {"kind": "project", "id": best.id}}
         if head in self.registry.commands:
             return await self.registry.commands[head].command(text)
         return {"text": await self.assistant(text), "ok": True}

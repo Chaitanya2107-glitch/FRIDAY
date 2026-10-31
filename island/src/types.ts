@@ -16,7 +16,14 @@ export interface Config {
 export interface Suggestion { text: string; detail?: string; app?: AppMatch; rescan?: boolean }
 export interface CommandResult { text: string; ok: boolean; action?: { kind: 'settings' | 'pin' | 'project' | 'app' | 'app_search'; id?: string; query?: string } }
 export interface Manifest { id: string; name: string; version: number; commands: string[]; widget: boolean }
-export interface Widget { title: string; text: string; placeholder?: boolean }
+export interface PluginAction { action: string; item?: string; value?: string; revision?: number | null }
+export interface WidgetAction extends PluginAction { label: string; disabled?: boolean }
+export interface Widget {
+  title: string; text: string; placeholder?: boolean;
+  items?: { id: string; label: string; detail: string; action?: WidgetAction }[];
+  input?: { label: string; placeholder: string; action: string; max_length: number };
+}
+export interface PillSnippet { text: string; show_from: number; expires_at: number }
 export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean }
 export interface BatteryStatus { percent: number | null; charging: boolean; plugged_in: boolean | null }
 export interface MediaSession {

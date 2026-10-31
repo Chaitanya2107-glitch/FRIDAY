@@ -1,4 +1,5 @@
-import type { Config, CommandResult, Suggestion, Widget } from './types';
+import type { Config, CommandResult, PluginAction, Suggestion, Widget } from './types';
+import { readWidget } from './widgets.ts';
 
 interface Frame { v: number; type: string; id?: string; [key: string]: unknown }
 export class Connection {
@@ -79,5 +80,9 @@ export class Connection {
     if (!Array.isArray(frame.items)) return [];
     return frame.items.filter((i): i is Suggestion => typeof i === 'object' && i !== null && typeof i.text === 'string').slice(0, 6);
   }
-  async widget(plugin: string): Promise<Widget> { return (await this.request('plugin_widget', { plugin }, 5000)).widget as Widget; }
+  async widget(plugin: string): Promise<Widget> { return readWidget((await this.request('plugin_widget', { plugin }, 5000)).widget); }
+  async pluginAction(plugin: string, action: PluginAction): Promise<CommandResult> {
+    return await this.request('plugin_action', { plugin, action: action.action, item: action.item ?? '',
+      value: action.value ?? '', revision: action.revision ?? null }) as unknown as CommandResult;
+  }
 }

@@ -17,6 +17,10 @@ from websockets.asyncio.server import serve
 from services.friday_island_server.config import load_config
 from services.friday_island_server.engine import Engine
 from services.friday_island_server.plugins import CollegePlugin, Registry
+from services.friday_island_server.productivity import TrackerPlugin
+from services.productivity.store import Tracker
+from services.mind.cognition import Cognition
+from services.mind.workspace import Workspace
 from services.friday_island_server.server import Bridge, ORIGINS
 
 
@@ -28,7 +32,9 @@ async def main():
         path = Path(directory) / "config.json"
         config = load_config(path)
         from datetime import datetime
-        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"}, now=lambda: datetime(2026, 10, 31, 10, 20))])
+        store = Tracker(Workspace(Cognition(Path(directory) / 'tracker.db')))
+        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"}, now=lambda: datetime(2026, 10, 31, 10, 20)),
+                             TrackerPlugin('todo', store), TrackerPlugin('habit', store)])
         class DelayedBridge(Bridge):
             slow = False
             async def send(self, ws, kind, id=None, **data):
@@ -181,7 +187,36 @@ async def main():
                 await expect(surface).to_have_attribute("data-mode", "expanded")
                 await page.screenshot(path="tasks/island-expanded.png")
                 await page.get_by_role("button", name="Plugins", exact=True).click()
-                await expect(page.locator(".widget")).to_contain_text("DBMS")
+                await expect(page.locator('[data-plugin="college_schedule"]')).to_contain_text('DBMS')
+                todos, habits = page.locator('[data-plugin="todo"]'), page.locator('[data-plugin="habit_tracker"]')
+                task_input = page.get_by_role('textbox', name='New todo', exact=True)
+                await task_input.fill('<img src=x> buy charger')
+                await task_input.press('Enter')
+                await expect(todos.locator('.widget-label > span')).to_have_text('<img src=x> buy charger')
+                assert await todos.locator('.widget-label img').count() == 0
+                assert await task_input.evaluate('node => document.activeElement === node'), 'Widget submit stole input focus'
+                await task_input.fill('Keep this draft')
+                await page.get_by_role('button', name='Refresh Todos', exact=True).click()
+                await expect(task_input).to_have_value('Keep this draft')
+                await todos.get_by_role('button', name='Done <img src=x> buy charger', exact=True).click()
+                await expect(todos).to_contain_text('All clear')
+                await task_input.fill('Concurrent task'); await task_input.press('Enter')
+                await expect(todos.locator('.widget-label > span')).to_have_text('Concurrent task')
+                existing = next(t for t in store.snapshot()['tasks'] if t['title'] == 'Concurrent task')
+                store.save_task('Changed elsewhere', ident=existing['id'], revision=existing['updated'])
+                await todos.get_by_role('button', name='Done Concurrent task', exact=True).click()
+                await expect(page.locator('.feedback')).to_contain_text('changed elsewhere')
+                await expect(todos.locator('.widget-label > span')).to_have_text('Changed elsewhere')
+                habit_input = page.get_by_role('textbox', name='New habit', exact=True)
+                await habit_input.fill('Read 20 pages'); await habit_input.press('Enter')
+                await habits.get_by_role('button', name='Check in Read 20 pages', exact=True).click()
+                await expect(habits).to_contain_text('1 day streak')
+                await habits.get_by_role('button', name='Undo Read 20 pages', exact=True).click()
+                await expect(habits).to_contain_text('0 day streak')
+                restarted = Tracker(Workspace(Cognition(Path(directory) / 'tracker.db'))).snapshot()
+                assert restarted['tasks'][-1]['status'] == 'completed'
+                assert restarted['habits'][0]['checks'] == []
+                await page.screenshot(path='tasks/island-live-plugins.png')
                 await page.get_by_role("button", name="Settings", exact=True).last.click()
                 await page.get_by_role("button", name="Pinned apps", exact=True).click()
                 await page.get_by_role("button", name="Add app", exact=True).click()

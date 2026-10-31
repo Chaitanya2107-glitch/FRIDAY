@@ -2,6 +2,7 @@ import './style.css';
 import { Connection } from './connection';
 import { Apps } from './apps';
 import { Capsule } from './capsule';
+import { PluginWidgets } from './widgets';
 import { call, native, on, previewConfig } from './native';
 import { character, icon } from './icons';
 import { button, Settings } from './settings';
@@ -66,6 +67,7 @@ const settings = new Settings(panels, {
     if (previous.port !== config.connection.port || previous.token !== config.connection.token) connect();
   },
 });
+const widgets = new PluginWidgets(panels, () => connection, result => { message(result.text, !result.ok); if (result.ok) mood('happy', 850); });
 
 function message(text: string, bad = false) {
   clearTimeout(feedbackTimer);
@@ -124,6 +126,7 @@ async function setMode(next: Mode, activate = false) {
   if (next === 'rest' || next === 'hidden') { command.value = ''; clearSuggestions(); feedback.hidden = true; }
   if (next === 'sneak') feedback.hidden = true;
   body.inert = next !== 'expanded';
+  if (next !== 'expanded') widgets.hide();
   if (next === 'expanded') { clearSuggestions(); renderPanel(); }
   mood(); animateRegions();
   try { if (native) await call('set_mode', { mode: next, activate: active }); if (active) command.focus(); }
@@ -174,6 +177,7 @@ function pinButton(pin: Config['pins'][number]) {
 function pinLimit() { return (nativeStatus.max_width || 720) < 660 ? 4 : 8; }
 function renderPins() { pins.replaceChildren(...config.pins.filter(p => p.visible).slice(0, pinLimit()).map(pinButton)); }
 function renderPanel() {
+  widgets.hide();
   tabs.replaceChildren();
   for (const id of ['projects', 'plugins', 'settings'] as const) {
     const node = el('button', tab === id ? 'selected' : '', id[0].toUpperCase() + id.slice(1));
@@ -183,14 +187,7 @@ function renderPanel() {
   if (tab === 'settings') { settings.render(); return; }
   if (tab === 'plugins') {
     if (!online) panels.append(el('p', 'empty', 'Connect FRIDAY to see your plugins.'));
-    for (const manifest of manifests) {
-      const widget = el('article', 'widget'); widget.append(el('strong', '', manifest.name), el('p', 'muted', 'Loading…'));
-      panels.append(widget);
-      void connection.widget(manifest.id).then(data => {
-        widget.replaceChildren(el('strong', '', String(data.title)), el('p', '', String(data.text)), el('small', 'muted', manifest.commands.join(' · ')));
-        syncRegions();
-      }).catch(() => { widget.replaceChildren(el('strong', '', manifest.name), el('p', 'muted', 'Widget unavailable')); });
-    }
+    else widgets.show(manifests);
     return;
   }
   const extras = config.pins.filter(p => p.visible).slice(pinLimit());
@@ -304,6 +301,7 @@ async function run(text: string, item?: Suggestion) {
     else result = local ? await call<CommandResult>('local_command', { text }) : online ? await connection.command(text) : native ? await call<CommandResult>('local_command', { text })
       : { text: 'Desktop commands are available in the Tauri app.', ok: false };
     await perform(result);
+    if (result.ok && mode === 'expanded' && tab === 'plugins') void widgets.refresh();
     command.value = ''; clearSuggestions();
   } catch (error) { message(String(error), true); }
   finally { busy = false; command.disabled = false; if (active) command.focus(); }
@@ -317,7 +315,10 @@ function connect() {
       manifests = frame.plugins.filter((m): m is Manifest => typeof m === 'object' && m !== null && typeof m.id === 'string' && typeof m.name === 'string' && Array.isArray(m.commands));
       if (mode === 'expanded' && tab === 'plugins') renderPanel();
     }
-  }, connected => { online = connected; updateLive(); if (!connected) manifests = []; });
+  }, connected => {
+    online = connected; updateLive(); if (!connected) manifests = [];
+    if (mode === 'expanded' && tab === 'plugins') renderPanel();
+  });
   if (native) connection.start();
 }
 async function boot() {

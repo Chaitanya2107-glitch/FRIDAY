@@ -1,5 +1,58 @@
 # FRIDAY Island v1 validation
 
+## Live todos, habits and timed class reminders — 2026-10-31
+
+The tracker placeholders have been replaced with adapters for FRIDAY's shared
+productivity store. The date slot now accepts only a currently valid reminder
+interval and restores the date at expiry, disconnect or an empty update. This
+supersedes the hidden-timetable statement in the earlier capsule section below.
+Source/build hashes are in [plugin-validation.json](plugin-validation.json).
+
+- **Python: 18 passed.** Real temporary SQLite stores cover shared persistence,
+  streaks, check/undo, stale revisions, wrong dates, task-plan protection, unknown
+  actions, input limits, authenticated widget writes and grammar whitespace.
+  List commands include records beyond the six visible widget rows.
+- **Frontend: 8 passed.** State/connection tests cover active reminder intervals,
+  exact expiry, malformed mutation acknowledgements and bounded widget payloads.
+- **Chromium integration passed.** Real authenticated bridge and temporary store:
+  add/complete todos, add/check/undo habits, literal HTML-like labels, preserved
+  drafts/focus, external-edit conflicts, delayed-save navigation without duplicate
+  adds, future/missing/expired reminder rejection, and restoring date offline.
+  Existing app search, pins, reorder, media and four-state checks also passed.
+- **Standalone Tauri release passed at 125% scaling.** Real WebView2 forms wrote
+  only an isolated tracker database; a new store instance confirmed persistence.
+  A near-class reminder replaced the date and clearing it restored the date.
+  The test is `tests/island/check_plugins_native.py`; its inspection port exists
+  only in the test child, and all fixture records live in a temporary directory.
+- **Native focus/transparency regressions passed.** Hover stays passive, deliberate
+  input focus and Esc restoration work, all four native sizes remain compact,
+  desktop pixels outside the capsule are unchanged, and real typing reaches the
+  browser underneath. The Windows native shell itself was unchanged in this step.
+- **Normal bridge verified.** A read-only authenticated request against the real
+  shared config confirmed both tracker widgets are available. No demo records
+  were added to the owner's database. The bridge was restarted with the new code.
+
+Backend milestone `efc214e` and widget milestone `153190b` were followed by the
+owner's integration commit `5e620aa`, which contains the final tested code and
+shared-store prerequisites. The source snapshot still matches the release build.
+README and protocol documents describe the new commands and generic action schema.
+
+Try manually:
+
+1. Open Expanded → Plugins. Add your own task and habit, complete/check them,
+   reopen the app, and confirm the same records in FRIDAY's Habits & To-do desktop.
+2. Try `todo buy charger`, `todo list`, `todo done <full name or #ID>`,
+   `habit add Read 20 pages`, `habit check Read 20 pages`, and `habit undo Read 20 pages`
+   in Peek and Sneak. These deliberately change your real saved data.
+3. Within 15 minutes before a real class, check the date-slot reminder. At class
+   start it must return to the date; far-future classes stay out of Rest. Toggle
+   Appearance → Near-class reminders to disable it.
+
+Separate Windows 10 hardware, a live display-scale change and waiting for an
+actual owner class remain manual coverage; class timing was exercised with an
+injected clock and a real native fixture. No installer, autostart or publication
+change was made.
+
 ## Clock, battery and media capsule — 2026-10-31
 
 Rest now uses a 360px capsule: 12-hour clock/weekday left, orb at the geometric

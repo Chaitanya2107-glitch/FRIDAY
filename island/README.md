@@ -131,9 +131,8 @@ battery, media, installed-app launching and configured projects still work offli
 Class reminders read FRIDAY's real timetable, expire at class start and never show
 far-future classes in Rest. Appearance → Near-class reminders can disable the swap.
 
-Integration depends on this checkout's existing `services/productivity/` and
-revision-aware `services/mind/workspace.py`; these pre-existing local changes are
-preserved separately from Island commits. If moving the feature to another clone,
+Integration uses FRIDAY's existing `services/productivity/` and revision-aware
+`services/mind/workspace.py`. If moving the feature to another clone,
 include that FRIDAY productivity implementation rather than creating another store.
 
 ## Installed apps and favourites

@@ -23,8 +23,8 @@ native commands. Open widgets refresh every 15 seconds and after explicit writes
 Tracker adapters reuse FRIDAY's `services.productivity.store.Tracker` and existing
 cognition/workspace database. They do not use the broader automation command router.
 Tests inject an isolated Tracker. Existing planned-task completion rules and store
-revision checks remain authoritative. This local checkout's productivity store and
-workspace changes are prerequisites; they are not republished by Island commits.
+revision checks remain authoritative. FRIDAY's productivity store and revision-aware
+workspace implementation are prerequisites when moving the feature to another clone.
 
 Near-class `pill_snippet_update` frames additionally include `show_from` and
 `expires_at`, both Unix epoch milliseconds. Only within that interval does the

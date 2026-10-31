@@ -3,6 +3,7 @@
 mod apps_commands;
 mod catalog;
 mod config;
+mod desktop;
 #[cfg(windows)]
 mod discovery;
 #[cfg(windows)]
@@ -235,6 +236,8 @@ fn main() {
             launch,
             choose_path,
             pin_icon,
+            desktop::desktop_status,
+            desktop::media_control,
             apps_commands::search_apps,
             apps_commands::app_index_status,
             apps_commands::rescan_apps,

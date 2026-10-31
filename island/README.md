@@ -26,7 +26,7 @@ npm install
 npm run tauri dev
 ```
 
-The app also starts without the bridge. `open <configured app>`,
+The app also starts without the bridge. `open <installed app>`,
 `proj <configured project>` and `settings` still work through Rust.
 There is no taskbar entry: reach the app by top-center hover or its hotkeys;
 use Settings → Connection → Quit Island to stop it. A second launch summons
@@ -61,7 +61,9 @@ network behavior. The island UI itself connects only to `127.0.0.1`.
 Use ↑/↓ for suggestions, Tab to complete and Enter to run. Both skins use one
 input and command engine. Examples: `proj fri`, `open editor`, `next`, `habit`,
 `todo buy charger`, `settings`, or a natural-language question. Exact names win
-over partial matches; ambiguous names need more text. Hidden pins cannot launch.
+over partial matches. Ambiguous project names need more text; app matches are
+ranked by name and recent use. Hiding/unpinning an installed app only changes
+favourites: the app stays searchable and launchable.
 `habit` and `todo` are explicitly **placeholders**, so they do not save data.
 `note` and `focus` currently reach the tool-free conversational fallback; v1
 does not add note storage or a focus timer.
@@ -74,12 +76,40 @@ CSS backdrop blur, border and shadow belong only to the island element; no
 native acrylic/mica/vibrancy is applied. Native size follows the animated
 element bounds, keeping the top-center anchor (or centered Sneak box).
 
-## Pins and projects
+## Installed apps and favourites
 
-Settings → Apps → Add app opens the native `.exe`/`.lnk` picker. Icons are
+Type `open <name>` in Peek or Sneak to fuzzy-search and launch any indexed app.
+Typing a bare name also suggests matching apps; select one with ↑/↓ and Enter,
+or Tab then Enter. A full exact bare app name also works. Suggestions include
+icons and a one-click pin/unpin button. Duplicate names retain the selected app
+ID, including after Tab completion. Native matches do not wait for Python.
+
+Discovery covers current-user/all-users Start Menu shortcuts, 32/64-bit HKCU/HKLM
+App Paths and packaged Windows Store apps through AppsFolder. It runs on startup,
+every five minutes in the background, and via **Settings → Pinned apps → Rescan
+apps**. No app-index data is uploaded. The in-memory catalog rebuilds locally;
+recent launch history stays in the shared config and improves similar matches.
+
+If nothing matches, the UI says **No app found** and offers Rescan apps. All this
+works with the Python bridge stopped. App searches/launches are native in both
+skins; other commands still use FRIDAY. Known plugin commands retain priority,
+so `focus` remains a command while `open Focus` can launch an installed app.
+
+Pins are only favourites. Your first eight visible pins appear in Peek, with
+extras in Expanded. In Settings → Pinned apps, search the installed-app list and
+click its pin icon, or use the pin beside a palette suggestion. Favourites stay
+drag-reorderable and persist across restarts.
+
+**Add app** retains the manual native `.exe`/`.lnk` picker for portable/custom apps.
+Icons are
 extracted into memory, with an original generic glyph if extraction fails.
 Rename, show/hide, drag to reorder, use the up/down buttons, or click remove
-twice to confirm. No folder drag-and-drop in v1; use the folder picker.
+twice to confirm. Hiding a manual favourite does not prevent command-line use;
+removing it removes that manual launch entry. No arbitrary typed path or shell
+command is executed: only an ID from the native catalog or a saved manual
+pin/project may launch. See [catalog architecture](docs/APPS.md).
+
+## Projects
 
 Add a project from Projects or Settings → Projects. Each has a name, absolute
 local folder, accent and ordered open actions. Choose any combination of:
@@ -109,7 +139,8 @@ private: do not publish this file or its corruption backups.
 | Key | Default / meaning |
 |---|---|
 | `version`, `revision` | Schema `1`; revision increments on native saves |
-| `pins` | `[{id,name,path,visible}]`; at most 64, IDs unique |
+| `pins` | `[{id,name,app_id?,path,visible}]`; at most 64, IDs unique; indexed favourites use `app_id` and empty `path`, manual favourites use `.exe`/`.lnk` `path` |
+| `recent_apps` | `[{id,last_used,count}]`; up to 100 distinct app records, epoch seconds and use count |
 | `projects` | `[{id,name,path,color,last_opened,actions}]`; at most 64 |
 | `hotkeys.sneak` | `Ctrl+Shift+Alt+Space` |
 | `hotkeys.expand` | `Ctrl+Shift+Alt+F` |
@@ -129,6 +160,10 @@ so stale Settings saves cannot overwrite hand edits even when revision is unchan
 After hand edits choose Settings → Connection → Reload config, or restart the app.
 Restart the bridge after changing its port. A changed token requires reconnecting.
 An unknown/invalid hotkey is saved and shown as a registration error so you can fix it.
+Indexed favourites are references, not arbitrary executable paths: an `app_id`
+must still exist in the current native catalog to launch. Existing manual pins
+and old v1 configs load without migration. Index failures appear as scan warnings;
+apps without Start Menu/App Paths/Store registration can be added manually.
 
 For isolated development, the app accepts `FRIDAY_ISLAND_CONFIG` as an absolute
 config filename; the server accepts `--config <absolute path>`. Point both at
@@ -177,6 +212,21 @@ It deliberately exercises desktop focus/hotkeys and restores the cursor afterwar
 It uses temporary F23/F24 bindings to avoid existing FRIDAY shortcuts.
 Add `--release --measure --online` to check the standalone executable with an
 isolated real bridge and sample its connected idle CPU.
+
+The compositor regression uses a real owned browser under the app and actual
+Windows clicks/typing at the laptop's DPI:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_transparency.py --release
+```
+
+The native catalog end-to-end check uses an isolated config and test-only local
+WebView2 debug port. It opens Calculator once, closes only a new Calculator window,
+and verifies offline search/launch, icons, pin/unpin, rescanning and persistence:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_apps_native.py
+```
 See [validation evidence](docs/VALIDATION.md) for measured checks and remaining
 manual coverage, and [the protocol](docs/PROTOCOL.md) for connection details.
 
@@ -208,8 +258,9 @@ is an array of unique command prefixes and `widget` is a boolean. Set
 Registered Python code is trusted; v1 does not load arbitrary files/packages from config.
 Snippet selection uses the first nonempty registered plugin, publishing every
 60 seconds. Widgets are plain text, not injected HTML or JavaScript.
-Commands can return text or an allowlisted action referencing an existing pin
-or project ID; the Rust boundary revalidates that ID against current config.
+Commands can return text or an action referencing an indexed app, manual pin
+or project ID; Rust revalidates catalog/config membership. An `app_search` query
+is resolved natively and can never supply executable paths or process arguments.
 
 The three shipped plugins are `habit_tracker` (stub), `todo` (stub), and
 `college_schedule` (real next-class adapter with a no-timetable fallback).

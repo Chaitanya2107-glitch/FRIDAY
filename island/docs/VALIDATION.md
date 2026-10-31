@@ -1,5 +1,59 @@
 # FRIDAY Island v1 validation
 
+## Installed-app launching follow-up
+
+The window fix was committed first as `689b48e`; the native catalog followed in
+`f59fe82`. Installed-app launching replaces the initial configured-app-only rule.
+Pins now select favourites; the native catalog independently authorizes installed
+apps online and offline.
+
+Current checks:
+
+The exact current source/build binding is in [update-validation.json](update-validation.json).
+
+- **Python:** 10 passed, including additive indexed-favourite/recents validation
+  and native search delegation; existing protocol/config failure paths remain covered.
+- **Rust:** 7 passed, plus the explicitly invoked live-metadata test. Coverage
+  includes App Paths quoting/traversal/command rejection, bounded shortcut
+  traversal, stable IDs, fuzzy and recent ranking, and refusal of non-indexed IDs.
+- **Frontend:** 5 passed, plus real Chromium/Python integration. Added regressions
+  cover duplicate-name Tab identity, stale favourites rows after unpin, native
+  suggestions arriving while Python is delayed, plugin command priority, offline
+  search/launch, inline pin/unpin, and No app found → Rescan.
+- **Real native release:** `check_apps_native.py` found **313 deduplicated apps**,
+  with **no scan warnings**. A Store icon returned PNG; an unpinned Calculator
+  launched offline; arbitrary executable text was rejected as an app ID. Pins
+  and recent history survived a real app restart, and manual rescanning succeeded.
+- **Builds:** TypeScript/Vite and standalone Windows release passed. The native
+  test-only CDP port is supplied through the test child's environment; it is not
+  configured in the shipped app.
+
+The compositor/browser-input and native focus/bridge suites were rerun after
+adding installed-app launching, preserving the transparency regression coverage.
+The final browser fixture waits for its known-color page to be physically
+composed, verifies the browser PID/Windows hit target, then sends actual OS
+clicks and keystrokes. This avoids false input failures from other Chrome windows
+while retaining the real compositor and hit-testing assertions.
+
+### Exact manual checks for this update
+
+1. Launch the release. Leave a browser under the top-center region: click and
+   type below Rest, hover Peek, expand Projects/Settings, enter Sneak and press
+   Esc. Verify no grey canvas, appropriate small window bounds and preserved focus.
+2. With the Python bridge stopped, type `open <an installed app you have never
+   pinned>` in Peek and Sneak. Try a short fuzzy name and a bare app name; select
+   with arrows/Enter and with Tab/Enter. Check icons/source labels and the right app.
+3. Pin an app in suggestions, then unpin it. Verify it still launches. In Settings
+   → Pinned apps, pin from the installed list, rename/reorder favourites and restart.
+4. Launch two similarly named apps; search again and check recent ranking without
+   overriding an exact name. Restart and verify recent history remains.
+5. Search a nonexistent name, click Rescan apps, and try Settings → Pinned apps →
+   Rescan apps after installing/uninstalling an app. No typed path or appended
+   shell arguments should execute. Try the retained manual `.exe`/`.lnk` picker.
+6. Repeat on another DPI/resolution if available. Automated compositor/input and
+   native focus tests ran at the laptop's actual **125% scaling**; physically
+   changing display settings or testing a separate Windows 10 machine remains manual.
+
 ## Transparency regression fix
 
 The original v1 native-acrylic/fixed-canvas approach below is superseded.

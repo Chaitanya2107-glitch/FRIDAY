@@ -1,5 +1,6 @@
 import './style.css';
 import { Connection } from './connection';
+import { Apps } from './apps';
 import { call, native, on, previewConfig } from './native';
 import { character, icon } from './icons';
 import { button, Settings } from './settings';
@@ -41,6 +42,7 @@ let manifests: Manifest[] = [];
 let nativeStatus: NativeStatus = { mode: 'rest', hotkey_errors: [], max_width: 720, max_height: 560, reduce_motion: false };
 let suggestions: Suggestion[] = [];
 let selected = -1;
+let completed: Suggestion | undefined;
 let busy = false;
 let active = false;
 let lastActivity = Date.now();
@@ -50,8 +52,10 @@ let feedbackTimer: ReturnType<typeof setTimeout>;
 let moodTimer: ReturnType<typeof setTimeout>;
 let suggestionGeneration = 0;
 const icons = new Map<string, string>();
+const apps = new Apps(next => { config = next; applyConfig(); settings.refreshFavourites(); }, message);
 const settings = new Settings(panels, {
   config: () => config, status: () => nativeStatus, online: () => online, message,
+  apps,
   reload: async () => { config = await call<Config>('get_config'); applyConfig(); connect(); },
   save: async next => {
     const previous = config.connection;
@@ -64,6 +68,10 @@ const settings = new Settings(panels, {
 function message(text: string, bad = false) {
   clearTimeout(feedbackTimer);
   feedback.textContent = text; feedback.classList.toggle('bad', bad);
+  if (bad && text.includes('No app found')) {
+    const rescan = el('button', 'text-button', 'Rescan apps');
+    rescan.onclick = () => void apps.rescan(); feedback.append(rescan);
+  }
   feedback.hidden = mode === 'hidden' || mode === 'sneak';
   feedbackTimer = setTimeout(() => { feedback.hidden = true; syncRegions(); }, bad ? 7000 : 3500);
   if (bad) mood('error', 900);
@@ -157,7 +165,8 @@ function pinButton(pin: Config['pins'][number]) {
   }).catch(() => {});
   return node;
 }
-function renderPins() { pins.replaceChildren(...config.pins.filter(p => p.visible).slice(0, 8).map(pinButton)); }
+function pinLimit() { return (nativeStatus.max_width || 720) < 660 ? 4 : 8; }
+function renderPins() { pins.replaceChildren(...config.pins.filter(p => p.visible).slice(0, pinLimit()).map(pinButton)); }
 function renderPanel() {
   tabs.replaceChildren();
   for (const id of ['projects', 'plugins', 'settings'] as const) {
@@ -178,7 +187,7 @@ function renderPanel() {
     }
     return;
   }
-  const extras = config.pins.filter(p => p.visible).slice(8);
+  const extras = config.pins.filter(p => p.visible).slice(pinLimit());
   if (extras.length) { const tray = el('div', 'extra-pins'); tray.append(...extras.map(pinButton)); panels.append(tray); }
   const heading = el('div', 'panel-heading'); heading.append(el('span', 'muted', 'A place for every idea'), button('Add project', 'plus', () => { tab = 'settings'; renderPanel(); return settings.addProject(); }));
   panels.append(heading);
@@ -204,60 +213,89 @@ function renderSuggestions() {
   command.setAttribute('aria-expanded', String(suggestions.length > 0));
   if (selected >= 0) command.setAttribute('aria-activedescendant', `suggestion-${selected}`); else command.removeAttribute('aria-activedescendant');
   suggestions.forEach((item, index) => {
-    const node = el('button', index === selected ? 'suggestion selected' : 'suggestion');
+    const node = el('div', index === selected ? 'suggestion selected' : 'suggestion');
     node.id = `suggestion-${index}`; node.setAttribute('role', 'option'); node.setAttribute('aria-selected', String(index === selected));
-    node.append(el('span', '', item.text), el('small', 'muted', item.detail ?? 'Command'));
-    node.onpointerdown = event => event.preventDefault(); node.onclick = () => void run(item.text); results.append(node);
+    const execute = el('button', 'suggestion-run'); execute.type = 'button'; execute.tabIndex = -1;
+    if (item.app) execute.append(apps.icon(item.app));
+    execute.append(el('span', 'suggestion-label', item.text), el('small', 'muted', item.detail ?? 'Command'));
+    execute.onpointerdown = event => event.preventDefault(); execute.onclick = () => void run(item.text, item);
+    node.append(execute);
+    if (item.app?.kind === 'app') node.append(apps.pin(item.app));
+    results.append(node);
   });
   results.hidden = !suggestions.length;
   surface.style.setProperty('--results-height', `${results.hidden ? 0 : results.offsetHeight}px`);
   syncRegions();
 }
-function clearSuggestions() {
+function clearSuggestions(keepCompletion = false) {
   clearTimeout(suggestionTimer); ++suggestionGeneration;
+  if (!keepCompletion) completed = undefined;
   selected = -1; suggestions = []; renderSuggestions();
 }
 command.oninput = () => {
+  completed = undefined;
   lastActivity = Date.now(); mood();
   clearTimeout(suggestionTimer);
   const generation = ++suggestionGeneration;
   const text = command.value;
   selected = -1;
-  suggestionTimer = setTimeout(async () => {
-    try {
-      const items = online ? await connection.suggestions(text) : localSuggestions(text, config).map(text => ({ text }));
-      if (generation === suggestionGeneration) { suggestions = items; renderSuggestions(); }
-    } catch { if (generation === suggestionGeneration) { suggestions = localSuggestions(text, config).map(text => ({ text })); renderSuggestions(); } }
+  suggestionTimer = setTimeout(() => {
+    const explicit = /^open(?:\s|$)/i.test(text.trim());
+    let local: Suggestion[] = [], brain: Suggestion[] = [], localDone = false;
+    const publish = () => {
+      if (generation !== suggestionGeneration) return;
+      const previous = suggestions[selected];
+      suggestions = [...brain, ...local].slice(0, 6);
+      if (explicit && localDone && !suggestions.length) suggestions.push({ text: 'No app found · Rescan apps', detail: 'Rescan', rescan: true });
+      if (previous) selected = suggestions.findIndex(s => previous.app ? s.app?.id === previous.app.id : s.text === previous.text);
+      renderSuggestions();
+    };
+    void (isBrainCommand(text) ? Promise.resolve([]) : apps.suggestions(text)).then(items => { local = items; localDone = true; publish(); }, () => { localDone = true; publish(); });
+    void (explicit ? Promise.resolve([]) : online ? connection.suggestions(text) : Promise.resolve(localSuggestions(text, config).filter(t => !t.startsWith('open ')).map(text => ({ text })))).then(items => { brain = items; publish(); }, () => { brain = []; publish(); });
   }, 160);
 };
+function isBrainCommand(text: string) {
+  const head = text.trim().split(/\s+/)[0].toLowerCase();
+  return ['proj', 'settings', 'next', 'habit', 'todo', 'note', 'focus', ...manifests.flatMap(m => m.commands)].includes(head);
+}
 command.onkeydown = event => {
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault(); selected = suggestions.length ? (selected + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1; renderSuggestions();
   } else if (event.key === 'Tab' && suggestions.length) {
-    event.preventDefault(); command.value = suggestions[Math.max(selected, 0)].text; clearSuggestions();
-  } else if (event.key === 'Enter') { event.preventDefault(); void run(suggestions[selected]?.text ?? command.value); }
+    event.preventDefault();
+    const item = suggestions[Math.max(selected, 0)];
+    if (item.rescan) { void run(item.text, item); return; }
+    completed = item; command.value = item.text; clearSuggestions(true);
+  } else if (event.key === 'Enter') { event.preventDefault(); const item = suggestions[selected] ?? (completed?.text === command.value ? completed : undefined); void run(item?.text ?? command.value, item); }
 };
 async function perform(result: CommandResult) {
   if (!result.ok) { message(result.text, true); return; }
   const action = result.action;
+  if (action?.kind === 'app_search') { await perform(await call<CommandResult>('local_command', { text: `open ${action.query ?? ''}` })); return; }
   if (action?.kind === 'settings') { tab = 'settings'; await setMode('expanded', active); return; }
   try {
     let text = result.text;
     if (action) {
-      if (!['pin', 'project'].includes(action.kind) || typeof action.id !== 'string') throw Error('Unsupported backend action');
+      if (!['pin', 'project', 'app'].includes(action.kind) || typeof action.id !== 'string') throw Error('Unsupported backend action');
       text = await call<string>('launch', { kind: action.kind, id: action.id });
       config = await call<Config>('get_config');
     }
     message(text); mood('happy', 1000);
   } catch (error) { message(String(error), true); }
 }
-async function run(text: string) {
+async function run(text: string, item?: Suggestion) {
+  if (item?.rescan) { await apps.rescan(); command.oninput?.(new Event('input')); return; }
   if (busy || !text.trim()) return;
   busy = true; command.disabled = true;
   const sneak = mode === 'sneak';
   if (sneak) await dispatch('escape');
   try {
-    const result = online ? await connection.command(text) : native ? await call<CommandResult>('local_command', { text })
+    let result: CommandResult;
+    const local = native && /^(?:open|proj|settings)(?:\s|$)/i.test(text.trim());
+    const exact = !item?.app && !local && native && !isBrainCommand(text) ? (await apps.search(text, 1).catch(() => [])).find(a => a.name.toLowerCase() === text.trim().toLowerCase()) : undefined;
+    const target = item?.app ?? exact;
+    if (target) result = { ok: true, text: `Opening ${target.name}`, action: { kind: target.kind, id: target.id } };
+    else result = local ? await call<CommandResult>('local_command', { text }) : online ? await connection.command(text) : native ? await call<CommandResult>('local_command', { text })
       : { text: 'Desktop commands are available in the Tauri app.', ok: false };
     await perform(result);
     command.value = ''; clearSuggestions();
@@ -280,6 +318,7 @@ async function boot() {
   try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
   catch (error) { message(String(error), true); }
   applyConfig(); connect();
+  await apps.start(() => { icons.clear(); renderPins(); if (mode === 'expanded' && tab === 'settings' && settings.section === 'apps') settings.render(); });
   applyLimits();
   document.documentElement.classList.toggle('reduce-motion', nativeStatus.reduce_motion);
   await on<string>('hotkey', event => { if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape'); });
@@ -303,7 +342,10 @@ async function boot() {
 void boot();
 
 function applyLimits() {
+  const previous = document.documentElement.style.getPropertyValue('--layout-width');
   document.documentElement.style.setProperty('--layout-width', `${nativeStatus.max_width || 720}px`);
   document.documentElement.style.setProperty('--layout-height', `${nativeStatus.max_height || 560}px`);
+  renderPins();
+  if (previous && previous !== `${nativeStatus.max_width || 720}px` && mode === 'expanded' && tab === 'projects') renderPanel();
   syncRegions();
 }

@@ -2,6 +2,7 @@ import { call, native } from './native';
 import { element as el } from './state';
 import { icon } from './icons';
 import type { Config, NativeStatus, OpenAction, Pin, Project } from './types';
+import type { Apps } from './apps';
 
 type Section = 'appearance' | 'apps' | 'projects' | 'hotkeys' | 'connection';
 interface Host {
@@ -11,6 +12,7 @@ interface Host {
   online: () => boolean;
   reload: () => Promise<void>;
   message: (text: string, bad?: boolean) => void;
+  apps: Apps;
 }
 export function button(label: string, glyph: string, action: () => unknown, className = 'icon-button'): HTMLButtonElement {
   const node = el('button', className);
@@ -45,6 +47,7 @@ export class Settings {
   section: Section = 'appearance';
   private editor?: Project;
   private confirmRemove?: string;
+  private favourites?: HTMLElement;
   constructor(private root: HTMLElement, private host: Host) {}
 
   async persist(next: Config) {
@@ -58,7 +61,7 @@ export class Settings {
     this.root.replaceChildren();
     if (this.editor) { this.renderProjectEditor(this.editor); return; }
     const nav = el('div', 'settings-nav');
-    for (const [key, label] of [['appearance', 'Look'], ['apps', 'Apps'], ['projects', 'Projects'], ['hotkeys', 'Hotkeys'], ['connection', 'Connection']] as const) {
+    for (const [key, label] of [['appearance', 'Look'], ['apps', 'Pinned apps'], ['projects', 'Projects'], ['hotkeys', 'Hotkeys'], ['connection', 'Connection']] as const) {
       const node = el('button', this.section === key ? 'selected' : '', label);
       node.onclick = () => { this.section = key; this.render(); };
       nav.append(node);
@@ -79,8 +82,10 @@ export class Settings {
       this.root.append(el('p', 'muted', this.host.status().reduce_motion ? 'Windows reduced motion is on.' : 'Animations follow Windows motion preferences.'));
     } else if (this.section === 'apps') {
       this.root.append(el('p', 'muted', 'Your first eight visible apps appear in Peek. Drag to reorder.'));
-      this.renderList('pins');
+      this.favourites = el('div', 'favourites-list'); this.root.append(this.favourites);
+      this.renderList('pins', this.favourites);
       this.root.append(textButton('Add app', () => this.addPin()));
+      this.host.apps.render(this.root);
     } else if (this.section === 'projects') {
       this.renderList('projects');
       this.root.append(textButton('Add project', () => this.addProject()));
@@ -103,36 +108,44 @@ export class Settings {
     }
   }
 
-  private renderList(kind: 'pins' | 'projects') {
+  refreshFavourites() {
+    if (this.section === 'apps' && this.favourites?.isConnected) {
+      this.favourites.replaceChildren(); this.renderList('pins', this.favourites);
+    }
+  }
+  private renderList(kind: 'pins' | 'projects', target = this.root) {
     const config = this.host.config();
     const items = kind === 'pins' ? config.pins : config.projects;
-    if (!items.length) this.root.append(el('p', 'empty', kind === 'pins' ? 'Keep your everyday apps close.' : 'Give your next idea a place.'));
+    if (!items.length) target.append(el('p', 'empty', kind === 'pins' ? 'Keep your everyday apps close.' : 'Give your next idea a place.'));
     items.forEach((item, index) => {
       const row = el('div', 'config-row'); row.draggable = true;
-      row.ondragstart = event => event.dataTransfer?.setData('text/plain', String(index));
+      row.ondragstart = event => event.dataTransfer?.setData('text/plain', `${kind}:${item.id}`);
       row.ondragover = event => event.preventDefault();
       row.ondrop = event => {
         event.preventDefault();
-        const from = Number(event.dataTransfer?.getData('text/plain'));
-        if (Number.isInteger(from) && from >= 0 && from < items.length && from !== index) void this.reorder(kind, from, index);
+        const id = event.dataTransfer?.getData('text/plain');
+        const current = this.host.config()[kind];
+        const from = current.findIndex(p => `${kind}:${p.id}` === id), to = current.findIndex(p => p.id === item.id);
+        if (from >= 0 && to >= 0 && from !== to) void this.reorder(kind, from, to);
       };
       const grip = el('span', 'grip'); grip.append(icon('grip'));
       const name = input(item.name); name.maxLength = 80; name.setAttribute('aria-label', `${item.name} display name`);
-      name.onchange = () => void this.change(c => { (kind === 'pins' ? c.pins : c.projects)[index].name = name.value; });
+      name.onchange = () => void this.change(c => { const found = c[kind].find(p => p.id === item.id); if (found) found.name = name.value; });
       row.append(grip, name);
       if (kind === 'pins') {
         const visible = input('', 'checkbox'); visible.checked = (item as Pin).visible; visible.title = 'Show in Island'; visible.setAttribute('aria-label', `Show ${item.name}`);
-        visible.onchange = () => void this.change(c => { c.pins[index].visible = visible.checked; });
+        visible.onchange = () => void this.change(c => { const found = c.pins.find(p => p.id === item.id); if (found) found.visible = visible.checked; });
         row.append(visible);
       } else row.append(button(`Edit ${item.name}`, 'edit', () => this.editProject(item as Project)));
-      row.append(button(`Move ${item.name} up`, 'up', () => index > 0 && this.reorder(kind, index, index - 1)),
-        button(`Move ${item.name} down`, 'down', () => index < items.length - 1 && this.reorder(kind, index, index + 1)),
+      const move = (delta: number) => { const rows = this.host.config()[kind], from = rows.findIndex(p => p.id === item.id), to = from + delta; if (from >= 0 && to >= 0 && to < rows.length) return this.reorder(kind, from, to); };
+      row.append(button(`Move ${item.name} up`, 'up', () => move(-1)),
+        button(`Move ${item.name} down`, 'down', () => move(1)),
         button(`Remove ${item.name}`, this.confirmRemove === item.id ? 'close' : 'trash', () => {
           if (this.confirmRemove !== item.id) { this.confirmRemove = item.id; this.host.message('Click remove again to confirm'); this.render(); return; }
           this.confirmRemove = undefined;
-          return this.change(c => { if (kind === 'pins') c.pins.splice(index, 1); else c.projects.splice(index, 1); });
+          return this.change(c => { if (kind === 'pins') c.pins = c.pins.filter(p => p.id !== item.id); else c.projects = c.projects.filter(p => p.id !== item.id); });
         }));
-      this.root.append(row);
+      target.append(row);
     });
   }
   private reorder(kind: 'pins' | 'projects', from: number, to: number) {

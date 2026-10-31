@@ -138,6 +138,23 @@ input[type='checkbox'] { accent-color: var(--accent); cursor: pointer; }
 .suggestion.selected, .suggestion:hover { background: var(--surface-hover); }
 .suggestion > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggestion > small { flex: 0 0 auto; font-size: 10px; }
+.suggestion { padding: 4px 10px; }
+.suggestion-run { display: flex; gap: 10px; align-items: center; min-width: 0; flex: 1; text-align: left; padding: 0; }
+.suggestion-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.suggestion-run small { flex: 0 0 auto; font-size: 10px; }
+.app-icon { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.app-icon svg, .app-icon img { width: 20px; height: 20px; }
+.app-pin { width: 24px; height: 24px; flex-basis: 24px; padding: 4px; }
+.app-pin svg { width: 16px; height: 16px; }
+.app-pin.pinned { color: var(--accent); }
+.installed-apps { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+.installed-apps > input { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.installed-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.installed-label { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.installed-label > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.surface[data-mode='sneak'] .app-pin.pinned { color: var(--white-text); }
+.surface[data-mode='sneak'] .app-pin { color: var(--white-muted); }
+.surface[data-mode='sneak'] .app-pin:hover { color: var(--white-text); background: var(--white-hover); }
 .feedback { pointer-events: auto; width: max-content; max-width: min(610px, 92%); margin-top: var(--space-2); padding: 7px var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: 13px; font-size: 11px; white-space: pre-wrap; max-height: 130px; overflow: auto; user-select: text; }
 .feedback.bad { color: var(--danger); }
 .surface[data-mode='sneak'] { background: var(--white-surface); border: 1px solid var(--white-border); border-radius: 14px; color: var(--white-text); width: 620px; backdrop-filter: none; }

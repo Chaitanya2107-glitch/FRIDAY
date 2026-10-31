@@ -11,7 +11,7 @@ export async function on<T>(event: string, handler: (value: T) => void) {
   if (native) await listen<T>(event, e => handler(e.payload));
 }
 export const previewConfig = (): Config => ({
-  version: 1, revision: 0, pins: [], projects: [],
+  version: 1, revision: 0, pins: [], projects: [], recent_apps: [],
   hotkeys: { sneak: 'Ctrl+Shift+Alt+Space', expand: 'Ctrl+Shift+Alt+F' },
   appearance: { glow: '#FFB347', idle_mode: 'always', idle_seconds: 30, snippet: true },
   connection: { port: 17321, token: '' },

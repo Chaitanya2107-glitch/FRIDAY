@@ -79,7 +79,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.config = IslandConfig(pins=[Pin(id="editor", name="Editor", path="C:/editor.exe")],
                                    projects=[Project(id="friday", name="FRIDAY", path="C:/FRIDAY")])
 
-    async def test_fuzzy_match_returns_only_configured_id(self):
+    async def test_project_ids_and_native_app_search_delegation(self):
         result = await self.engine.execute("proj fri", self.config)
         self.assertEqual(result["action"], {"kind": "project", "id": "friday"})
         result = await self.engine.execute("open edit", self.config)
@@ -88,7 +88,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.engine.execute("open powershell; rm", self.config))["action"]["kind"], "app_search")
         self.assertEqual(self.seen, [])
 
-    async def test_ambiguous_and_hidden_pins_are_not_launched(self):
+    async def test_projects_stay_ambiguous_and_apps_stay_native(self):
         self.config.pins[0].visible = False
         self.assertEqual((await self.engine.execute("open editor", self.config))["action"]["kind"], "app_search")
         self.config.projects.append(Project(id="other", name="FRIDAY Test", path="C:/test"))

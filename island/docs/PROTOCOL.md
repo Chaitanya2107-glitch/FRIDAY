@@ -54,15 +54,24 @@ Example command and response:
 {"v":1,"type":"command_result","id":"c17","ok":true,"text":"Opening FRIDAY","action":{"kind":"project","id":"friday"}}
 ```
 
-Allowed actions are `{kind:"pin",id}`, `{kind:"project",id}`, and
-`{kind:"settings"}`. The backend never sends executable paths or shell strings.
-The UI dispatches ID actions through Rust, which reloads and validates config,
-rejects missing/hidden/unconfigured entries, and runs only their persisted actions.
-No action is executed while suggesting or resolving an ambiguous name.
+Allowed actions are `{kind:"app",id}`, `{kind:"pin",id}`, `{kind:"project",id}`,
+`{kind:"settings"}` and `{kind:"app_search",query}`. The backend never sends
+executable paths or shell strings. Rust validates installed-app IDs against the
+current native catalog, and manual pin/project IDs against current config.
+An `app_search` query is only search text; it is resolved through the same native
+catalog and can never supply launch arguments. No action runs while suggesting.
+
+The UI handles `open <name>` natively before any WebSocket request, online or
+offline. Bare names also suggest native app matches. Python returns `app_search`
+if another protocol client sends it an `open` command. The app catalog and its
+launch targets remain on the Tauri side; they are not uploaded to the bridge.
+Pins are favourites, not a launch whitelist. Unpinning/hiding an indexed app
+does not remove it from search. Successful launches update native recent history
+in the shared config. See [native catalog details](APPS.md).
 
 Unrecognized text goes to FRIDAY's tool-free language handler. The main `/chat`
 automation router is not used: it has broader desktop authority. Conversation
-may use FRIDAY's configured provider, but provider output cannot become a launch.
+may use FRIDAY's configured provider; conversational text cannot become a launch.
 
 ## Errors, lifecycle, reconnection
 
@@ -79,7 +88,7 @@ disconnect/config replacement, and stale socket generations cannot update status
 
 Reconnect waits 600 ms initially, doubles with jitter to a 30-second ceiling,
 and resets after authentication. Offline mode changes the character's mood and
-keeps configured app/project commands and settings available through Rust.
+keeps installed-app search, manual pin/project commands and settings available through Rust.
 Pill data updates on connect and every 60 seconds; plugin failures are contained.
 
 Changing the port in Settings reconnects the UI; restart the server to rebind.

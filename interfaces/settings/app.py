@@ -149,7 +149,7 @@ class Editor(ttk.Frame):
         self.form.fill(self.original or '', row['value'] if row else None)
         self.baseline = self.form.read()
         self.title.configure(text=self.original or 'New ' + {'contacts': 'contact', 'routines': 'routine',
-                             'projects': 'project', 'modes': 'mode'}[self.section])
+                             'projects': 'project', 'modes': 'mode', 'screen_apps': 'app rule'}[self.section])
         self.enabled(self.data is not None and not self.busy)
 
     def select(self, event=None):

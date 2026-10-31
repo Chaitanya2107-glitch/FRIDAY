@@ -104,11 +104,16 @@ def parse_due(text: str, now: datetime) -> datetime:
 
 # ── The file ──────────────────────────────────────────────────────────────────
 
-def load() -> list[dict]:
-    return deadline_store.read(path)
+def load(*, include_done: bool = False) -> list[dict]:
+    rows = deadline_store.read(path)
+    return rows if include_done else [row for row in rows if row.get('done') is not True]
 
 
-def _save(deadlines: list[dict]) -> None:
+def _save(deadlines: list[dict], *, include_done: bool = False) -> None:
+    if not include_done:
+        ids = {row.get('id') for row in deadlines}
+        deadlines = deadlines + [row for row in deadline_store.read(path)
+                                if row.get('done') is True and row.get('id') not in ids]
     deadline_store.save(path, deadlines)
 
 
@@ -220,13 +225,17 @@ def _run_mutation(parsed, now):
     action = parsed["action"]
     if action == "clear_deadlines":
         count = len(load())
-        _save([])
+        _save([], include_done=True)
         return f"Cleared {count} deadline{'s' if count != 1 else ''}." if count else "No deadlines to clear."
     deadlines = load()
     index = _find(parsed["what"]) if action == "finish_deadline" else int(parsed["number"]) - 1
     if index is None or not 0 <= index < len(deadlines):
         raise AutomationError("I don't have that deadline." + (f" You have {len(deadlines)}." if deadlines else ""))
     removed = deadlines.pop(index)
+    if action == 'finish_deadline':
+        from services.proactive.deadline_changes import complete
+        complete(removed)
+        deadlines.append(removed)
     _save(deadlines)
     return f"Nice — {removed['what']} is off the list." if action == "finish_deadline" else f"Removed: {removed['what']}"
 

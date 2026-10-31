@@ -175,9 +175,11 @@ def turn(channel: str):
                 result = await function(*args, **kwargs)
                 if not _replied.get() and not _introspection.get():
                     # Computer tasks deliberately keep proposed text/screens ephemeral.
-                    text = "Computer task response" if getattr(result, "model", "") in {"computer_agent", "automation_task"} else result.response
+                    text = ("Private local assistant response" if getattr(result, "private", False) else
+                            "Computer task response" if getattr(result, "model", "") in {"computer_agent", "automation_task"} else result.response)
                     reply(text)
-                if not _introspection.get() and getattr(result, 'model', '') not in {'system_control', 'computer_agent', 'automation_task'}:
+                if (not _introspection.get() and not getattr(result, 'private', False)
+                        and getattr(result, 'model', '') not in {'system_control', 'computer_agent', 'automation_task'}):
                     from services.mind.brain_memory import brain_memory
                     incoming = args[0] if args else kwargs.get('transcription', kwargs.get('request'))
                     message = incoming if isinstance(incoming, str) else getattr(incoming, 'message', '')

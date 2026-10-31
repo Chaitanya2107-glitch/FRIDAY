@@ -13,12 +13,24 @@ import psutil
 
 from services.activity.log import IGNORED_PROCESSES, PASSWORD_MANAGERS, PRIVATE_SITE, PRIVATE_TITLE
 from services.screen_watch.inference import SENSITIVE
+from services.screen_watch.app_rules import rules
 
 BADGE_TITLE = "FRIDAY screen awareness"
 BROWSERS = {"chrome", "msedge", "firefox", "brave", "opera", "vivaldi"}
-EXCLUDED = PASSWORD_MANAGERS | IGNORED_PROCESSES | {"cmd", "powershell", "pwsh", "windowsterminal", "credentialuibroker"}
+EXCLUDED = PASSWORD_MANAGERS | (IGNORED_PROCESSES - {"python", "pythonw"}) | {"credentialuibroker"}
 PRIVATE = re.compile(r"payment|credit.?card|card number|\bcvv\b|seed phrase|private key|"
                      r"\.env\b|credentials?|secret|one.time code|two.factor|\botp\b", re.I)
+
+
+def _friday_process(process):
+    root = Path(__file__).resolve().parents[2]
+    args = process.cmdline()[1:]
+    scripts = {root / "main.py", root / "interfaces/taskbar/launch.py"}
+    if any(Path(arg).is_absolute() and Path(arg).resolve() in scripts for arg in args):
+        return True
+    return Path(process.cwd()).resolve() == root and any(
+        arg == "-m" and args[i + 1] in {"interfaces.taskbar", "interfaces.tray.app", "interfaces.settings", "interfaces.college"}
+        for i, arg in enumerate(args[:-1]))
 
 
 def foreground():
@@ -36,7 +48,8 @@ def foreground():
         app = process.name().lower().removesuffix(".exe")
         scope = {"hwnd": hwnd, "pid": pid, "created": process.create_time(),
                  "title_hash": hashlib.sha256(title.encode()).hexdigest()}
-        return {"scope": scope, "app": app, "title": title}
+        own = app in {"python", "pythonw"} and _friday_process(process)
+        return {"scope": scope, "app": app, "title": title, "friday_owned": own}
     except Exception:
         return None
 
@@ -44,7 +57,7 @@ def foreground():
 def blocked(window):
     if not window:
         return True
-    return bool(window["app"] in EXCLUDED or not window["title"].strip()
+    return bool(window.get("friday_owned") or window["app"] in EXCLUDED or not rules.allowed(window["app"]) or not window["title"].strip()
                 or PRIVATE_TITLE.search(window["title"]) or PRIVATE.search(window["title"])
                 or window["title"].lower().startswith(("friday", "f.r.i.d.a.y")))
 
@@ -79,7 +92,12 @@ def indicator(hwnd):
         pid = win32process.GetWindowThreadProcessId(hwnd)[1]
         process = psutil.Process(pid)
         launch = Path(__file__).resolve().parents[2] / "interfaces/taskbar/launch.py"
-        if not any(Path(arg).is_absolute() and Path(arg).resolve() == launch for arg in process.cmdline()[1:]):
+        args = process.cmdline()[1:]
+        absolute_launch = any(Path(arg).is_absolute() and Path(arg).resolve() == launch for arg in args)
+        module_launch = (Path(process.cwd()).resolve() == launch.parents[2] and any(
+            arg == "-m" and args[i + 1] in {"interfaces.taskbar", "interfaces.tray.app"}
+            for i, arg in enumerate(args[:-1])))
+        if not (absolute_launch or module_launch):
             return None
         return {"hwnd": hwnd, "pid": pid, "created": process.create_time()}
     except Exception:
@@ -115,8 +133,10 @@ def inspect_controls(root, *, browser=False):
         if browser and not inside_document and kind == "Edit" and (
                 name.lower() in {"address and search bar", "search or enter address", "address bar", "location"}
                 or str(info.automation_id).lower() in {"addresseditbox", "urlbar-input", "omnibox"}):
-            value = str(control.get_value() or "")[:2048]
-            if not value or PRIVATE_SITE.search(value) or PRIVATE.search(value):
+            value = str(control.get_value() or "")
+            if len(value) > 2048:
+                return {"blocked": "privacy_scan_incomplete"}
+            if not value or PRIVATE_SITE.search(value) or PRIVATE.search(value) or SENSITIVE.search(value):
                 return {"blocked": "private_window"}
             parsed = urlsplit(value if "://" in value else "https://" + value)
             if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password

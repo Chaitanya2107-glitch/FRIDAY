@@ -1,8 +1,11 @@
 """Explicit local controls and private inspection; screen content never becomes an action."""
+from contextvars import ContextVar
+
 from services.automation.results import ActionResult
 from services.screen_watch import service
 
 PRIVATE_MEMORY = "Private local screen-awareness response."
+local_request = ContextVar("local_screen_request", default=True)
 CONTROLS = {
     "start screen awareness": "start", "start watching my screen": "start", "watch my screen": "start",
     "turn on screen awareness": "start", "enable screen awareness": "start",
@@ -17,8 +20,16 @@ HISTORY = {"screen memory", "screen history", "what have you noticed on my scree
 FORGET = {"forget screen memory", "clear screen memory", "forget what you saw"}
 
 
+def normalized(text):
+    return " ".join(text.lower().replace("\u2019", "'").strip().rstrip(".!?").split())
+
+
+def is_query(text):
+    return normalized(text) in QUERIES
+
+
 def match(text):
-    normal = " ".join(text.lower().replace("\u2019", "'").strip().rstrip(".!?").split())
+    normal = normalized(text)
     if normal in CONTROLS:
         return CONTROLS[normal]
     if normal in {"screen awareness status", "screen watching status"}:
@@ -40,7 +51,7 @@ async def handle(text, *, remote=False):
     action = match(text)
     if action is None:
         return None
-    if remote:
+    if remote or not local_request.get():
         return _result("Screen awareness and its memories are available at the laptop only.", False)
     from services.automation import intent
     from services.mind import talk, conversation_context

@@ -85,3 +85,42 @@ def test_computer_error_stays_visible_long_enough_to_read(bar):
     popup._show_reply(1, 2)
     assert bar.state["ask"] and bar.state["visible"]
     assert timers == [(popup.ASK_TIMER_ID, popup.ASK_SHOW_MS)]
+
+
+def test_screen_query_restores_the_app_before_request(bar, monkeypatch):
+    text = "what am I doing?"
+    bar.fake.GetWindowTextLengthW = lambda hwnd: len(text)
+    bar.fake.GetWindowTextW = lambda hwnd, buffer, length: setattr(buffer, "value", text)
+    thread = SimpleNamespace(start=lambda: bar.events.append(("request", None)))
+    monkeypatch.setattr(popup, "threading", SimpleNamespace(Thread=lambda **kwargs: thread))
+    popup._submit(1, 2)
+    assert bar.events == [("show", popup.SW_HIDE), ("focus", 17), ("request", None)]
+    assert bar.state["screen_query"] and not bar.state["computer"]
+
+
+def test_screen_query_cannot_read_a_different_app_after_failed_focus_restore(bar, monkeypatch):
+    bar.fake.GetForegroundWindow = lambda: 18
+    monkeypatch.setattr(popup.backend, "chat", lambda *a: pytest.fail("screen query read the wrong app"))
+    popup._send_chat_message("what am I reading")
+    assert "return focus" in bar.state["response"] and bar.state["response_ready"]
+
+
+def test_screen_answer_stays_private_and_does_not_take_focus(bar, monkeypatch):
+    replies = []
+    monkeypatch.setattr(popup, "_reply_listener", lambda *args: replies.append(args))
+    bar.state.update(computer=False, screen_query=True, visible=False, private=True,
+                     command=True, response="A local interpretation.", awaiting_reply=False)
+    popup._show_reply(1, 2)
+    assert bar.events == [("show", popup.SW_SHOWNOACTIVATE)]
+    assert replies == [("A local interpretation.", True, True)]
+
+
+def test_ordinary_private_conversation_replaces_sending_and_stays_readable(bar):
+    edits, timers = [], []
+    bar.fake.SetWindowTextW = lambda hwnd, text: edits.append(text)
+    bar.fake.SetTimer = lambda hwnd, timer, duration, callback: timers.append((timer, duration))
+    bar.state.update(computer=False, screen_query=False, visible=True, ask=False, private=True,
+                     command=False, response="An activity-aware personal reply.", awaiting_reply=False)
+    popup._show_reply(1, 2)
+    assert "An activity-aware personal reply." in edits
+    assert bar.state["ask"] and timers == [(popup.ASK_TIMER_ID, popup.ASK_SHOW_MS)]

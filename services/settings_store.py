@@ -18,18 +18,24 @@ def synchronized(function):
 
 
 @synchronized
-def save(path: Path, value: dict) -> None:
+def publish(path: Path, content: bytes) -> None:
+    """Publish bytes atomically; callers hold the relevant catalog writer guard."""
     path = Path(path).absolute()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+        with tempfile.NamedTemporaryFile(mode='wb', dir=path.parent,
                                          prefix=path.name + '.', suffix='.tmp', delete=False) as output:
             temporary = Path(output.name)
-            json.dump(value, output, ensure_ascii=False, indent=2)
+            output.write(content)
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+@synchronized
+def save(path: Path, value: dict | list) -> None:
+    publish(path, json.dumps(value, ensure_ascii=False, indent=2).encode('utf-8'))

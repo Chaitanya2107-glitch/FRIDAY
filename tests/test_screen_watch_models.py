@@ -108,7 +108,7 @@ def local_http(monkeypatch, *, remote_tags=False, remote_show=False, capabilitie
         assert request.url.path == "/api/chat"
         value = content if content is not None else json.dumps({
             "summary": "A graph lecture is visible.", "activity": "Possibly reading graph notes.",
-            "needs_vision": False, "sensitive": False})
+            "subject": "graph theory", "kind": "reading", "needs_vision": False, "sensitive": False})
         return httpx.Response(200, json={"done": done, "done_reason": "stop" if done else "length",
                                        "message": {"content": value, "tool_calls": [{"function": "run"}] if tool else []}})
     original = httpx.AsyncClient
@@ -162,3 +162,19 @@ def test_secret_text_is_not_sent_to_any_endpoint(monkeypatch):
     with pytest.raises(ValueError):
         asyncio.run(inference.analyze("notes", "API_KEY: sk-testingabcdefghijklmnop"))
     assert not calls
+
+
+def test_private_chat_checks_revocation_before_content_handoff(monkeypatch):
+    calls, _ = local_http(monkeypatch)
+    with pytest.raises(InterruptedError):
+        asyncio.run(inference.local_chat([{"role": "user", "content": "PRIVATE_SYNTHETIC"}], guard=lambda: False))
+    assert [path for path, body in calls] == ["/api/tags", "/api/show"]
+    assert "PRIVATE_SYNTHETIC" not in str(calls)
+
+
+@pytest.mark.parametrize("remote", ["tags", "show"])
+def test_private_conversation_rejects_cloud_proxies(monkeypatch, remote):
+    calls, _ = local_http(monkeypatch, remote_tags=remote == "tags", remote_show=remote == "show")
+    with pytest.raises(ValueError):
+        asyncio.run(inference.local_chat([{"role": "user", "content": "PRIVATE_SYNTHETIC"}]))
+    assert all(path != "/api/chat" for path, body in calls)

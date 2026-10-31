@@ -84,10 +84,38 @@ def test_conflicting_browser_addresses_fail_closed():
     assert capture.inspect_controls(root, browser=True)["blocked"]
 
 
+@pytest.mark.parametrize("value", ["https://example.com/?access_token=synthetic", "https://example.com/" + "a" * 2050])
+def test_browser_url_checks_happen_before_truncation(value):
+    root = Control("root", "Window", [Control("Address bar", "Edit", value=value)])
+    assert capture.inspect_controls(root, browser=True)["blocked"]
+
+
 @pytest.mark.parametrize("window", [None, {"app": "bitwarden", "title": "Vault"}, {"app": "chrome", "title": "Incognito"},
                                   {"app": "code", "title": ".env"}, {"app": "notepad", "title": ""}])
 def test_metadata_privacy_gate(window):
     assert capture.blocked(window)
+
+
+@pytest.mark.parametrize("app", ["cmd", "powershell", "pwsh", "windowsterminal", "python", "pythonw", "code", "notepad"])
+def test_ordinary_apps_are_allowed_but_sensitive_content_still_blocks(app):
+    assert not capture.blocked({"app": app, "title": "Lecture notes"})
+    assert capture.blocked({"app": app, "title": "API credentials"})
+    assert capture.inspect_controls(Control("root", "Window", [Control(password=True)]))["blocked"] == "private_window"
+
+
+@pytest.mark.parametrize("title", ["FRIDAY", "FRIDAY screen awareness", "F.R.I.D.A.Y controls"])
+def test_friday_windows_still_do_not_observe_themselves(title):
+    assert capture.blocked({"app": "pythonw", "title": title})
+
+
+@pytest.mark.parametrize("module", ["interfaces.settings", "interfaces.college", "interfaces.taskbar"])
+def test_friday_process_identity_excludes_untitled_dialogs_but_not_other_python_apps(module):
+    root = capture.Path(capture.__file__).resolve().parents[2]
+    process = SimpleNamespace(cmdline=lambda: ["pythonw.exe", "-m", module], cwd=lambda: str(root))
+    assert capture._friday_process(process)
+    assert capture.blocked({"app": "pythonw", "title": "tk", "friday_owned": True})
+    process.cmdline = lambda: ["pythonw.exe", "-m", "lecture_player"]
+    assert not capture._friday_process(process)
 
 
 def test_no_monitor_fallback_for_active_window_capture(monkeypatch):

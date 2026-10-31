@@ -31,7 +31,7 @@ class TrackerPlugin:
             return [h for h in snapshot['habits'] if not h['archived']]
         return [t for t in snapshot['tasks'] if t['status'] not in {'completed', 'cancelled'}]
 
-    def widget(self) -> dict:
+    def widget(self, limit: int = 6) -> dict:
         data = self.store.snapshot()
         rows = self.rows(data)
         items = []
@@ -40,7 +40,7 @@ class TrackerPlugin:
             done = sum(data['date'] in h['checks'] for h in due)
             summary = f'{done}/{len(due)} checked in today' if due else 'No habits scheduled today'
             rows.sort(key=lambda h: (h not in due, data['date'] in h['checks'], h['id']))
-            for habit in rows[:6]:
+            for habit in rows[:limit]:
                 checked = data['date'] in habit['checks']
                 scheduled = habit in due
                 state = 'Done today' if checked else 'Not yet' if scheduled else 'Rest day'
@@ -52,7 +52,7 @@ class TrackerPlugin:
                                          'value': data['date'], 'disabled': not scheduled}})
         else:
             summary = f'{len(rows)} open task{ "s" if len(rows) != 1 else ""}' if rows else 'All clear. Add your next task.'
-            for task in rows[:6]:
+            for task in rows[:limit]:
                 remaining = len(task['steps']) - task['cursor']
                 detail = 'Finish planned steps in FRIDAY' if remaining > 0 else task['status'].capitalize()
                 if task['due']:
@@ -61,8 +61,8 @@ class TrackerPlugin:
                               'action': {'label': 'Done', 'action': 'complete', 'item': str(task['id']),
                                          'revision': task['updated'],
                                          'disabled': remaining > 0 or task['status'] != 'active'}})
-        if len(rows) > 6:
-            summary += f' · Showing 6 of {len(rows)}; use the command line for more'
+        if len(rows) > limit:
+            summary += f' · Showing {limit} of {len(rows)}; search by name in {self.kind} commands'
         return {'title': self.manifest.name, 'text': summary, 'items': items,
                 'input': {'label': 'New habit' if self.kind == 'habit' else 'New todo',
                           'placeholder': 'A small daily habit…' if self.kind == 'habit' else 'Something to do…',
@@ -108,10 +108,12 @@ class TrackerPlugin:
             return {'ok': False, 'text': 'FRIDAY’s productivity module is unavailable in this checkout.'}
 
     def _command(self, text: str) -> dict:
-        _, _, tail = text.strip().partition(' ')
-        verb, _, query = tail.partition(' ')
+        parts = text.strip().split(maxsplit=1)
+        tail = parts[1] if len(parts) > 1 else ''
+        parts = tail.split(maxsplit=1)
+        verb, query = (parts[0], parts[1] if len(parts) > 1 else '') if parts else ('', '')
         if not tail or tail.casefold() in {'list', 'progress'}:
-            widget = self.widget()
+            widget = self.widget(limit=20)
             lines = [widget['text'], *[f"#{r['id']} {r['label']} · {r['detail']}" for r in widget['items']]]
             return {'ok': True, 'text': '\n'.join(lines)}
         if verb.casefold() == 'add':
@@ -139,8 +141,10 @@ class TrackerPlugin:
             return {'ok': False, 'text': 'FRIDAY’s productivity module is unavailable in this checkout.'}
 
     def suggestions(self, text: str) -> list[dict]:
-        _, _, tail = text.strip().partition(' ')
-        verb, _, query = tail.partition(' ')
+        parts = text.strip().split(maxsplit=1)
+        tail = parts[1] if len(parts) > 1 else ''
+        parts = tail.split(maxsplit=1)
+        verb, query = (parts[0], parts[1] if len(parts) > 1 else '') if parts else ('', '')
         verbs = {'check', 'undo', 'uncheck'} if self.kind == 'habit' else {'done', 'complete'}
         if verb.casefold() in verbs:
             data = self.store.snapshot()

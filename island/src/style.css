@@ -73,6 +73,7 @@ img { width: 22px; height: 22px; object-fit: contain; }
 .clock-primary { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .clock-time, .clock-date { font-variant-numeric: tabular-nums; font-size: 14px; letter-spacing: .02em; line-height: 1.55; }
 .clock-period { font-size: 9px; color: var(--muted); }
+.capsule-reminder { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 21.7px; color: var(--accent); }
 .clock-secondary { font-size: 9px; line-height: 1.5; color: var(--muted); }
 .capsule-battery { display: flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
 .battery-icon { width: 18px; height: 14px; display: inline-flex; align-items: center; position: relative; }

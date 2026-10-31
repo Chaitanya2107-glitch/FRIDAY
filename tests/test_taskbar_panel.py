@@ -123,7 +123,7 @@ def test_native_panel_controls_and_menu(tmp_path, monkeypatch):
         if hasattr(panel, "root"):
             panel.root.destroy()
         panel.buttons.clear()
-        for key in ("_photo", "_menu_variables", "_menu", "status", "detail"):
+        for key in ("_photo", "_menu_variables", "_menu", "status", "detail", "screen_badge"):
             panel.__dict__.pop(key, None)
         panel.root = None
         tray.icon.stop()

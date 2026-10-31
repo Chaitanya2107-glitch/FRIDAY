@@ -260,18 +260,14 @@ Windows 11 puts legacy verbs under [Show more options](https://learn.microsoft.c
   Laptop chat and voice share this context; Telegram cannot inspect, replace or answer it. These are bounded
   project-brief follow-ups, not general cross-tool pronoun understanding or new model access.
 
-- **Manual training alongside normal life:** double-click `train_friday.bat`, or run
-  `venv\Scripts\python.exe train_friday.py`. A separate terminal lets you list/show/review her captured
-  questions and proactive notifications, with timestamps, situation, raw observation context, thought,
-  delivery state, and the answer/reaction from the live conversation. Her normal nudges, questions and
-  answer learning keep running; reviewing never consumes her pending question.
-  Enter a corrected answer, what she should remember, optional preferred wording and review notes.
-  Approval and applying local learning are separate steps. Applied facts/wording enter her shared prompt;
-  reviewed app explanations and pattern reasons also reach her local brain. Add your own question/desired
-  answer pairs. Reject/withdraw removes the manual lesson, while preserving its captured evidence.
-  Export explicitly opted-in approved examples as chat JSONL for future fine-tuning. Raw context and review
-  notes stay local; approved learning text can go to the configured AI provider. This updates local memory,
-  not model weights. Restart FRIDAY once from the tray to enable collection; subsequent lessons are read live.
+- **Train Friday through prediction verification:** double-click `train_friday.bat` to review saved
+  predictions with their timestamps and evidence. Mark each correct, wrong or unsure, with an optional
+  actual next app when an app prediction was wrong. Definite feedback automatically adjusts future guesses;
+  unsure/skipped predictions stay pending. The existing nightly predictor consumes eligible feedback under
+  its observed-data/evaluation gates. Verification is atomic and counted once across the tool and live
+  replies. It cannot grant automation permission or consume another conversation's pending question.
+  Interviews, generic lessons, nudge ratings and exports are removed from this tool; existing lessons remain
+  available to the assistant. See `docs/PREDICTION_TRAINING.md`. Restart FRIDAY once to load runtime changes.
 - **Persona:** Iron Man's FRIDAY — calls you "Boss", calm status-report answers with a dry, cheeky line; serious topics
   stay joke-free. "roast me", "roast my week", "be serious" / "sarcasm off", "sarcasm on".
 - **Shared cognition:** chat, voice, proactive questions, desktop notifications, Telegram delivery,
@@ -499,6 +495,19 @@ Windows 11 puts legacy verbs under [Show more options](https://learn.microsoft.c
 ---
 
 ## 9. College
+
+- **College Schedules native window (2026-10-29):** say `open college schedules`,
+  choose **All controls → College Schedules…**, or run `college_schedules.vbs`.
+  Six tabs share the same timetable/deadlines with chat: Home, Timetable,
+  Assignments & Homework, Exams, Events and Upload. Edit faculty/room in the
+  separate subject list; `who takes my next class` reads it. Dated time changes
+  retain existing cancellation/attendance guards. Reminder updates remain explicit
+  proposals reviewed through chat. Imports require editable preview, diff and
+  Confirm; timetable uploads only, with consent before provider extraction.
+  `show college events` and the local briefing share the saved event list; local
+  class answers use the subject registry's room without changing templates.
+  See [usage and exact limits](COLLEGE_SCHEDULES.md). Quit FRIDAY from the tray
+  and relaunch to load.
 
 - **Temporary class time changes:** `tomorrow's DBMS class moved from 9 AM to 11 AM` changes that
   occurrence and preserves duration, weekly timetable and correction history. `when is tomorrow's

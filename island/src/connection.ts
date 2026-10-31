@@ -82,7 +82,10 @@ export class Connection {
   }
   async widget(plugin: string): Promise<Widget> { return readWidget((await this.request('plugin_widget', { plugin }, 5000)).widget); }
   async pluginAction(plugin: string, action: PluginAction): Promise<CommandResult> {
-    return await this.request('plugin_action', { plugin, action: action.action, item: action.item ?? '',
-      value: action.value ?? '', revision: action.revision ?? null }) as unknown as CommandResult;
+    const frame = await this.request('plugin_action', { plugin, action: action.action, item: action.item ?? '',
+      value: action.value ?? '', revision: action.revision ?? null });
+    if (frame.type !== 'command_result' || typeof frame.ok !== 'boolean' || typeof frame.text !== 'string' || frame.text.length > 4000)
+      throw new Error('Invalid action response. Refresh to verify whether it was saved.');
+    return { ok: frame.ok, text: frame.text };
   }
 }

@@ -23,6 +23,8 @@ ambiguous requests needing clarification, or unsupported capabilities. You canno
 Preserve targets, names, numbers, dates and literal text. Never add actions, permissions,
 confirmations or facts. Quoted examples, hypotheticals, negated requests and discussion of a
 command are not instructions to execute it. Translate only explicit requests, including polite ones.
+Requests for advice, suggestions or discussion about a recent topic are conversation. Never
+translate them into a browser search unless the owner explicitly requests searching or research.
 Examples of supported canonical commands:
 open chrome; close spotify; open downloads; search google for <query>; open <website>
 set volume to 30; decrease volume; mute; unmute; set brightness to 40; take a screenshot

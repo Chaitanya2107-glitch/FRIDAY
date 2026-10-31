@@ -129,34 +129,27 @@ def test_live_personal_answers_are_recorded_without_model_extraction():
     assert wonder.answer_for(question) == "Pizza"
 
 
-def test_cli_defaults_hide_nudges_and_can_apply_in_one_command(capsys):
-    import train_friday
+def test_legacy_queue_filters_and_applied_lessons_remain_available():
     reviews.capture("nudge", "Eye break time", {})
     item = reviews.capture("example", "Which editor do I prefer?", {})
-    assert train_friday.main(["list"]) == 0
-    output = capsys.readouterr().out
-    assert "Which editor" in output and "Eye break" not in output
-    assert train_friday.main(["approve", str(item), "--preferred", "Zed, Boss.", "--apply"]) == 0
-    assert "exact local answer" in capsys.readouterr().out
+    assert [r["id"] for r in reviews.queue(kind="learning")] == [item]
+    reviews.review(item, preferred="Zed, Boss.", approve=True)
+    reviews.train(item)
     assert reviews.local_reply("Which editor do I prefer?") == "Zed, Boss."
     assert not reviews.get(item)["exportable"]
 
 
-def test_cli_session_batches_review_and_applies_short_answers(monkeypatch):
-    import train_friday
-    answers = iter(["Build useful software", "", "Pizza", "yes"])
-    monkeypatch.setattr("builtins.input", lambda *args: next(answers))
-    assert train_friday.main(["session", "--topic", "personal", "--count", "3"]) == 0
+def test_existing_reviewed_answers_still_reach_personal_replies():
+    apply("What do you want to build?", teaching="Build useful software", kind="question")
+    apply("What's your favourite food?", teaching="Pizza", kind="question")
     assert len(reviews.learned()) == 2
     assert "Pizza" in asyncio.run(replies.answer("what is my favourite food?")).content
     assert not any(row["exportable"] for row in reviews.learned())
 
 
-def test_unapproved_session_answers_remain_drafts(monkeypatch):
-    import train_friday
-    answers = iter(["Build useful software", "no"])
-    monkeypatch.setattr("builtins.input", lambda *args: next(answers))
-    assert train_friday.main(["session", "--topic", "personal", "--count", "1"]) == 0
+def test_unapproved_legacy_answers_remain_drafts():
+    item = reviews.capture("question", wonder.SEEDS[0], {})
+    reviews.answer(item, "Build useful software", "answered")
     assert not reviews.learned()
     assert reviews.list()[0]["state"] == "pending"
     assert wonder.answer_for(wonder.SEEDS[0]) is None
@@ -260,13 +253,11 @@ def test_personal_tell_me_queries_stay_local_when_knowledge_is_enabled(monkeypat
     assert "reviewed memory" in result.content
 
 
-def test_quick_review_uses_one_approval_and_applies_the_visible_answer(monkeypatch):
-    import train_friday
+def test_existing_reviewed_personal_answer_still_applies():
     item = reviews.capture("question", "What's your favourite food?", {})
     reviews.answer(item, "Pizza", "answered")
-    answers = iter(["", "", "", "yes"])
-    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
-    assert train_friday.main(["review", str(item), "--quick"]) == 0
+    reviews.review(item, answer="Pizza", teaching="Pizza", approve=True)
+    reviews.train(item)
     assert reviews.get(item)["state"] == "trained"
     assert not reviews.get(item)["exportable"]
     assert "Pizza" in reviews.local_reply("what's my favourite food?")

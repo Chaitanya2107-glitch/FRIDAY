@@ -52,7 +52,7 @@ def build(now: datetime | None = None, *, structured: bool | None = None) -> str
         sections = [section(title, body) for title, body in parts]
         return (f"☀️ FRIDAY — Daily briefing\n{now:%A, %d %B %Y}\n{_greeting(now)}\n\n"
                 + "\n\n".join(part for part in sections if part))
-    parts = [_greeting(now), weather(), _classes_today(now), _attendance(now), _deadlines(now), _exams(now),
+    parts = [_greeting(now), weather(), _classes_today(now), _attendance(now), _deadlines(now), _exams(now), _college_events(now),
              _risk(now), _reminders_today(now), notes.briefing_line(), _system(), _yesterday(now)]
     return " ".join(part for part in parts if part)
 
@@ -71,6 +71,18 @@ def _exams(now: datetime) -> str:
     from services.proactive import college  # avoid an import cycle at startup
 
     return college.exam_line(now)  # "Exams: DBMS CIE 2 in 9 days."
+
+
+def _college_events(now: datetime) -> str:
+    from services.automation.intent import remote_request
+    from services.college.reading import events_message
+    if remote_request.get():
+        return ''
+    try:
+        return events_message(now, briefing=True)
+    except (OSError, ValueError):
+        logger.warning('College events unavailable for the local briefing')
+        return ''
 
 
 def _attendance(now: datetime) -> str:
@@ -132,7 +144,7 @@ def _classes_today(now: datetime, *, structured: bool = False) -> str:
         if structured:
             if not timetable.load():
                 return ""
-            return "\n".join(timetable._describe(c) for c in timetable.classes_for_date(now.date())) or "No classes today."
+            return "\n".join(timetable._describe(c, metadata=False) for c in timetable.classes_for_date(now.date())) or "No classes today."
         return timetable.today_line(now)
     except Exception as e:  # a broken timetable file mustn't break the briefing
         logger.warning(f"Timetable unavailable for the briefing: {e}")

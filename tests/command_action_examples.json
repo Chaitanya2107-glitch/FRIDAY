@@ -1,4 +1,7 @@
 [
+  {"family": "college", "action": "college_events", "phrases": ["show college events", "upcoming college events"]},
+  {"family": "college", "action": "open_college_schedules", "phrases": ["open college schedules", "show college schedules"]},
+  {"family": "college", "action": "next_class_faculty", "phrases": ["who takes my next class", "who teaches my next class"]},
   {"family": "cognition", "action": "brain_status", "phrases": ["brain status", "question status", "why did you ask me that"]},
   {"family": "cognition", "action": "executive_status", "phrases": ["executive status", "cognitive review status"]},
   {"family": "cognition", "action": "executive_on", "phrases": ["executive review on", "enable cognitive review"]},

@@ -106,3 +106,16 @@ class TrackerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Registry([plugin]).snippet(), {'plugin': None, 'text': ''})
         self.assertEqual(self.todo.snippet(), '')
         self.assertEqual(self.habits.snippet(), '')
+
+    async def test_grammar_whitespace_never_creates_accidental_tasks_and_lists_more_than_six(self):
+        for i in range(7):
+            self.store.save_task(f'Item {i}')
+        registry = Registry([self.todo])
+        engine = Engine(registry)
+        config = load_config(Path(self.temp.name) / 'config.json')
+        result = await engine.execute('todo  list', config)
+        self.assertIn('Item 0', result['text'])
+        self.assertEqual(len(self.store.snapshot()['tasks']), 7)
+        self.assertTrue((await engine.execute('todo\t done   #1', config))['ok'])
+        self.assertEqual(len(self.store.snapshot()['tasks']), 7)
+        self.assertEqual(next(t for t in self.store.snapshot()['tasks'] if t['id'] == 1)['status'], 'completed')

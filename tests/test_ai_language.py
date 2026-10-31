@@ -60,7 +60,7 @@ def test_ai_batch_is_validated_before_any_action(monkeypatch):
     effects = []
     monkeypatch.setattr(intent.system, 'set_mute', lambda value: effects.append(value))
     result = asyncio.run(intent.try_system_action('hush the pc and do that other thing', 'openrouter'))
-    assert not result.success and not effects
+    assert result is None and not effects  # ordinary conversation can clarify; no partial execution
 
 
 def test_model_command_keeps_remote_restrictions(monkeypatch):

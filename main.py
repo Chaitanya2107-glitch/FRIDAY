@@ -14,7 +14,7 @@ from core.config import config
 
 # Windows consoles default to a legacy codepage (e.g. cp1252) that can't
 # encode the box-drawing banner below — force UTF-8 stdout so it doesn't crash.
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+if sys.stdout is not None and sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
 

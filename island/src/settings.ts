@@ -78,7 +78,7 @@ export class Settings {
       const snippet = input('', 'checkbox'); snippet.checked = config.appearance.snippet;
       snippet.onchange = () => void this.change(c => { c.appearance.snippet = snippet.checked; });
       const sample = el('div', 'theme-sample'); sample.append(el('span', 'sample-dot'), el('div', '', 'A little light. A little space.'));
-      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Idle delay (seconds)', seconds), field('Show one live line', snippet));
+      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Idle delay (seconds)', seconds), field('Near-class reminders', snippet));
       this.root.append(el('p', 'muted', this.host.status().reduce_motion ? 'Windows reduced motion is on.' : 'Animations follow Windows motion preferences.'));
     } else if (this.section === 'apps') {
       this.root.append(el('p', 'muted', 'Your first eight visible apps appear in Peek. Drag to reorder.'));

@@ -1,5 +1,6 @@
 """Labeled native controls; one line per command or website."""
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, ttk
 
 SECTIONS = {
@@ -11,8 +12,13 @@ SECTIONS = {
                  'Choose a project folder, its websites and optional resume steps.'),
     'modes': ('Modes', 'Set the tone for your session',
               'Save startup commands and quiet preferences. Changes apply the next time you start the mode.'),
+    'screen_apps': ('Screen access', 'Choose what Friday may read',
+                    'Add an app, then check Allow reading or leave it unchecked to block it. '
+                    'Unlisted ordinary apps are allowed. Password fields, secrets and protected windows stay excluded. '
+                    'Saved changes apply immediately; blocking also removes that app from conversation context.'),
 }
 FIELDS = {
+    'screen_apps': [('allowed', 'Allow reading (unchecked = Blocked)', 'bool', '')],
     'contacts': [('number', 'Phone / WhatsApp number', 'entry', '+91 98765 43210')],
     'routines': [('steps', 'Commands · one per line', 'text', 'open vs code\nset volume to 30\nwait 2 seconds')],
     'projects': [('path', 'Project folder', 'folder', 'Choose an existing folder'),
@@ -30,7 +36,8 @@ class Form(ttk.Frame):
         self.section, self.controls, self.variables = section, {}, {}
         self.columnconfigure(0, weight=1)
         row = 0
-        for key, label, kind, hint in [('name', 'Name', 'entry', ''), *FIELDS[section]]:
+        name_field = ('name', 'App executable', 'app', 'Examples: chrome.exe, powershell.exe. For Terminal tabs, use Windows Terminal.') if section == 'screen_apps' else ('name', 'Name', 'entry', '')
+        for key, label, kind, hint in [name_field, *FIELDS[section]]:
             if kind == 'folder':
                 hint = ''
             if kind == 'bool':
@@ -60,6 +67,10 @@ class Form(ttk.Frame):
                         button = ttk.Button(holder, text='Browse…', command=self.browse)
                         button.grid(row=0, column=1, padx=(8, 0))
                         self.controls['_browse'] = button
+                    elif kind == 'app':
+                        button = ttk.Button(holder, text='Choose app…', command=self.browse_app)
+                        button.grid(row=0, column=1, padx=(8, 0))
+                        self.controls['_browse'] = button
                 row += 1
                 if hint:
                     ttk.Label(self, text=hint, style='Hint.TLabel', wraplength=600).grid(row=row, column=0, sticky='w', pady=(4, 0))
@@ -70,6 +81,12 @@ class Form(ttk.Frame):
         folder = filedialog.askdirectory(parent=self.winfo_toplevel(), title='Choose the project folder', mustexist=True)
         if folder:
             self.variables['path'].set(folder)
+
+    def browse_app(self):
+        app = filedialog.askopenfilename(parent=self.winfo_toplevel(), title='Choose an app',
+                                         filetypes=[('Windows applications', '*.exe')])
+        if app:
+            self.variables['name'].set(Path(app).name)
 
     def read(self):
         value = {key: variable.get() for key, variable in self.variables.items()}

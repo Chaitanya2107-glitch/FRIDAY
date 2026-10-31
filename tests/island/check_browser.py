@@ -37,9 +37,12 @@ async def main():
                              TrackerPlugin('todo', store), TrackerPlugin('habit', store)])
         class DelayedBridge(Bridge):
             slow = False
+            delay_action_ack = False
             async def send(self, ws, kind, id=None, **data):
                 if kind == 'suggestions' and self.slow:
                     await asyncio.sleep(1.5)
+                if kind == 'command_result' and self.delay_action_ack:
+                    await asyncio.sleep(.8)
                 await super().send(ws, kind, id, **data)
 
         bridge = DelayedBridge(path, registry, Engine(registry, assistant))
@@ -146,6 +149,28 @@ async def main():
                 await expect(page.locator('.clock-date')).to_have_text('1 Nov')
                 await expect(page.locator('.rest-clock .clock-secondary')).to_have_text('Sunday')
                 await page.clock.set_fixed_time(datetime(2026, 10, 31, 10, 3, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                now = await page.evaluate('Date.now()')
+                async def pill(text, **times):
+                    for ws in tuple(bridge.clients):
+                        await bridge.send(ws, 'pill_snippet_update', plugin='college_schedule', text=text, **times)
+                await pill('Next: DBMS · 10:08', show_from=now - 600000, expires_at=now + 300000)
+                await expect(page.locator('.capsule-reminder')).to_have_text('Next: DBMS · 10:08')
+                await expect(page.locator('.clock-date')).to_be_hidden()
+                await expect(page.locator('.capsule-battery')).to_be_visible()
+                await page.screenshot(path='tasks/island-class-reminder.png')
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 10, 8, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await expect(page.locator('.capsule-reminder')).to_be_hidden()
+                await pill('Too early', show_from=now + 600000, expires_at=now + 900000)
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await pill('No expiry')
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await pill('Near class', show_from=now, expires_at=now + 600000)
+                await expect(page.locator('.clock-date')).to_be_hidden()
+                await pill('')
+                await expect(page.locator('.clock-date')).to_be_visible()
                 await page.evaluate("""() => {
                     window.desktop.media = {source:'fixture-player',title:'Golden hour',artist:'FRIDAY test artist',playing:true,can_toggle:true,can_previous:true,can_next:true};
                     window.dispatchEvent(new Event('focus'));
@@ -216,6 +241,15 @@ async def main():
                 restarted = Tracker(Workspace(Cognition(Path(directory) / 'tracker.db'))).snapshot()
                 assert restarted['tasks'][-1]['status'] == 'completed'
                 assert restarted['habits'][0]['checks'] == []
+                bridge.delay_action_ack = True
+                await task_input.fill('Only once after navigation'); await task_input.press('Enter')
+                await page.get_by_role('button', name='Projects', exact=True).last.click()
+                await page.get_by_role('button', name='Plugins', exact=True).click()
+                await expect(todos).to_contain_text('Saving…')
+                await todos.locator('form').evaluate('form => form.requestSubmit()')
+                await expect(todos).to_contain_text('Only once after navigation')
+                bridge.delay_action_ack = False
+                assert len([t for t in store.snapshot()['tasks'] if t['title'] == 'Only once after navigation']) == 1
                 await page.screenshot(path='tasks/island-live-plugins.png')
                 await page.get_by_role("button", name="Settings", exact=True).last.click()
                 await page.get_by_role("button", name="Pinned apps", exact=True).click()
@@ -284,9 +318,13 @@ async def main():
                 bridge.slow = False
                 await command.press('Escape')
                 # Offline mode must recover the same UI without a backend.
+                now = await page.evaluate('Date.now()')
+                await pill('Near class', show_from=now - 60000, expires_at=now + 600000)
+                await expect(page.locator('.clock-date')).to_be_hidden()
                 server.close()
                 await server.wait_closed()
                 await expect(page.locator(".live-line")).to_have_text("FRIDAY offline")
+                await expect(page.locator('.clock-date')).to_be_visible()
                 await page.evaluate("window.__emit('hotkey','sneak')")
                 await command.fill('calc')
                 await expect(page.get_by_role('option').first).to_contain_text('Calculator')

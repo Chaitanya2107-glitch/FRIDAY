@@ -15,6 +15,13 @@ things at once.
 
 import re
 
+COLLEGE_SCHEDULE_OPEN = {'open college schedules', 'open college schedule', 'show college schedules',
+                         'college schedules', 'open my college schedules'}
+COLLEGE_NEXT_FACULTY = {'who takes my next class', 'who teaches my next class',
+                        'who is taking my next class', 'who is my next class faculty'}
+COLLEGE_EVENTS_QUERY = {'show college events', 'list college events', 'upcoming college events',
+                        'what are my upcoming college events', 'what are my upcoming events'}
+
 from services.automation.command_phrases import PHRASE_ALIASES
 from services.automation.spoken_numbers import normalize_command_numbers
 from services.automation.task_phrases import rephrase_task_command

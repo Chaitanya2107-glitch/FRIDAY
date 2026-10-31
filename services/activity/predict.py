@@ -140,8 +140,10 @@ def predict_next(log, now: datetime | None = None) -> str:
 def _guesses(predictor: Predictor, app: str, before: str | None, when: datetime, n: int = TOP) -> list[str]:
     """The nightly-trained model's guesses while it beats counting (services/mind/learner.py), else counting's."""
     from services.mind import learner  # it builds on this module: import late
+    from services.mind.prediction_review import rank
 
-    return learner.top(app, before, when, n) or predictor.top(app, when, before, n)
+    guesses = learner.top(app, before, when, n) or predictor.top(app, when, before, n)
+    return rank(guesses, app, before, when)[:n]
 
 
 def run(parsed: dict, log) -> str:

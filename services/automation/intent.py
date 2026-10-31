@@ -116,7 +116,8 @@ telegram_owner: contextvars.ContextVar[bool] = contextvars.ContextVar("telegram_
 skip_confirmation: contextvars.ContextVar[bool] = contextvars.ContextVar("skip_confirmation", default=False)
 _language_proposal: contextvars.ContextVar[bool] = contextvars.ContextVar("language_proposal", default=False)
 _language_source: contextvars.ContextVar[str | None] = contextvars.ContextVar("language_source", default=None)
-NOT_OVER_TELEGRAM = {"read_clipboard", "list_clipboard_history", "restore_clipboard_item", "save_login", "log_in"}
+NOT_OVER_TELEGRAM = {"read_clipboard", "list_clipboard_history", "restore_clipboard_item", "save_login", "log_in",
+                     "open_college_schedules", "next_class_faculty", "college_events"}
 REMOTE_REFUSAL = "I don't do that over Telegram — ask me at the laptop."
 _UNLOCK_TELEGRAM = re.compile(r"^(?:unlock|turn on|enable)\s+(?:the\s+)?(?:telegram(?:\s+bot)?|remote control)$", re.I)
 
@@ -425,6 +426,10 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         return await reasoning_commands.run(reasoning_command)
     if workspace_command := workspace_commands.match_command(message):
         return await asyncio.to_thread(workspace_commands.run, workspace_command, remote=remote_request.get())
+
+    from services.productivity import commands as tracker_commands
+    if tracker_command := tracker_commands.match_command(message):
+        return await asyncio.to_thread(tracker_commands.run, tracker_command, remote=remote_request.get())
 
     text = normalize_command(message)
 
@@ -771,6 +776,13 @@ async def _understand_command(message: str, provider_name: str) -> ActionResult 
         return ActionResult(False, "Please confirm or cancel the original request yourself, Boss.")
     # A language model cannot name additional apps to close.
     parsed = _match_local_step(command)
+    proposal_plan = _local_multi_plan(command)
+    if proposal_plan == []:
+        return None  # An invented command batch must not swallow ordinary conversation.
+    steps = proposal_plan or [parsed]
+    if any(isinstance(step, dict) and step.get("action") == "search_chrome" for step in steps) and not re.search(
+            r"\b(?:search|google|bing|look\s+(?:up|for)|find|research)\b", message, re.I):
+        return None  # Conversation and contextual suggestions do not authorize a browser search.
     if isinstance(parsed, dict) and not _close_target_was_named(parsed, message):
         return ActionResult(False, "Which app do you want me to close, Boss?")
     token = _language_proposal.set(True)
@@ -780,8 +792,8 @@ async def _understand_command(message: str, provider_name: str) -> ActionResult 
     finally:
         _language_source.reset(source_token)
         _language_proposal.reset(token)
-    return result or ActionResult(False, "I couldn't map that request to a supported command, Boss. "
-                                  "Tell me the app or task you want me to work on.")
+    # An unsupported model proposal is still conversation; the reply layer can clarify.
+    return result
 
 
 def _match_local_deadline(text: str) -> dict | None:
@@ -882,12 +894,14 @@ def _music_step_boundary(text: str) -> re.Match | None:
 def _owns_routed_payload(text: str) -> bool:
     """Keep literal requests handled by dedicated asynchronous routes whole."""
     from services.mind import execution_commands, reasoning_commands
+    from services.productivity import commands as tracker_commands
 
     typed = match_typing_command(text)
     memory = match_memory_command(text)
     return bool((typed and typed["action"] == "write_text")
                 or telegram_commands._SEND.fullmatch(text) or telegram_commands._MESSAGE_AFTER.fullmatch(text)
                 or execution_commands.match_command(text) or reasoning_commands.match_command(text)
+                or tracker_commands.match_command(text)
                 or (memory and memory["action"] in {"remember", "forget_memory"}))
 
 

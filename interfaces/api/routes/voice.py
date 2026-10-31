@@ -415,8 +415,6 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         )
 
     # ── Step 3: Normal chat flow ──────────────────────────────────────────────
-    if not remote_request.get() and not (cognition_command or screen_question or search_context):
-        talk.hear(transcription)
     try:
         history_dicts = _memory.get_recent_history()
     except Exception as e:
@@ -426,6 +424,19 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         Message(role=m["role"], content=m["content"])
         for m in history_dicts
     ]
+    if not (cognition_command or screen_question or search_context):
+        from services.screen_watch import companion
+        private_reply = await companion.answer(transcription, messages, remote=remote_request.get(),
+                                                max_tokens=request.max_tokens)
+        if private_reply is not None:
+            cognition_service.reply(private_reply.content, safe_text=companion.PRIVATE_MEMORY)
+            if request.speak:
+                _speak_in_background(private_reply.content, cache=False, local_only=True)
+            return VoiceResponse(transcription=transcription, response=private_reply.content,
+                                 provider=private_reply.provider, model=private_reply.model,
+                                 tokens_used=private_reply.tokens_used, action="chat", private=True)
+    if not remote_request.get() and not (cognition_command or screen_question or search_context):
+        talk.hear(transcription)
     # Other configured providers are tried if this one fails
     speaker = None
     if config.AI_ASSIST_ONLY:

@@ -26,6 +26,10 @@ from pathlib import Path
 from core.config import config
 from core.logger import logger
 from services.automation.system_control import AutomationError
+from services import settings_store
+from services.proactive import deadline_store
+from services.proactive.timetable_extract import extract_classes, parse_classes
+from services.college.reading import room_for, warning_room
 
 path = config.MEMORY_DIR / "timetable.json"  # tests point this elsewhere
 subjects_path = config.MEMORY_DIR / "subjects.json"
@@ -98,9 +102,12 @@ def load() -> list[dict]:
 
 
 def _save(classes: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     classes = sorted(classes, key=lambda c: (DAYS.index(c["day"]), c["start"]))
-    path.write_text(json.dumps(classes, indent=2, ensure_ascii=False), encoding="utf-8")
+    settings_store.save(path, classes)
+
+
+def edit():
+    return deadline_store.edit(path)
 
 
 def parse_time(text: str) -> str:
@@ -140,8 +147,9 @@ def _clock(hhmm: str) -> str:
     return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p").lstrip("0").lower()
 
 
-def _describe(c: dict, with_day: bool = False) -> str:
-    room = f" in {c['room']}" if c.get("room") else ""
+def _describe(c: dict, with_day: bool = False, *, metadata: bool = True) -> str:
+    saved_room = room_for(c) if metadata else c.get('room')
+    room = f' in {saved_room}' if saved_room else ''
     return f"{c['day'].title() + ' ' if with_day else ''}{_clock(c['start'])} {c['subject']}{room}"
 
 
@@ -167,7 +175,8 @@ def today_line(now: datetime) -> str:
     return f"Classes today: {', '.join(_describe(c) for c in today)}."
 
 
-def next_class(now: datetime) -> str:
+def next_class_occurrence(now: datetime) -> dict | None:
+    """Shared selection for next-class prose and native overview; copies only."""
     classes = load()
     if not classes:
         raise AutomationError('I don\'t have your timetable yet. Open it and say "read my timetable from the screen".')
@@ -181,9 +190,18 @@ def next_class(now: datetime) -> str:
         for c in class_sessions.effective(target, [c for c in classes if c["day"] == day and
                   schedule.allowed(target, c["subject"], known)], changes):
             if days_ahead or c["start"] > now.strftime("%H:%M"):
-                when = "today" if days_ahead == 0 else "tomorrow" if days_ahead == 1 else f"on {day.title()}"
-                return f"Your next class is {c['subject']} {when} at {_clock(c['start'])}" + \
-                    (f" in {c['room']}." if c.get("room") else ".")
+                return {**c, 'date': target.isoformat()}
+    return None
+
+
+def next_class(now: datetime) -> str:
+    c = next_class_occurrence(now)
+    if c:
+        saved_room = room_for(c)
+        days_ahead = (date.fromisoformat(c['date']) - now.date()).days
+        when = 'today' if days_ahead == 0 else 'tomorrow' if days_ahead == 1 else f"on {c['day'].title()}"
+        return f"Your next class is {c['subject']} {when} at {_clock(c['start'])}" + \
+            (f' in {saved_room}.' if saved_room else '.')
     return "You don't have any classes coming up."
 
 
@@ -200,7 +218,8 @@ def due_warnings(now: datetime) -> list[str]:
         if timedelta(0) < start - now <= timedelta(minutes=WARN_MINUTES) and key not in _warned:
             _warned.add(key)
             minutes = max(1, round((start - now).total_seconds() / 60))
-            room = f" in {c['room']}" if c.get("room") else ""
+            saved_room = warning_room(c)
+            room = f' in {saved_room}' if saved_room else ''
             from services.proactive.deadlines import for_subject  # avoid an import cycle
 
             warnings.append(f"{c['subject']} starts in {minutes} minute{'s' if minutes != 1 else ''}{room}."
@@ -270,7 +289,7 @@ def aliases(subject: str) -> list[str]:
 
 
 def _save_subjects(names: list[str]) -> None:
-    subjects_path.write_text(json.dumps(names, indent=2, ensure_ascii=False), encoding="utf-8")
+    settings_store.save(subjects_path, names)
 
 
 def mentions(text: str, subject: str) -> bool:
@@ -346,6 +365,16 @@ def prompt_line(now: datetime | None = None) -> str:
 
 
 def run(parsed: dict, now: datetime | None = None) -> str:
+    if parsed['action'] in {'add_class', 'remove_class', 'clear_timetable'}:
+        with edit():
+            return _run(parsed, now)
+    if parsed['action'] in {'set_subjects', 'add_subject'}:
+        with deadline_store.edit(subjects_path):
+            return _run(parsed, now)
+    return _run(parsed, now)
+
+
+def _run(parsed: dict, now: datetime | None = None) -> str:
     now = now or datetime.now()
     action = parsed["action"]
     if action == "next_class":
@@ -439,23 +468,8 @@ def _pdf_pages(file: Path) -> list[bytes]:
     return pages
 
 
-def parse_classes(reply: str) -> list[dict]:
-    """The classes in the AI's reply. Tolerates thinking-out-loud before the JSON and ``` fences."""
-    match = re.search(r"\[\s*\{.*\}\s*\]", reply, re.S)
-    if not match:
-        return []
-    try:
-        entries = json.loads(match.group())
-    except ValueError:
-        return []
-    return [c for c in (_clean(e) for e in entries if isinstance(e, dict)) if c]
-
-
 async def import_timetable(source: str, provider_name: str, section: str = "") -> str:
     """Read the timetable from the screen or a file with the vision AI, then save it (replacing the old one)."""
-    from providers.base_provider import Message
-    from providers.failover import complete_with_failover
-
     section = section or config.TIMETABLE_SECTION.strip()
     if re.fullmatch(r"(?:the |my |this )?screen", source.lower()):
         from services.vision.screen import capture_screen
@@ -467,21 +481,9 @@ async def import_timetable(source: str, provider_name: str, section: str = "") -
         else:
             images = [await asyncio.to_thread(_image_bytes, file)]
 
-    prompt = READ_PROMPT.format(which=ONE_SECTION.format(section=section) if section else ALL_CLASSES)
-    # images only go to vision models: a model that can't see would make a timetable up (providers/failover.py)
-    result = await complete_with_failover(
-        config.VISION_PROVIDER or provider_name, [Message(role="user", content="Read this timetable.", images=images)],
-        prompt, MAX_REPLY_TOKENS, model_for=config.vision_model_for,
-    )
-    classes = parse_classes(result.content)
-    if not classes:
-        logger.warning(f"Timetable reply had no classes: {result.content[:300]}")
-        several = re.search(r"\bsections?\b", result.content, re.I) and not section
-        raise AutomationError(
-            "That timetable has several sections — say which is yours, like \"read my timetable from the screen "
-            "for section II-A\"." if several else
-            "I couldn't read the classes from that. Make sure the whole timetable is visible and try again.")
-    _save(classes)
+    classes = await extract_classes(images, provider_name, section)
+    with edit():
+        _save(classes)
     days = sorted({c["day"] for c in classes}, key=DAYS.index)
     per_day = "; ".join(f"{d.title()}: {', '.join(c['subject'] for c in classes if c['day'] == d)}" for d in days)
     return (f"Saved your timetable — {len(classes)} classes. {per_day}. Check it with \"what classes do I have on "

@@ -118,9 +118,13 @@ def trusted(now: datetime) -> str:
 
 
 def final(guess: dict, now: datetime) -> str | None:
+    from services.mind.prediction_review import rank
+
+    candidates = [guess["own"], guess["model"]]
     if guess["model"] and guess["model"] != guess["own"] and trusted(now) == "model":
-        return guess["model"]
-    return guess["own"] or guess["model"]
+        candidates.reverse()
+    ranked = rank([app for app in candidates if app], guess["app"], guess["before"], now)
+    return ranked[0] if ranked else None
 
 
 # ── Asking the Boss ───────────────────────────────────────────────────────────
@@ -174,7 +178,7 @@ def _habits(log, now: datetime, busy: bool) -> list:
         with knowledge.db() as conn:
             row = _pattern(conn, h.key, "time", thing)
             first = not _asked_today(conn, now)
-        if habits.is_open(thing, ctx) or row["auto"] == -1 or (kind == "project" and row["yes"] >= AUTO_YES):
+        if habits.is_open(thing, ctx) or row["auto"] == -1 or row["no"] > row["yes"] or (kind == "project" and row["yes"] >= AUTO_YES):
             continue  # already open, declined, or a project she's sure of (she can't resume those herself)
         if row["auto"] == 1:
             if ahead <= 0 and row["last_run"] != today and not busy and kind != "project":
@@ -198,7 +202,12 @@ def _next_app(log, now: datetime, busy: bool) -> list:
     guess = _pending
     if not guess or (now - guess["at"]).total_seconds() < SETTLE_SECONDS or log.app != guess["app"]:
         return []
-    frm, nxt = guess["app"], final(guess, now)
+    from services.mind.prediction_review import rank
+
+    frm = guess["app"]
+    candidates = [final(guess, now), *_predictor(log, now).top(frm, now, guess["before"])]
+    ranked = rank([app for app in candidates if app], frm, guess["before"], now)
+    nxt = ranked[0] if ranked else None
     if not nxt or nxt in DULL or nxt == guess["before"] or app_category(nxt) == "system":
         return []  # nothing, or just alt-tabbing back: not a prediction worth anyone's time
     with knowledge.db() as conn:
@@ -210,14 +219,18 @@ def _next_app(log, now: datetime, busy: bool) -> list:
         return []
     if row["auto"] == -1:
         return []
+    if row["no"] > row["yes"]:
+        return []
     after = _predictor(log, now).after[frm]
     went, left = after[nxt], sum(after.values())
-    by_model = nxt != guess["own"]  # the trained model's guess, believed because its record is better
-    if not by_model and (left < MIN_SUPPORT or went / left < (FIRST_SHARE if first else MIN_SHARE)):
+    by_model = nxt == guess["model"] and nxt != guess["own"] and trusted(now) == "model"
+    by_feedback = row["yes"] > row["no"]
+    if row["yes"] <= row["no"] and not by_model and (left < MIN_SUPPORT or went / left < (FIRST_SHARE if first else MIN_SHARE)):
         return []
     return [_ask(row, {
         "after": habits._name(f"app:{frm}"), "program": habits._name(f"app:{nxt}"),
-        "because": "my trained model says so, and lately it has been right more often than my own counting" if by_model
+        "because": "your earlier verification reinforced this prediction" if by_feedback else
+        "my trained model says so, and lately it has been right more often than my own counting" if by_model
         else f"{went} of the {left} times the Boss left {habits._name('app:' + frm)}, they went there",
         "context": {"pattern": row["pattern"], "frm": frm, "thing": f"app:{nxt}", "before": guess["before"],
                     "at": guess["at"].isoformat(timespec="seconds")},
@@ -235,11 +248,8 @@ def answered(kind: str, data: dict, answer: str, now: datetime) -> str | None:
         if kind == "automate":
             conn.execute("UPDATE foresight_patterns SET auto = ? WHERE pattern = ?", (1 if said == "yes" else -1, key))
         else:
-            conn.execute(f"UPDATE foresight_patterns SET {said} = {said} + 1 WHERE pattern = ?", (key,))
-            if thing.startswith("app:") and context.get("frm"):  # something the model can learn from
-                conn.execute("INSERT INTO foresight_labels (at, frm, before, nxt, right, recorded_at) VALUES (?, ?, ?, ?, ?, ?)",
-                             (context["at"], context["frm"], context.get("before"), thing[4:], int(said == "yes"),
-                              now.isoformat(timespec="seconds")))
+            from services.mind.prediction_review import record
+            record(conn, context, said == "yes", now)
     if kind == "automate" and key.startswith("time:"):
         _mute_suggestion(key, said == "yes")  # she does it herself now: no "Open it?" notification as well
     logger.info(f"Foresight: {kind} {key} → {said}")

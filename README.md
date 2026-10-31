@@ -92,7 +92,7 @@ For local AI assistance, install [Ollama](https://ollama.com) and pull the model
 FRIDAY starts it silently on demand and closes the server she started after five idle minutes.
 See [AI assistance and offline behavior](docs/AI_ASSISTANCE.md) for settings and limitations.
 
-Use `train_friday.bat` to apply reviewed local lessons, give nudge feedback or run a longer question session.
+Use `train_friday.bat` to review Friday's saved predictions. Mark each correct, wrong or unsure; definite feedback teaches future guesses automatically. See [prediction review](docs/PREDICTION_TRAINING.md).
 See [Training FRIDAY](docs/TRAINING.md) for the commands and what each lesson changes.
 
 ## Starting her

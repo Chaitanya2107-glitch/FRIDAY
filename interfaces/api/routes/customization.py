@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from services import customization
 from services.automation.system_control import AutomationError
 
-Section = Literal['contacts', 'routines', 'projects', 'modes']
+Section = Literal['contacts', 'routines', 'projects', 'modes', 'screen_apps']
 
 
 def local_only(request: Request, response: Response):
@@ -24,7 +24,7 @@ class Edit(BaseModel):
     revision: str = Field(pattern=r'^[a-f0-9]{64}$')
     original: str | None = Field(default=None, max_length=100)
     name: str = Field(min_length=1, max_length=100)
-    value: customization.Contact | customization.Routine | customization.Mode | customization.Project
+    value: customization.Contact | customization.Routine | customization.Mode | customization.Project | customization.ScreenApp
 
 
 class Delete(BaseModel):

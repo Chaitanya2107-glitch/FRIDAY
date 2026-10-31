@@ -3,11 +3,46 @@
 import asyncio
 import multiprocessing
 import os
+from pathlib import Path
 import queue
+import sys
+import threading
 import time
+
+_spawn_lock = threading.Lock()
+
+
+def _start_process(process):
+    if os.name != "nt":
+        process.start()
+        return
+    from multiprocessing.spawn import get_executable
+    executable = Path(sys.executable).with_name("pythonw.exe")
+    base = Path(getattr(sys, "_base_executable", sys.executable)).with_name("pythonw.exe")
+    if not executable.is_file() or not base.is_file():
+        raise RuntimeError("A console-free Python worker is unavailable")
+    # Windows spawn otherwise opens a console when the desktop parent has none.
+    # Restore the global setting even if starting this owned helper fails.
+    with _spawn_lock:
+        previous = get_executable()
+        launcher = os.environ.get("__PYVENV_LAUNCHER__")
+        try:
+            # Launch the base interpreter directly: the venv redirector cannot
+            # inherit the handles multiprocessing duplicates into its child.
+            os.environ["__PYVENV_LAUNCHER__"] = str(executable)
+            multiprocessing.set_executable(str(base))
+            process.start()
+        finally:
+            multiprocessing.set_executable(previous)
+            if launcher is None:
+                os.environ.pop("__PYVENV_LAUNCHER__", None)
+            else:
+                os.environ["__PYVENV_LAUNCHER__"] = launcher
 
 
 def _run_worker(factory, arguments, requests, replies, stopped):
+    if os.name == "nt":
+        sys.coinit_flags = 0  # pythoncom must select MTA on its first import.
     adapter = factory(stopped, *arguments)
     try:
         while not stopped.is_set():
@@ -41,7 +76,7 @@ class ProcessRuntime:
         self.children = []
 
     def _start(self):
-        self.process.start()
+        _start_process(self.process)
         self.started = True
         if self.browser_tree and os.name == "nt":
             # Establish the job BEFORE sending an operation that can spawn a

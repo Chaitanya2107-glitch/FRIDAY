@@ -203,6 +203,8 @@ class FridayTray:
             Item("Quick actions", Menu(self._quick_action_items)),
             Item("Routines", Menu(self._routine_menu_items), enabled=online),
             Item("Customize FRIDAY…", self.open_customization),
+            Item("College Schedules…", self.open_college_schedules),
+            Item("Habits & To-do…", self.open_productivity),
             Item("System stats", Menu(self._stats_menu_items), enabled=online),
             Item("Screen awareness", Menu(
                 Item("Start / resume", self._command_action("resume screen awareness")),
@@ -232,8 +234,16 @@ class FridayTray:
             Item("Exit taskbar widget", self.quit, visible=lambda item: self._stop_backend is not None),
         )
 
+    def open_college_schedules(self):
+        from interfaces.college.launcher import launch
+        self._in_background(launch)
+
     def open_customization(self):
         from interfaces.settings.launcher import launch
+        _in_background(launch)
+
+    def open_productivity(self):
+        from interfaces.productivity.launcher import launch
         _in_background(launch)
 
     def _stats_menu_items(self):
@@ -655,11 +665,6 @@ class FridayTray:
                 runtime = self._api.runtime_status()
             except self._api.BackendError:
                 runtime = None
-            if getattr(self, "screen_indicator", 0) and hasattr(self._api, "screen_indicator"):
-                try:
-                    self._api.screen_indicator(self.screen_indicator)
-                except self._api.BackendError:
-                    pass  # No valid lease means the backend cannot capture.
             if provider is None:
                 try:
                     provider = self._api.active_provider()
@@ -694,11 +699,22 @@ class FridayTray:
             self.online, self.default_provider, self.clipboard_items, self.stats_lines, self.files_line, self.runtime_status = state
             self.refresh()
 
+    def _screen_heartbeat_loop(self) -> None:
+        """Keep the visible badge lease independent of slower menu/status requests."""
+        while not self._stopping.is_set():
+            if self.screen_indicator and hasattr(self._api, "screen_indicator"):
+                try:
+                    self._api.screen_indicator(self.screen_indicator)
+                except self._api.BackendError:
+                    pass  # The backend requires both a valid lease and native visibility.
+            self._stopping.wait(2)
+
     def run(self, show_icon: bool = True) -> None:
         """Blocks until Quit. Status polling runs in pystray's setup thread."""
         def setup(icon):
             icon.visible = show_icon
             threading.Thread(target=self._ask_loop, name="friday-asks", daemon=True).start()
+            threading.Thread(target=self._screen_heartbeat_loop, name="friday-screen-badge", daemon=True).start()
             while not self._stopping.is_set():
                 self.check_status()
                 self._stopping.wait(POLL_SECONDS)

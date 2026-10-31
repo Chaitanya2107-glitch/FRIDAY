@@ -50,8 +50,9 @@ network behavior. The island UI itself connects only to `127.0.0.1`.
 - **Rest:** a centered amber orb, local **12-hour time** and weekday on the left,
   date and battery percentage on the right. Charging has an amber indicator.
   Hover the top row to reveal Peek; the song strip stays put when approached
-  directly, so its controls are immediately clickable. Timetable/plugin snippet
-  text stays hidden; `next` still answers on demand.
+  directly, so its controls are immediately clickable. Only during the **15 minutes
+  before a class** does its reminder replace the date. At class start, expiry or
+  disconnect, the date returns; `next` still answers on demand.
 - **Peek:** one command input, up to eight visible app icons, Projects and Settings.
   Hover does not activate the window. Clicking the input deliberately activates it.
 - **Expanded:** Projects · Plugins · Settings. Extra pinned apps appear above
@@ -68,7 +69,7 @@ input and command engine. Examples: `proj fri`, `open editor`, `next`, `habit`,
 over partial matches. Ambiguous project names need more text; app matches are
 ranked by name and recent use. Hiding/unpinning an installed app only changes
 favourites: the app stays searchable and launchable.
-`habit` and `todo` are explicitly **placeholders**, so they do not save data.
+`habit` and `todo` use FRIDAY's existing saved tracker data (details below).
 `note` and `focus` currently reach the tool-free conversational fallback; v1
 does not add note storage or a focus timer.
 
@@ -93,6 +94,47 @@ The clock updates on minute boundaries; battery/media refresh about every two
 seconds while the island is visible. These timers pause in Hidden/Sneak, and resume
 on return. Unknown battery readings show a dash; a machine without a battery omits
 the indicator. Windows media requests time out rather than blocking the UI.
+
+## Todos, habits and class reminders
+
+Open **Expanded → Plugins** for compact live cards. Add a todo or daily habit,
+mark a simple task Done, and check in or undo a habit for today. Habits show their
+real streaks and respect existing repeat weekdays/rest days. New habits are daily;
+use FRIDAY's full Habits & To-do desktop for schedules, editing and history.
+The island uses the **same records** in FRIDAY's cognition/workspace database,
+normally `memory/mind/cognition.db`. It never creates demo records in your data.
+
+The same commands work in Peek and Sneak:
+
+```text
+todo buy charger
+todo list
+todo done buy charger
+todo done #12
+habit add Read 20 pages
+habit
+habit check Read 20 pages
+habit undo Read 20 pages
+```
+
+Use the full name or the `#ID` from a list to select an item. Typing `todo done `
+or `habit check ` offers matching records as suggestions. Cards show up to six
+records; list commands show up to 20, and command search covers all active records.
+Open cards refresh every 15 seconds and after a write without clearing drafts or
+moving keyboard focus. Stale writes are rejected and refreshed. Check-ins are owner
+reports; Done cannot bypass unfinished planned steps. Finish those through FRIDAY.
+Pending adds stay locked across tab changes to avoid accidental duplicate saves.
+
+The Python island server is required for these records and timetable data. They
+aren't copied into app config or saved by a fake offline fallback. Local clock,
+battery, media, installed-app launching and configured projects still work offline.
+Class reminders read FRIDAY's real timetable, expire at class start and never show
+far-future classes in Rest. Appearance → Near-class reminders can disable the swap.
+
+Integration depends on this checkout's existing `services/productivity/` and
+revision-aware `services/mind/workspace.py`; these pre-existing local changes are
+preserved separately from Island commits. If moving the feature to another clone,
+include that FRIDAY productivity implementation rather than creating another store.
 
 ## Installed apps and favourites
 
@@ -165,7 +207,7 @@ private: do not publish this file or its corruption backups.
 | `appearance.glow` | `#FFB347` |
 | `appearance.idle_mode` | `always`, `auto-hide`, or `hover` |
 | `appearance.idle_seconds` | `30`; range 5–3600 |
-| `appearance.snippet` | `true`; retained for plugin snippets, currently hidden; clock capsule stays visible |
+| `appearance.snippet` | `true`; enable expiring near-class reminders in the date slot |
 | `connection.port` | `17321`; range 1024–65535 |
 | `connection.token` | 64 lowercase hex characters, generated on first run |
 
@@ -260,6 +302,13 @@ The native integration uses Microsoft's
 [Windows media-session API](https://devblogs.microsoft.com/oldnewthing/20231108-00/?p=108980)
 and [system power status](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-system_power_status).
 
+The tracker/reminder release check uses a real authenticated bridge, temporary
+database and native WebView2, with no owner records changed:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_plugins_native.py
+```
+
 See [validation evidence](docs/VALIDATION.md) for measured checks and remaining
 manual coverage, and [the protocol](docs/PROTOCOL.md) for connection details.
 
@@ -287,14 +336,21 @@ class MyPlugin:
 Register an instance with `Registry.register()` in the Python bridge composition.
 The manifest's wire format is `{id,name,commands,version,widget}`; `commands`
 is an array of unique command prefixes and `widget` is a boolean. Set
-`widget=False` for a command-only plugin; the host shows its name and commands.
+`widget=False` for a command-only plugin; its palette commands remain available.
 Registered Python code is trusted; v1 does not load arbitrary files/packages from config.
 Snippet selection uses the first nonempty registered plugin, publishing every
-60 seconds. Widgets are plain text, not injected HTML or JavaScript.
+60 seconds. A plugin may additionally implement `reminder()` returning
+`{text, show_from, expires_at}` in epoch milliseconds for a temporary date-slot
+snippet. Frames without a valid current interval leave the date visible.
+Widgets contain bounded literal text, optional rows/actions and an add input;
+they never contain injected HTML or JavaScript. Implement
+`async action(action, item='', value='', revision=None)` for explicit widget
+mutations, validate the operation/record/revision in Python, and return
+`{ok, text}`. See [PROTOCOL.md](docs/PROTOCOL.md) for the complete wire shape.
 Commands can return text or an action referencing an indexed app, manual pin
 or project ID; Rust revalidates catalog/config membership. An `app_search` query
 is resolved natively and can never supply executable paths or process arguments.
 
-The three shipped plugins are `habit_tracker` (stub), `todo` (stub), and
-`college_schedule` (real next-class adapter with a no-timetable fallback).
+The three shipped plugins are `habit_tracker` and `todo` (shared FRIDAY tracker
+adapters), and `college_schedule` (real next-class adapter with a no-timetable fallback).
 Plugin lists/widgets are generic: the island has no classes/habit/todo UI logic.

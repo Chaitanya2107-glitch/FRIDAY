@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from types import SimpleNamespace
 
@@ -34,7 +34,7 @@ def screen(tmp_path, monkeypatch):
     async def analyze(app, text, image=None):
         models.append(image)
         return inference.Interpretation(summary="Graph notes are visible.", activity="May be reading graphs.",
-                                        needs_vision=False, sensitive=False)
+                                        subject="graph theory", kind="reading", needs_vision=False, sensitive=False)
     monkeypatch.setattr(service, "ProcessRuntime", Reader)
     monkeypatch.setattr(inference, "analyze", analyze)
     monkeypatch.setattr(service, "watch", watch)
@@ -92,7 +92,7 @@ def test_inference_cannot_commit_after_source_or_permission_changes(screen, monk
         else:
             screen.frame["url_hash"] = "new_page"
         return inference.Interpretation(summary="Old graph page.", activity="Reading graphs.",
-                                        needs_vision=False, sensitive=False)
+                                        subject="graph theory", kind="reading", needs_vision=False, sensitive=False)
     monkeypatch.setattr(inference, "analyze", analyze)
     observe(screen)
     assert not screen.watch.store.history()
@@ -101,6 +101,14 @@ def test_inference_cannot_commit_after_source_or_permission_changes(screen, monk
 def test_live_navigation_cannot_return_an_older_same_title_page(screen):
     observe(screen)
     screen.frame["url_hash"] = "another_page"
+    assert asyncio.run(screen.watch.current()) is None
+
+
+def test_query_rechecks_actual_window_after_leaving_friday_bar(screen):
+    observe(screen)
+    screen.watch._state = "private_window"  # the command bar was briefly foreground
+    assert asyncio.run(screen.watch.current())["summary"]
+    screen.frame["blocked"] = "private_window"
     assert asyncio.run(screen.watch.current()) is None
 
 
@@ -135,7 +143,7 @@ def test_late_model_that_ignores_cancellation_is_discarded(screen, monkeypatch):
                 await asyncio.sleep(10)
             except asyncio.CancelledError:
                 return inference.Interpretation(summary="Old data.", activity="Unknown",
-                                                needs_vision=False, sensitive=False)
+                                                subject="", kind="unknown", needs_vision=False, sensitive=False)
         monkeypatch.setattr(inference, "analyze", late)
         watch = screen.watch
         watch._job = asyncio.create_task(watch.observe(screen.window, watch.store.settings()["epoch"], watch._generation))
@@ -160,3 +168,55 @@ def test_pruning_runs_even_while_disabled(screen, monkeypatch):
     monkeypatch.setattr(screen.watch.store, "prune", lambda: calls.append(True))
     asyncio.run(screen.watch.tick())
     assert calls == [True]
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("Untrusted private screen passage", "ValueError"),
+    ("Automation operation unavailable: com_error", "com_error"),
+    ("Local screen model is unavailable", "Local screen model is unavailable")])
+def test_unavailable_diagnostics_never_log_arbitrary_exception_text(screen, monkeypatch, caplog, message, expected):
+    import logging
+    async def fail(*args):
+        raise ValueError(message)
+    monkeypatch.setattr(inference, "analyze", fail)
+    caplog.set_level(logging.DEBUG, logger="friday")
+    observe(screen)
+    assert "Untrusted private screen passage" not in caplog.text
+    assert expected in caplog.text
+
+
+def test_passive_focus_only_becomes_busy_after_sustained_fresh_observations(screen):
+    assert not screen.watch.focused()
+    observe(screen)
+    assert not screen.watch.focused()
+    screen.watch._focus_since -= 121
+    assert screen.watch.focused()
+    screen.live["visible"] = False
+    assert not screen.watch.focused()
+
+
+@pytest.mark.parametrize("interruption", ["blocked", "gap", "url"])
+def test_focus_cannot_inherit_an_old_session_after_an_interruption(screen, interruption):
+    observe(screen)
+    screen.watch._focus_since -= 121
+    assert screen.watch.focused()
+    if interruption == "blocked":
+        screen.frame["blocked"] = "private_window"
+        observe(screen)
+        assert screen.watch._attention is None
+        del screen.frame["blocked"]
+    elif interruption == "gap":
+        screen.watch._attention["at"] -= timedelta(seconds=80)
+    else:
+        screen.frame["url_hash"] = "new-page"
+    observe(screen)
+    assert not screen.watch.focused()
+
+
+def test_ordinary_context_uses_dated_learning_when_command_bar_has_focus(screen):
+    observe(screen)
+    screen.live["window"] = {"app": "python", "title": "FRIDAY", "scope": {"hwnd": 99}}
+    context = screen.watch.local_context()
+    assert context["recent_activities"][0]["subject"] == "graph theory"
+    assert context["recent_observations"][0]["at"] <= context["as_of"]
+    assert asyncio.run(screen.watch.current()) is None

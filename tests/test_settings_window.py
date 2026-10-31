@@ -23,6 +23,7 @@ class FakeClient:
             'projects': [{'name': 'college', 'value': {'path': 'C:/Projects/college', 'repo': 'owner/college',
                           'sites': ['https://college.example'], 'resume': ['open the folder']}}],
             'modes': [{'name': 'study', 'value': {'steps': ['set volume to 25'], 'quiet': True}}],
+            'screen_apps': [{'name': 'chrome', 'value': {'allowed': True}}],
         }
 
     def load(self, section):
@@ -76,8 +77,8 @@ def window(monkeypatch, tk_root):
     window.close()
 
 
-def test_all_four_tabs_have_labeled_forms_and_native_controls(window):
-    assert len(window.notebook.tabs()) == 4
+def test_all_five_tabs_have_labeled_forms_and_native_controls(window):
+    assert len(window.notebook.tabs()) == 5
     for index, (section, editor) in enumerate(window.editors.items()):
         window.notebook.select(index)
         spin(window, lambda: editor.data is not None)
@@ -87,6 +88,28 @@ def test_all_four_tabs_have_labeled_forms_and_native_controls(window):
     assert 'path' in window.editors['projects'].form.controls
     assert 'quiet' in window.editors['modes'].form.controls
     assert window.client.calls == []
+
+
+def test_screen_access_can_choose_allow_block_save_and_delete(window, monkeypatch):
+    editor = window.editors['screen_apps']
+    window.notebook.select(4)
+    spin(window, lambda: editor.data is not None)
+    editor.new()
+    monkeypatch.setattr('interfaces.settings.forms.filedialog.askopenfilename',
+                        lambda **kw: 'C:/Apps/terminal.exe')
+    editor.form.controls['_browse'].invoke()
+    assert editor.form.read()[0] == 'terminal.exe'
+    editor.form.variables['allowed'].set(False)
+    editor.save()
+    spin(window, lambda: not editor.busy)
+    assert window.client.calls[-1] == ('save', 'screen_apps', None, 'terminal.exe', {'allowed': False})
+    editor.form.variables['allowed'].set(True)
+    editor.save()
+    spin(window, lambda: not editor.busy)
+    assert window.client.calls[-1][-1] == {'allowed': True}
+    editor.delete()
+    spin(window, lambda: not editor.busy)
+    assert window.client.calls[-1] == ('delete', 'screen_apps', 'terminal.exe')
 
 
 def test_filter_new_save_rename_and_delete_use_structured_values(window):
@@ -193,7 +216,7 @@ def test_launcher_uses_an_argument_list_project_cwd_and_hidden_console(monkeypat
     launcher.launch()
     args, options = calls[0]
     assert args[0][-2:] == ['-m', 'interfaces.settings']
-    assert options['cwd'].name == 'FRIDAY'
+    assert options['cwd'] == launcher.Path(launcher.__file__).resolve().parents[2]
     assert options['creationflags'] == launcher.subprocess.CREATE_NO_WINDOW
 
 

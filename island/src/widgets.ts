@@ -42,6 +42,7 @@ interface Card { id: string; node: HTMLElement; summary: HTMLElement; rows: HTML
 export class PluginWidgets {
   private cards: Card[] = [];
   private drafts = new Map<string, string>();
+  private pending = new Set<string>();
   private timer?: ReturnType<typeof setInterval>;
   private host: HTMLElement;
   private connection: () => Connection;
@@ -64,13 +65,15 @@ export class PluginWidgets {
       refresh.title = `Refresh ${manifest.name}`; refresh.setAttribute('aria-label', refresh.title);
       refresh.onpointerdown = event => event.preventDefault();
       heading.append(el('strong', '', manifest.name), refresh);
-      const summary = el('p', 'muted', 'Loading…'); const rows = el('div', 'widget-rows');
+      const busy = this.pending.has(manifest.id);
+      const summary = el('p', 'muted', busy ? 'Saving…' : 'Loading…'); const rows = el('div', 'widget-rows');
       const form = el('form', 'widget-add'); form.hidden = true;
       const input = el('input'); input.autocomplete = 'off'; input.maxLength = 160;
       input.value = this.drafts.get(manifest.id) ?? '';
       const submit = el('button', 'widget-submit', 'Add'); submit.type = 'submit';
+      input.readOnly = busy; submit.disabled = busy;
       form.append(input, submit); node.append(heading, summary, rows, form); this.host.append(node);
-      const card: Card = { id: manifest.id, node, summary, rows, form, input, submit, busy: false, serial: 0 };
+      const card: Card = { id: manifest.id, node, summary, rows, form, input, submit, busy, serial: 0 };
       this.cards.push(card);
       refresh.onclick = () => { if (!card.busy) void this.refreshCard(card); };
       form.onsubmit = event => {
@@ -120,17 +123,23 @@ export class PluginWidgets {
   }
 
   private async act(card: Card, action: PluginAction, clearDraft = false) {
-    if (card.busy) return;
+    if (card.busy || this.pending.has(card.id)) return;
+    this.pending.add(card.id);
     card.busy = true; card.serial++; card.input.readOnly = true; card.submit.disabled = true;
     card.rows.querySelectorAll('button').forEach(button => button.disabled = true);
     try {
       const result = await this.connection().pluginAction(card.id, action);
-      if (result.ok && clearDraft) { card.input.value = ''; this.drafts.delete(card.id); }
+      if (result.ok && clearDraft) {
+        card.input.value = ''; this.drafts.delete(card.id);
+        const shown = this.cards.find(c => c.id === card.id);
+        if (shown && shown.input.value === action.value) shown.input.value = '';
+      }
       this.report(result);
     } catch (error) { this.report({ ok: false, text: String(error) }); }
     finally {
-      card.busy = false; card.input.readOnly = false; card.submit.disabled = false;
-      if (this.cards.includes(card)) await this.refreshCard(card);
+      this.pending.delete(card.id);
+      const shown = this.cards.find(c => c.id === card.id);
+      if (shown) { shown.busy = false; shown.input.readOnly = false; shown.submit.disabled = false; await this.refreshCard(shown); }
     }
   }
 }

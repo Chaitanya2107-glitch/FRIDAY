@@ -6,8 +6,8 @@ import { PluginWidgets } from './widgets';
 import { call, native, on, previewConfig } from './native';
 import { character, icon } from './icons';
 import { button, Settings } from './settings';
-import { element as el, localSuggestions, transition } from './state';
-import type { CommandResult, Config, Manifest, Mode, NativeStatus, Suggestion, Tab } from './types';
+import { element as el, localSuggestions, readReminder, transition } from './state';
+import type { CommandResult, Config, Manifest, Mode, NativeStatus, PillSnippet, Suggestion, Tab } from './types';
 
 const root = document.querySelector<HTMLElement>('#app')!;
 const surface = el('section', 'surface'); surface.dataset.hit = ''; surface.dataset.mode = 'rest';
@@ -41,6 +41,7 @@ let tab: Tab = 'projects';
 let connection: Connection;
 let online = false;
 let snippet = '';
+let reminder: PillSnippet | null = null;
 let manifests: Manifest[] = [];
 let nativeStatus: NativeStatus = { mode: 'rest', hotkey_errors: [], max_width: 720, max_height: 560, reduce_motion: false };
 let suggestions: Suggestion[] = [];
@@ -160,6 +161,7 @@ function applyConfig() {
   if (config.appearance.idle_mode === 'hover' && mode === 'rest') void setMode('hidden');
 }
 function updateLive() {
+  capsule.setReminder(online && config.appearance.snippet ? reminder : null);
   live.textContent = online ? snippet : 'FRIDAY offline';
   root.classList.toggle('character-only', !config.appearance.snippet || (online && !snippet.trim()));
   live.title = live.textContent; surface.classList.toggle('offline', !online); mood();
@@ -308,15 +310,19 @@ async function run(text: string, item?: Suggestion) {
 }
 function connect() {
   connection?.stop();
-  online = false; manifests = []; updateLive();
+  online = false; manifests = []; snippet = ''; reminder = null; updateLive();
   connection = new Connection(config.connection, frame => {
-    if (frame.type === 'pill_snippet_update' && typeof frame.text === 'string') { snippet = frame.text.slice(0, 80); updateLive(); }
+    if (frame.type === 'pill_snippet_update' && typeof frame.text === 'string') {
+      snippet = frame.text.slice(0, 80); reminder = readReminder(frame); updateLive();
+    }
     if (frame.type === 'plugin_list' && Array.isArray(frame.plugins)) {
       manifests = frame.plugins.filter((m): m is Manifest => typeof m === 'object' && m !== null && typeof m.id === 'string' && typeof m.name === 'string' && Array.isArray(m.commands));
       if (mode === 'expanded' && tab === 'plugins') renderPanel();
     }
   }, connected => {
-    online = connected; updateLive(); if (!connected) manifests = [];
+    online = connected;
+    if (!connected) { manifests = []; snippet = ''; reminder = null; }
+    updateLive();
     if (mode === 'expanded' && tab === 'plugins') renderPanel();
   });
   if (native) connection.start();

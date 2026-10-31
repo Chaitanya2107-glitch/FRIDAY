@@ -111,8 +111,9 @@ class ScreenIndicator(BaseModel):
 
 @router.post("/screen-watch/indicator")
 def screen_indicator(body: ScreenIndicator):
+    from services.screen_watch.commands import local_request
     from services.screen_watch import service as screen_watch
-    return {"accepted": screen_watch.watch.heartbeat(body.hwnd)}
+    return {"accepted": local_request.get() and screen_watch.watch.heartbeat(body.hwnd)}
 
 
 class NotifyResponse(BaseModel):

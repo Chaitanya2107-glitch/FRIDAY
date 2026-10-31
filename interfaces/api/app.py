@@ -21,6 +21,7 @@ from core.logger import logger
 from core.errors import register_error_handlers
 from interfaces.api.routes import body, chat, clipboard, done, files, mind, sharing, spotify, voice, system
 from interfaces.api.routes import customization
+from interfaces.api.routes import college as college_routes
 from interfaces.shell_menu import register_menu as register_file_menu
 from services.activity.log import activity_log, watch_activity
 from services.automation.clipboard_history import clipboard_history, watch_clipboard
@@ -120,13 +121,18 @@ def create_app() -> FastAPI:
                     "status_code": 403,
                 },
             )
-        if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator'}:
-            from services.mind.cognition import cognition
-            with cognition.operation('feature_request', 'api', request.method + ' local feature operation') as operation:
-                response = await call_next(request)
-                operation.finish('completed' if response.status_code < 400 else 'failed')
-                return response
-        return await call_next(request)
+        from services.screen_watch.commands import local_request
+        token = local_request.set(bool(request.client and request.client.host in {'127.0.0.1', '::1', 'testclient'}))
+        try:
+            if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator'}:
+                from services.mind.cognition import cognition
+                with cognition.operation('feature_request', 'api', request.method + ' local feature operation') as operation:
+                    response = await call_next(request)
+                    operation.finish('completed' if response.status_code < 400 else 'failed')
+                    return response
+            return await call_next(request)
+        finally:
+            local_request.reset(token)
 
     # ── Global error handlers ──────────────────────────────────────────────────
     register_error_handlers(app)
@@ -143,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(mind.router, prefix="/api/v1", tags=["Mind"])
     app.include_router(body.router, prefix="/api/v1", tags=["Body"])
     app.include_router(customization.router, prefix="/api/v1", tags=["Customization"])
+    app.include_router(college_routes.router, prefix="/api/v1", tags=["College"])
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["System"])

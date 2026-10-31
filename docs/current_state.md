@@ -3,7 +3,24 @@
 
 *Update this file every session. It's the first thing to read when picking up the project.*
 
-**Last updated:** 2026-10-28
+**Last updated:** 2026-10-29
+
+**College Schedules (2026-10-29):** `interfaces/college` adds a separate native
+Tkinter HTTP client with Home, Timetable, Assignments & Homework, Exams, Events
+and Upload tabs. Faculty/room metadata stays outside weekly templates. Deadline
+edits and dated class changes reuse existing correction/reminder authorities;
+exams remain shared deadlines. Uploads are in-memory previews until explicit
+reviewed Confirm, with local table parsing and provider consent for images.
+The existing provider-purpose policy may refuse vision in assist-only mode.
+Room details are shared with local class answers/briefing; mirrored warnings omit
+superseded rooms and structured Telegram reports retain legacy room fields.
+`show college events`
+and the local briefing read the new event store. No new dependencies, website,
+Telegram controls or notification scheduling.
+Open via the tray/taskbar entry, `open college schedules`, or
+`college_schedules.vbs`. Quit FRIDAY from the tray and relaunch to load.
+See `docs/COLLEGE_SCHEDULES.md` and `tasks/college-schedules-verification.json`
+for validation, source identity, concurrency notes and limits.
 
 **Personal assistant awareness (2026-10-28):** Friday's mandatory role now
 prioritizes the owner's day, schedule, routines, preferences and everyday
@@ -486,12 +503,12 @@ backend PID, and stops only that process tree on quit. Batch and silent starts s
 the backend gets an explicit `--no-reload` flag. Real health checks and a repeated launch passed;
 FRIDAY is online. The working session does not need another restart for the launcher fix.
 
-**Manual training (2026-10-12):** run `train_friday.bat` or `venv\Scripts\python.exe train_friday.py`
-in a separate terminal while FRIDAY stays running. After one tray restart, questions/nudges/context and
-live answers collect in `memory/training/reviews.db`. Review → approve → apply local lessons; export only
-examples explicitly marked exportable. Manual question/desired answer pairs are supported. Applied facts
-reach the shared prompt and targeted app/reason knowledge without changing live pending questions;
-reject/withdraw removes the manual overlay. This teaches local memory, not language-model weights.
+**Prediction training (2026-10-30):** `train_friday.bat` now reviews only Friday's saved predictions.
+Correct/wrong verification applies automatically; unsure/skip leaves the item pending. Optional actual-app
+corrections teach future guesses in the original context. Live prediction replies share the same atomic
+verifier, so one prediction cannot count twice. Nightly model training retains observed-data/evaluation
+gates; no chat-model fine-tuning occurs. Previous lessons are preserved. Reopen the training terminal and
+restart Friday once to load the runtime changes. See `docs/PREDICTION_TRAINING.md`.
 
 FRIDAY is a working local assistant. The **system tray** (plus the **Ctrl+Shift+F command bar**, voice, "Hey Friday",
 conversation mode, the desktop body, Telegram and the `friday` CLI) is the interface: the web UI and desktop UI were

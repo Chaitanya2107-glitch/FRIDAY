@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { localSuggestions, transition } from '../src/state.ts';
+import { localSuggestions, readReminder, transition } from '../src/state.ts';
 
 test('four states and repeat-expand cycle', () => {
   assert.equal(transition('rest', 'hover'), 'peek');
@@ -28,4 +28,15 @@ test('offline suggestions include visible configured entries only', () => {
   assert.deepEqual(localSuggestions('proj fri', config), ['proj FRIDAY']);
   assert.deepEqual(localSuggestions('open ', config), ['open Editor']);
   assert.deepEqual(localSuggestions('open secret', config), []);
+});
+
+test('reminders require an active bounded interval, and expire exactly at its end', () => {
+  const frame = { text: 'Next: DBMS', show_from: 1000, expires_at: 2000 };
+  assert.equal(readReminder(frame, 999), null);
+  assert.deepEqual(readReminder(frame, 1000), frame);
+  assert.equal(readReminder(frame, 2000), null);
+  for (const value of [{ text: 'Old server' }, { ...frame, expires_at: NaN }, { ...frame, text: '' },
+    { ...frame, expires_at: Infinity }, { ...frame, expires_at: 86400002 + frame.show_from }]) {
+    assert.equal(readReminder(value, 1500), null);
+  }
 });

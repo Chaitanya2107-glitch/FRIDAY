@@ -36,7 +36,8 @@ class Engine:
         self.registry, self.assistant = registry, assistant
 
     def suggestions(self, text: str, config: IslandConfig) -> list[dict]:
-        head, _, tail = text.strip().partition(" ")
+        parts = text.strip().split(maxsplit=1)
+        head, tail = (parts[0], parts[1] if len(parts) > 1 else '') if parts else ('', '')
         candidates: list[tuple[str, str]] = []
         plugin = self.registry.commands.get(head.casefold())
         if plugin and hasattr(plugin, 'suggestions'):
@@ -58,7 +59,8 @@ class Engine:
         text = text.strip()
         if not text or len(text) > 4000 or "\x00" in text:
             return {"text": "Enter a command (up to 4000 characters).", "ok": False}
-        head, _, tail = text.partition(" ")
+        parts = text.split(maxsplit=1)
+        head, tail = parts[0], parts[1] if len(parts) > 1 else ''
         head = head.casefold()
         if head == "settings":
             return {"text": "Settings", "ok": True, "action": {"kind": "settings"}}

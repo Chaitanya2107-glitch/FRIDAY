@@ -1,11 +1,43 @@
 # architecture.md
 # F.R.I.D.A.Y — System Architecture
 
-*Last updated: 2026-10-20 (shared executive cognition; older sections remain)*
+*Last updated: 2026-10-29 (native College Schedules; older sections remain)*
 
 ---
 
 ## Design Principles
+
+### Native college client and shared schedule data (2026-10-29)
+
+`interfaces/college` uses Tkinter/ttk and background HTTP workers, following the
+Customize FRIDAY client. `/api/v1/college` routes delegate typed validation,
+revisions, CRUD and upload previews to `services/college`; existing loopback
+Host/Origin protections remain unchanged. No static/browser interface or CORS.
+
+`timetable.next_class_occurrence` is the structured selection shared by existing
+next-class prose and the new overview. Effective dates still use class_sessions
+and services.memory.schedule. `memory/college/subjects.json` stores faculty/room
+metadata separately, preserving complete weekly-template equality and dated
+snapshots. Timetable and college writers reuse the atomic JSON publisher and
+cross-process SQLite guards. Deadline optional metadata/done status is additive;
+legacy active readers omit completed rows. Corrections still use deadline_changes
+and class_changes, with reminder proposals requiring the existing chat approval.
+Exams remain recognizable deadlines, preserving exam briefing logic. Shared
+`services/college/reading.py` supplies registry rooms to local class descriptions,
+and upcoming events to overview, local chat and local briefing. Mirrored class
+warnings omit superseded rooms; structured Telegram reports retain legacy room
+fields. Optional unreadable metadata falls back for existing commands, while the
+college API refuses an unreadable registry without overwriting it.
+Events alone add a new store; notification scheduling is unchanged. New college
+commands and event briefing content are excluded from Telegram.
+
+Raw uploads have bounded bytes/type checks, ephemeral editable previews, reviewed
+diff hashes and stale-revision refusal. Confirm publishes random-name originals
+and the shared timetable. Each file is atomic; multi-file crash atomicity is not
+claimed. Local Office/CSV/text-PDF parsing uses installed libraries. Consented
+image extraction pins one provider/model through the existing prompt/parser and
+registry policy; legacy chat import fallback stays as before. See
+`COLLEGE_SCHEDULES.md` for format, resource and vision-policy limits.
 
 ### Connected cognitive inquiry and event-driven attention (2026-10-20)
 
@@ -365,14 +397,15 @@ silent. Dated constraints are rechecked before transport. Cognition records deci
 submission/failure; button reactions point back to the decision. Private OS notices stay local. Learned
 talk timing is retained; self-started questions need approval before being recorded as pending.
 
-Manual review runs in a separate `train_friday.py` process sharing `memory/training/reviews.db` with
-the app. Live question and proactive notification hooks append evidence, independently of the pending
-question state and normal learning/timing. Captured observations remain local. Owner review moves items
-from pending to approved; a separate apply step enables their teaching statements/wording in the bounded
-common prompt and their app-description/pattern-reason overlays in the local brain. Removing approval
-removes these overlays. Export requires per-item consent and writes reviewed chat pairs/provenance only;
-no training provider call or weight update is implied. SQLite transactions avoid JSON overwrite races
-between review and app processes, and read access does not rely on a process-local lesson cache.
+Train Friday runs separately and now reviews only persisted `kind='prediction'` thoughts in
+`memory/mind/brain.db`. `prediction_review.py` records correct/wrong verdicts, optional actual app and
+notes under a unique thought ID. A write transaction validates pending state, updates pattern beliefs,
+app labels and the thought together. Live prediction replies use the same verifier; uncertain replies
+leave review pending. No action permission or live pending-conversation state is changed by the tool.
+Scoped owner feedback adjusts app ranking immediately. The existing nightly learner consumes labels;
+the clean pathway still requires independently observed transitions and chronological availability.
+No provider call or chat-model fine-tuning occurs. Legacy `reviews.db` lessons and their existing
+overlays remain readable, but Train Friday no longer exposes interviews, generic lessons or exports.
 
 Computer tasks are an explicit branch before chat memory/search/intent: `\c` commands go from the
 command bar through `/api/v1/chat` to `services/computer/agent.py`. That service observes the selected

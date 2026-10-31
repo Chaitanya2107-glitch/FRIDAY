@@ -7,6 +7,34 @@ Format: [vX.Y.Z] Date — What changed and why.
 
 ---
 
+## [Unreleased] - 2026-10-30 - Prediction verification training
+
+- Replace Train Friday's interviews, manual lessons, nudge ratings and exports with a saved-prediction
+  queue. Correct/wrong feedback applies automatically; unsure stays pending. Optional actual-app
+  corrections retain the original guess and teach scoped future ranking.
+- Deduplicate tool and live verification atomically by prediction ID; preserve existing personal lessons,
+  action permissions and the nightly model's observed-data/evaluation requirements.
+- Usage and load instructions: `docs/PREDICTION_TRAINING.md`.
+
+## [Unreleased] - 2026-10-29 - Native College Schedules
+
+- Add a separate six-tab Tkinter window backed by `/api/v1/college`, with
+  responsive background requests, draft protection, stale-edit refusal,
+  auto-refresh, native keyboard controls and a single-instance mutex.
+- Share weekly/dated classes, deadline edits/completion and exam countdowns with
+  existing FRIDAY services. Keep faculty/room metadata outside weekly templates;
+  local class answers read the same room details; mirrored warnings omit a
+  superseded room. Event queries and
+  the local briefing read the shared event store, without new notifications.
+- Add bounded raw-file timetable imports with local table parsers, provider/model
+  consent, editable previews, reviewed merge/replace diffs and explicit Confirm.
+  Preserve existing provider policy; exam-schedule upload is deferred.
+- Add `open college schedules`, `who takes my next class`, `show college events`,
+  a tray/taskbar entry and project-venv BAT/VBS launchers. New controls stay local.
+- Usage, format/crash limits and verification: `docs/COLLEGE_SCHEDULES.md` and
+  `tasks/college-schedules-verification.json`. Quit FRIDAY from the tray and
+  relaunch to load. Changes remain in the working tree.
+
 ## [Unreleased] - 2026-10-28 - Personal assistant personality and verified app learning
 
 - Prioritize the owner's day, commitments, routines, preferences, communication

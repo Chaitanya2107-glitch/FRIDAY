@@ -224,11 +224,13 @@ class Workspace:
                          (json.dumps(steps), time.time(), ident))
         self.store.record("task", "workspace", f"Owner planned task {ident}")
 
-    def advance(self, ident, evidence):
+    def advance(self, ident, evidence, expected_updated=None):
         evidence = _text(evidence)
         with self._db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             task = self._task(conn, ident)
+            if expected_updated is not None and task['updated'] != expected_updated:
+                raise ValueError('This task changed elsewhere. Refresh before reporting progress.')
             if task["status"] != "active" or task["cursor"] >= len(task["steps"]):
                 raise ValueError("No active planned step to finish.")
             task["evidence"].append({"step": task["cursor"], "text": evidence, "source": "owner_report"})
@@ -238,13 +240,15 @@ class Workspace:
                          (cursor, status, json.dumps(task["evidence"]), time.time(), ident))
         self.store.record("task", "workspace", f"Owner reported step completion for task {ident}", status="reported")
 
-    def task_state(self, ident, status, note=""):
+    def task_state(self, ident, status, note="", expected_updated=None):
         if status not in {"active", "paused", "blocked", "completed", "cancelled"}:
             raise ValueError("Unknown task status.")
         note = _text(note) if note or status in {"blocked", "completed"} else ""
         with self._db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             task = self._task(conn, ident)
+            if expected_updated is not None and task['updated'] != expected_updated:
+                raise ValueError('This task changed elsewhere. Refresh before updating it.')
             if task["status"] in {"completed", "cancelled"}:
                 raise ValueError("That task is finished; start a new task.")
             if status == "completed":

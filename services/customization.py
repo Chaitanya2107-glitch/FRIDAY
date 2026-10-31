@@ -11,8 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from services import settings_store
 from services.activity import projects
 from services.automation import modes, routines, whatsapp
+from services.screen_watch.app_rules import app_name, rules as screen_apps
 
-SECTIONS = {'contacts': whatsapp, 'routines': routines, 'projects': projects, 'modes': modes}
+SECTIONS = {'contacts': whatsapp, 'routines': routines, 'projects': projects, 'modes': modes, 'screen_apps': screen_apps}
 
 
 class Conflict(ValueError):
@@ -47,7 +48,11 @@ class Project(Fields):
     resume: list[str] = Field(default_factory=list, max_length=100)
 
 
-MODELS = {'contacts': Contact, 'routines': Routine, 'modes': Mode, 'projects': Project}
+class ScreenApp(Fields):
+    allowed: bool
+
+
+MODELS = {'contacts': Contact, 'routines': Routine, 'modes': Mode, 'projects': Project, 'screen_apps': ScreenApp}
 
 
 def _read(section):
@@ -78,6 +83,10 @@ def _read(section):
                     raise ValueError('Invalid routine')
             elif section == 'modes':
                 Mode.model_validate(value)
+            elif section == 'screen_apps':
+                if app_name(name) != name:
+                    raise ValueError('Invalid app name')
+                ScreenApp.model_validate(value)
             else:
                 # Preserve unrelated project metadata; only editable fields are exposed.
                 if not isinstance(value, dict) or not isinstance(value.get('path'), str):
@@ -103,7 +112,8 @@ def _fields(section, value):
 def snapshot(section: str) -> dict:
     data, revision = _read(section)
     active = modes.active(strict=True) if section == 'modes' else None
-    return {'revision': revision, 'items': [{'name': name, 'value': _fields(section, value)}
+    return {'revision': revision, 'items': [{'name': name, 'value': _fields(section, value),
+            **({'label': name + (' · Allowed' if value['allowed'] else ' · Blocked')} if section == 'screen_apps' else {})}
             for name, value in sorted(data.items())], 'active': active['name'] if active else None}
 
 
@@ -151,7 +161,7 @@ def change(section: str, *, original: str | None, name: str, value: dict | None,
         raise Conflict('Settings changed elsewhere. Reload before saving; your draft has been kept.')
     if original is not None and original not in data:
         raise Conflict('That entry no longer exists. Reload the list before editing.')
-    name = ' '.join(name.strip().lower().split())
+    name = app_name(name) if section == 'screen_apps' else ' '.join(name.strip().lower().split())
     if section == 'contacts':
         name = whatsapp._name(name)
     elif section == 'routines':

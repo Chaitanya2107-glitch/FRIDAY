@@ -96,8 +96,9 @@ def is_busy() -> bool:
     on its own. Answers to the user's own commands are still spoken. A quiet mode ("start study mode") counts too.
     """
     from services.automation import modes  # avoid an import cycle at startup
+    from services.screen_watch.service import watch
 
-    return modes.is_quiet_mode() or fullscreen_or_gaming()
+    return modes.is_quiet_mode() or fullscreen_or_gaming() or watch.focused()
 
 
 def fullscreen_or_gaming() -> bool:

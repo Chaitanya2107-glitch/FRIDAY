@@ -239,6 +239,16 @@ async def chat(request: ChatRequest):
             keyboard=list(system_result.keyboard),
         )
 
+    if not (cognition_command or screen_question or search_context):
+        from services.screen_watch import companion
+        private_reply = await companion.answer(request.message, messages[:-1], remote=remote_request.get(),
+                                                max_tokens=request.max_tokens)
+        if private_reply is not None:
+            cognition_service.reply(private_reply.content, safe_text=companion.PRIVATE_MEMORY)
+            if request.speak:
+                _speak_in_background(private_reply.content, cache=False, local_only=True)
+            return ChatResponse(response=private_reply.content, provider=private_reply.provider,
+                                model=private_reply.model, tokens_used=private_reply.tokens_used, private=True)
     if not remote_request.get() and not (cognition_command or screen_question or search_context):
         talk.hear(request.message)
     # 4. Call the AI — other configured providers are tried if this one fails

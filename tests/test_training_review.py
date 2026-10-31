@@ -138,34 +138,32 @@ def test_nudge_delivery_still_runs_and_is_recorded(monkeypatch):
     assert called == [("FRIDAY", "Eye break time")]
 
 
-def test_manual_cli_flow_and_withdrawal(tmp_path, capsys):
-    import train_friday
+def test_existing_manual_lessons_and_withdrawal_are_preserved(tmp_path):
     from services.mind.reviews import reviews
-    assert train_friday.main(["add", "--question", "What can you send via Telegram?", "--response", "Messages and files."]) == 0
-    item = reviews.list()[0]
+    identity = reviews.capture("example", "What can you send via Telegram?", {"origin": "manual"})
+    reviews.review(identity, preferred="Messages and files.")
+    item = reviews.get(identity)
     assert item["state"] == "pending"
-    assert train_friday.main(["train", "--id", str(item["id"])]) == 1
-    assert train_friday.main(["approve", str(item["id"]), "--exportable"]) == 0
+    with pytest.raises(ValueError):
+        reviews.train(identity)
+    reviews.review(identity, preferred="Messages and files.", approve=True, exportable=True)
     assert reviews.learned() == []
-    assert train_friday.main(["train", "--all-approved"]) == 0
+    reviews.train(identity)
     assert len(reviews.learned()) == 1
     target = tmp_path / "dataset.jsonl"
-    assert train_friday.main(["export", str(target)]) == 0
+    assert reviews.export(target) == 1
     assert json.loads(target.read_text())["messages"] == [
         {"role": "user", "content": "What can you send via Telegram?"},
         {"role": "assistant", "content": "Messages and files."}]
-    assert train_friday.main(["withdraw", str(item["id"])]) == 0
+    reviews.review(identity, preferred="Messages and files.")
     assert reviews.learned() == []
     assert reviews.get(item["id"])["preferred"] == "Messages and files."
 
 
-def test_interactive_review_requires_approval_and_apply(monkeypatch):
-    import train_friday
+def test_existing_lesson_review_still_requires_approval_and_apply():
     from services.mind.reviews import reviews
     item = reviews.capture("question", "What is this?", {})
-    answers = iter(["My editor", "This is my code editor.", "", "Checked it", "y", "n", "n"])
-    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
-    train_friday.review(item)
+    reviews.review(item, answer="My editor", teaching="This is my code editor.", notes="Checked it", approve=True)
     assert reviews.get(item)["state"] == "approved"
     assert reviews.learned() == []
     assert not reviews.get(item)["exportable"]
@@ -188,12 +186,12 @@ def test_training_new_app_description_is_reversible():
 
 def test_review_and_dataset_do_not_make_network_calls(monkeypatch, tmp_path):
     import httpx
-    import train_friday
+    from services.mind.reviews import reviews
     def forbidden(*a, **kw):
         pytest.fail("Training tool tried a network call")
     monkeypatch.setattr(httpx.Client, "request", forbidden)
     monkeypatch.setattr(httpx.AsyncClient, "request", forbidden)
-    assert train_friday.main(["add", "--question", "Hello?", "--response", "Hi."]) == 0
-    assert train_friday.main(["approve", "1", "--exportable"]) == 0
-    assert train_friday.main(["train", "--id", "1"]) == 0
-    assert train_friday.main(["export", str(tmp_path / "offline.jsonl")]) == 0
+    item = reviews.capture("example", "Hello?", {})
+    reviews.review(item, preferred="Hi.", approve=True, exportable=True)
+    reviews.train(item)
+    assert reviews.export(tmp_path / "offline.jsonl") == 1

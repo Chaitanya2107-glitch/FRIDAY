@@ -350,6 +350,14 @@ async def learn_something(log, now: datetime) -> None:
 
 def answered(thought_id: int, answer: str, now: datetime) -> None:
     """The Boss answered what she wondered: the reason is kept, and an unknown thing is no longer unknown."""
+    prediction = thoughts.get(thought_id)
+    if prediction and prediction.kind == "prediction":
+        from services.mind.prediction_review import verify, verdict
+        try:
+            verify(thought_id, verdict(answer), notes=answer[:1000], now=now)
+        except ValueError as error:
+            logger.debug("Prediction reply not applied: %s", error)
+        return
     thought = thoughts.answered(thought_id, answer, now)
     if thought and thought.kind in ("prediction", "automate"):  # yes / no: kept per pattern, and for the model
         foresight.answered(thought.kind, thought.data, answer, now)

@@ -1,5 +1,6 @@
 """Use synthetic lecture text/images only, never the desktop, to check local inference."""
 import asyncio
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -23,12 +24,17 @@ async def main():
             if str(url).endswith("/api/chat"):
                 data = response.json()
                 print(json.dumps({"synthetic_response": data.get("message", {}).get("content", "")[:1600],
+                                  "synthetic_thinking": data.get("message", {}).get("thinking", "")[:1600],
+                                  "content_length": len(data.get("message", {}).get("content", "")),
                                   "done_reason": data.get("done_reason"), "tokens": data.get("eval_count")}), flush=True)
             return response
     httpx.AsyncClient = SyntheticClient
     try:
-        for kind in ("text", "vision"):
+        for kind in (("native_text",) if "--native-text" in sys.argv else ("text", "vision")):
             text = "Graph theory lecture notes. Studying nodes and edges. A graph contains vertices linked by edges."
+            if kind == "native_text":
+                text = ("Graph theory lecture notes. Nodes are vertices and edges connect nodes. "
+                        "This lecture explains a simple three-node graph and its connections.")
             image = None
             if kind == "vision":
                 frame = Image.new("RGB", (900, 420), "white")
@@ -46,13 +52,21 @@ async def main():
             started = time.monotonic()
             result = await analyze("owned-lecture-fixture", text, image)
             assert not result.sensitive
+            assert not result.needs_vision, "A clear lecture fixture should not need another image."
             assert any(word in (result.summary + " " + result.activity).lower()
                        for word in ("graph", "lecture", "notes", "node", "stud", "read"))
             results.append({"source": kind, "seconds": round(time.monotonic() - started, 3),
-                            "semantic_check": True, "needs_vision": result.needs_vision})
+                            "semantic_check": True, "needs_vision": result.needs_vision,
+                            "subject": result.subject, "kind": result.kind})
+            if "--passive" in sys.argv:
+                assert "graph" in result.subject.lower() and result.kind in {"reading", "watching"}
             print(json.dumps(results[-1]), flush=True)
-        (ROOT / "tasks/screen-model-probes.json").write_text(
-            json.dumps({"synthetic_only": True, "screen_captured": False, "results": results}, indent=2),
+        filename = "screen-native-text-model.json" if "--native-text" in sys.argv else "screen-model-probes.json"
+        if "--passive" in sys.argv:
+            filename = "passive-model-probes.json"
+        (ROOT / "tasks" / filename).write_text(
+            json.dumps({"synthetic_only": True, "screen_captured": False, "results": results,
+                        "inference_sha256": hashlib.sha256((ROOT / "services/screen_watch/inference.py").read_bytes()).hexdigest()}, indent=2),
             encoding="utf-8")
     finally:
         httpx.AsyncClient = original

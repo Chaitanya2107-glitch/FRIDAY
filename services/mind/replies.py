@@ -34,7 +34,7 @@ async def answer(message: str, provider_name: str | None = None, context: str | 
     if learned:
         return ProviderResponse(content=learned, provider="local", model="friday", tokens_used=0)
     if not screen and not context and personal_question(text):
-        return ProviderResponse(content="I don't have a reviewed memory for that yet, Boss. Teach me through train_friday.",
+        return ProviderResponse(content="I don't have a reviewed memory for that yet, Boss. Tell me what you'd like me to remember.",
                                 provider="local", model="friday", tokens_used=0)
     if screen:
         reply = REMARKS["screen"]

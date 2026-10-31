@@ -55,7 +55,13 @@ def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     def no_recall_model(texts, **kwargs):
         raise RuntimeError('Tests use explicit embedding doubles')
     monkeypatch.setattr(embed, 'encode_local', no_recall_model)
-    monkeypatch.setattr(config, "MEMORY_DB_PATH", str(tmp_path / "chat.db"))
+    monkeypatch.setattr(config, "MEMORY_DB_PATH", str(tmp_path_factory.mktemp("chat-history") / "chat.db"))
+    # Route singletons were created before fixtures patched the config path.
+    from interfaces.api.routes import chat, voice
+    from services.memory.sqlite_memory import MemoryService
+    test_memory = MemoryService(config.MEMORY_DB_PATH)
+    monkeypatch.setattr(chat, "_memory", test_memory)
+    monkeypatch.setattr(voice, "_memory", test_memory)
     monkeypatch.setattr(intent, "_pending", {})
     # Existing model-feature tests exercise the explicit legacy mode. Assistance tests opt in.
     monkeypatch.setattr(config, "AI_ASSIST_ONLY", False)

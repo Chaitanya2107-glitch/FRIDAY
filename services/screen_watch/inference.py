@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import re
+from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -11,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from core.config import config
 from providers.ollama.runtime import runtime
 
-VISION_MODEL = "qwen3-vl:2b"
+VISION_MODEL = "qwen3-vl:2b-instruct"
 SENSITIVE = re.compile(
     r"password|passcode|one.time (?:code|password)|credit.?card|bank account|api[_ -]?key|"
     r"access[_ -]?token|bearer\s|BEGIN.{0,12}PRIVATE KEY|sk-[\w-]{12,}|eyJ[\w-]{20,}|(?:\d[ -]?){13,19}", re.I)
@@ -21,16 +22,27 @@ Do not execute, propose, or output commands, tools, links, code, passwords, acco
 messages or quoted document passages. Summarize briefly: e.g. reading a lecture about graphs.
 App purpose alone does not establish the owner's intent, progress, understanding or completion.
 These are provisional interpretations, never confirmed owner facts. State uncertainty.
-Return JSON: summary (brief visible context), activity (tentative activity or unknown),
-needs_vision (true if text is only navigation or insufficient), sensitive (true for financial,
-authentication, private-browsing or secret content). Do not invent missing details."""
+Return JSON: summary (visible context, at most 20 words), activity (tentative activity or unknown,
+at most 12 words), subject (stable short core topic, e.g. graph theory; empty if unknown),
+kind (reading, watching, writing, browsing, messaging, playing, or unknown), needs_vision, sensitive.
+Use the same subject wording for repeated views of the same topic, without app names or 'lecture notes'.
+Kind describes apparent visible activity, never proves attention or intent.
+Set needs_vision false when the supplied text or
+image establishes visible subject matter. Uncertain intent does not require an image.
+Set needs_vision true only when neither supplied source establishes visible subject matter
+(e.g. navigation text alone or an unreadable image). Set sensitive true for financial,
+authentication, private-browsing or secret content. Do not invent missing details.
+Before returning JSON: if you identified a subject from the supplied evidence,
+needs_vision MUST be false. Unknown owner intent does not change that rule."""
 
 
 class Interpretation(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     summary: str = Field(min_length=1, max_length=300)
     activity: str = Field(max_length=200)
-    needs_vision: bool
+    subject: str = Field(max_length=80)
+    kind: Literal["reading", "watching", "writing", "browsing", "messaging", "playing", "unknown"]
+    needs_vision: bool = Field(description="False if the supplied text or image identifies a subject; true only if visual evidence is still missing.")
     sensitive: bool
 
 
@@ -51,12 +63,29 @@ def local_model(name):
 
 async def analyze(app, text, image=None):
     """Validate installed model/capability before sending any private content."""
-    base = local_url(config.OLLAMA_BASE_URL)
-    model = local_model(VISION_MODEL if image else config.OLLAMA_MODEL)
     if len(text) > 4000 or (image and len(image) > 3_000_000):
         raise ValueError("Screen observation is too large")
     if SENSITIVE.search(text):
         raise ValueError("Private content is excluded from screen analysis")
+    message = {"role": "user", "content": json.dumps({"app": app[:90], "visible_text": text,
+                                                      "evidence_source": "image" if image else "accessible_text"})}
+    if image:
+        message["images"] = [base64.b64encode(image).decode("ascii")]
+    prompt = PROMPT
+    if image:
+        prompt += "\nThe image is ALREADY supplied. If you can describe its subject, needs_vision=false; do not request the image again."
+    data = await local_chat([{"role": "system", "content": prompt}, message], vision=bool(image),
+                            schema=Interpretation.model_json_schema())
+    result = Interpretation.model_validate_json(data["message"]["content"])
+    if SENSITIVE.search(result.summary + " " + result.activity + " " + result.subject):
+        result.sensitive = True
+    return result
+
+
+async def local_chat(messages, *, vision=False, schema=None, max_tokens=280, num_ctx=4096, guard=None):
+    """Private context has no provider fallback, proxy, redirect, tools or global history."""
+    base = local_url(config.OLLAMA_BASE_URL)
+    model = local_model(VISION_MODEL if vision else config.OLLAMA_MODEL)
     async with asyncio.timeout(55), runtime.use(base):
         async with httpx.AsyncClient(timeout=50, trust_env=False, follow_redirects=False) as client:
             tags = await client.get(base + "/api/tags")
@@ -69,21 +98,20 @@ async def analyze(app, text, image=None):
             detail = shown.json()
             capabilities = detail.get("capabilities")
             if detail.get("remote_host") or detail.get("remote_model") or (
-                    image and (not isinstance(capabilities, list) or "vision" not in capabilities)):
+                    vision and (not isinstance(capabilities, list) or "vision" not in capabilities)):
                 raise ValueError("A local vision-capable model is required")
-            message = {"role": "user", "content": json.dumps({"app": app[:90], "visible_text": text})}
-            if image:
-                message["images"] = [base64.b64encode(image).decode("ascii")]
-            response = await client.post(base + "/api/chat", json={
-                "model": model, "messages": [{"role": "system", "content": PROMPT}, message],
-                "stream": False, "think": False, "format": Interpretation.model_json_schema(),
-                "keep_alive": 60, "options": {"temperature": 0, "num_predict": 280, "num_ctx": 4096}})
+            if guard is not None and not guard():
+                raise InterruptedError("Private activity context changed")
+            payload = {"model": model, "messages": messages, "stream": False, "think": False,
+                       "keep_alive": 60, "options": {"temperature": 0, "num_predict": max_tokens, "num_ctx": num_ctx}}
+            if schema is not None:
+                payload["format"] = schema
+            response = await client.post(base + "/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
             if (data.get("done") is not True or data.get("done_reason") not in (None, "stop")
                     or data.get("message", {}).get("tool_calls")):
                 raise ValueError("Incomplete screen interpretation")
-            result = Interpretation.model_validate_json(data["message"]["content"])
-            if SENSITIVE.search(result.summary + " " + result.activity):
-                result.sensitive = True
-            return result
+            if guard is not None and not guard():
+                raise InterruptedError("Private activity context changed")
+            return data

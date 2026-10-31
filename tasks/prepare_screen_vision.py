@@ -7,13 +7,13 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-MODEL = "qwen3-vl:2b"
 
 
 async def main():
     import httpx
     from core.config import config
     from providers.ollama.runtime import runtime
+    from services.screen_watch.inference import VISION_MODEL as MODEL
     base = config.OLLAMA_BASE_URL.rstrip("/")
     url = urlsplit(base)
     assert url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
@@ -43,7 +43,9 @@ async def main():
             shown = response.json()
             assert "vision" in shown.get("capabilities", [])
             assert not shown.get("remote_host") and not shown.get("remote_model")
-            result = {"model": MODEL, "ollama_version": version, "vision": True,
+            tags = (await client.get(base + "/api/tags")).json().get("models", [])
+            installed = next(m for m in tags if m.get("name") == MODEL)
+            result = {"model": MODEL, "digest": installed.get("digest"), "ollama_version": version, "vision": True,
                       "local_only": True, "screen_captured": False}
             (ROOT / "tasks/screen-model-readiness.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             print(json.dumps(result), flush=True)

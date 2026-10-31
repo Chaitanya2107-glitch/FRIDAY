@@ -6,7 +6,16 @@
 > Then read `docs/FEATURES.md` (everything she can do), `docs/CHANGELOG.md` (newest first, with the why)
 > and `docs/roadmap.md` (backlog).
 
-*Last updated: 2026-10-28*
+*Last updated: 2026-10-30*
+
+**Prediction verification training (2026-10-30):** Train Friday now reviews only saved prediction
+thoughts. Correct/wrong verdicts and optional actual-app corrections apply automatically; unsure stays
+pending. `services/mind/prediction_review.py` owns atomic single-use verification shared with live
+prediction replies, scoped app ranking and verification history in brain.db. Preserve automation
+permission boundaries and the clean learner's independently observed transitions/evaluation gates.
+Legacy lessons remain readable, but the old interview/add/approve/train/export CLI is removed.
+Usage: `docs/PREDICTION_TRAINING.md`; evidence: `tasks/prediction-training-verification.json`.
+Reopen the training terminal and restart Friday once to load the runtime changes.
 
 **Personal assistant role/awareness (2026-10-28):** make Friday's default agenda
 the owner's schedule, routines, preferences and activities. Keep observed metadata,

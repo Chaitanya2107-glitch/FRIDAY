@@ -212,7 +212,7 @@ def test_desktop_private_notification_does_not_record_or_mirror_contents(monkeyp
     tray = object.__new__(FridayTray)
     tray.notify("Secret phone notification and exact draft", private=True)
     assert toasts == ["Secret phone notification and exact draft"]
-    assert operations == ["Private local phone response"] and not mirrored
+    assert operations == ["Private local assistant response"] and not mirrored
 
 
 def test_popup_omits_phone_drafts_from_suggestion_learning_and_preserves_private_reply(monkeypatch):
@@ -237,6 +237,7 @@ def test_popup_omits_phone_drafts_from_suggestion_learning_and_preserves_private
     app._send_chat_message("read my phone notifications")
     assert state["private"]
     monkeypatch.setattr(app, "_reply_listener", lambda *args: callbacks.append(args))
+    monkeypatch.setattr(app, "_show_ask", lambda *args: None)
     monkeypatch.setattr(app, "user32", SimpleNamespace(SetWindowTextW=lambda *a: None,
                                                       SendMessageW=lambda *a: None, SetTimer=lambda *a: None))
     app._show_reply(1, 2)

@@ -129,6 +129,10 @@ def _connect() -> sqlite3.Connection:
             );
             CREATE TABLE IF NOT EXISTS foresight_labels (at TEXT NOT NULL, frm TEXT NOT NULL, before TEXT, nxt TEXT NOT NULL,
                                                          right INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS prediction_reviews (
+                thought_id INTEGER PRIMARY KEY, verdict TEXT NOT NULL, actual_app TEXT NOT NULL,
+                notes TEXT NOT NULL, verified_at TEXT NOT NULL
+            );
         """)
         columns = {r[1] for r in conn.execute("PRAGMA table_info(foresight_labels)")}
         if "recorded_at" not in columns:

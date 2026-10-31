@@ -1,6 +1,7 @@
 """A bounded shared workspace assembled from facts, not invented inner thoughts."""
 
 import json
+import sqlite3
 import time
 from datetime import datetime
 
@@ -78,6 +79,15 @@ def prompt_section() -> str:
     state = json.dumps(live_state(), ensure_ascii=False)
     from services.mind.workspace import workspace
     work = workspace.context()
+    from services.productivity.store import tracker
+    try:
+        work['habits'] = tracker.context()
+        metadata = tracker.task_context([task['id'] for task in work.get('tasks', [])])
+        for task in work.get('tasks', []):
+            if task['id'] in metadata:
+                task.update(metadata[task['id']])
+    except (OSError, ValueError, sqlite3.Error):
+        work['habits'] = []
     allowance = max(2, (config.COGNITION_PROMPT_CHARS - len(header) - len(state) - 50) // 2)
     while len(json.dumps(work, ensure_ascii=False)) > allowance:
         if work.get("tasks"):
@@ -86,6 +96,8 @@ def prompt_section() -> str:
             work["goals"].pop()
         elif work.get("deadlines"):
             work["deadlines"].pop()
+        elif work.get('habits'):
+            work['habits'].pop()
         else:
             work = {}
             break

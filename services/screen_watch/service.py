@@ -1,6 +1,7 @@
 """One background observation at a time, fenced by controls, indicator and window."""
 import asyncio
 from datetime import datetime
+import re
 import threading
 import time
 import uuid
@@ -8,7 +9,7 @@ import uuid
 from core.logger import logger
 from services.activity.log import idle_seconds
 from services.browser.worker import ProcessRuntime
-from services.screen_watch import capture, inference
+from services.screen_watch import capture, create_reader, inference
 from services.screen_watch.store import ScreenStore
 
 
@@ -23,10 +24,14 @@ class ScreenWatch:
         self._prune_at = 0.0
         self._query_lock = asyncio.Lock()
         self._stopped = threading.Event()
+        self._attention, self._focus_key, self._focus_since = None, None, 0.0
+        self.dialogue, self.dialogue_epoch, self.dialogue_at = [], None, 0.0
 
     def control(self, action):
         self.store.control(action)
         self._generation += 1
+        self._attention, self._focus_key = None, None
+        self.dialogue.clear()
         self._next = 0
         self._state = "waiting_for_indicator" if action in {"start", "resume"} else "paused" if action == "pause" else "off"
         if self._job:
@@ -37,6 +42,15 @@ class ScreenWatch:
         self._indicator = badge
         self._lease = time.monotonic() + 6 if badge else 0
         return bool(badge)
+
+    def rules_changed(self):
+        self.store.invalidate()
+        self._generation += 1
+        self._attention, self._focus_key = None, None
+        self.dialogue.clear()
+        self._next = 0
+        if self._job:
+            self._job.get_loop().call_soon_threadsafe(self._job.cancel)
 
     def visible(self):
         return bool(time.monotonic() < self._lease and capture.indicator_valid(self._indicator))
@@ -57,8 +71,9 @@ class ScreenWatch:
 
     async def observe(self, window, epoch, generation):
         stopped = threading.Event()
-        reader = ProcessRuntime(capture.ScreenReader, (), stopped, timeout=8)
+        reader = ProcessRuntime(create_reader, (), stopped, timeout=8)
         frame = {}
+        saved = False
         try:
             if not self._allowed(window, epoch, generation):
                 return
@@ -109,16 +124,33 @@ class ScreenWatch:
             if not self._allowed(window, epoch, generation):
                 return
             evidence_scope = {**window["scope"], "url_hash": frame.get("url_hash"), "content_hash": frame.get("content_hash")}
-            self.store.save(epoch=epoch, session=self.session, scope=evidence_scope, app=window["app"],
-                            summary=result.summary, activity=result.activity, source=source, at=captured)
-            self._state = "watching"
+            saved = self.store.save(epoch=epoch, session=self.session, scope=evidence_scope, app=window["app"],
+                                    summary=result.summary, activity=result.activity, source=source, at=captured,
+                                    subject=result.subject, kind=result.kind, generation=generation)
+            if saved:
+                focus = (str(window["scope"]), frame.get("url_hash"), result.subject.casefold(), result.kind, epoch)
+                gap = (captured - self._attention["at"]).total_seconds() if self._attention else -1
+                if focus != self._focus_key or not 0 <= gap <= 75:
+                    self._focus_key, self._focus_since = focus, time.monotonic()
+                self._attention = {"window": window, "at": captured, "epoch": epoch,
+                                   "generation": generation, "kind": result.kind}
+                self._state = "watching"
         except asyncio.CancelledError:
             raise
         except Exception as error:
             self._state = "unavailable"
             self._next = time.monotonic() + 60
-            logger.debug("Local screen observation unavailable (%s)", type(error).__name__)
+            text = str(error)
+            known = {"Local screen model is unavailable", "A local vision-capable model is required",
+                     "Incomplete screen interpretation", "Screen awareness requires a local Ollama endpoint",
+                     "Screen awareness requires a local model", "Screen observation is too large",
+                     "Private content is excluded from screen analysis"}
+            safe = type(error) is ValueError and (text in known or re.fullmatch(
+                r"Automation operation unavailable: [A-Za-z_][A-Za-z_0-9]{0,79}|Automation worker exited", text))
+            logger.debug("Local screen observation unavailable (%s)", text if safe else type(error).__name__)
         finally:
+            if not saved:
+                self._attention, self._focus_key = None, None
             frame.clear()  # no raw image or extracted text retained by the service
             stopped.set()
             try:
@@ -139,6 +171,7 @@ class ScreenWatch:
         if scope != self._scope or cfg["epoch"] != self._epoch:
             self._scope, self._epoch = scope, cfg["epoch"]
             self._generation += 1
+            self._attention, self._focus_key = None, None
             self._settled, self._next = now + 2, 0
             if self._job:
                 self._job.cancel()
@@ -173,14 +206,13 @@ class ScreenWatch:
     async def current(self):
         cfg = self.store.settings()
         window = capture.foreground()
-        if (not cfg["enabled"] or cfg["paused"] or not self.visible() or capture.blocked(window)
-                or self._state in {"private_window", "privacy_scan_incomplete", "away"}):
+        if not cfg["enabled"] or cfg["paused"] or not self.visible() or capture.blocked(window):
             return None
         if self._query_lock.locked():
             return None
         async with self._query_lock:
             stopped = threading.Event()
-            reader = ProcessRuntime(capture.ScreenReader, (), stopped, timeout=8)
+            reader = ProcessRuntime(create_reader, (), stopped, timeout=8)
             generation = self._generation
             try:
                 frame = await reader.call("read", window, self._indicator)
@@ -196,6 +228,27 @@ class ScreenWatch:
                     await reader.aclose()
                 except Exception as error:
                     logger.debug("Screen query worker cleanup (%s)", type(error).__name__)
+
+    def local_context(self):
+        """Private background learning, already available before an owner asks anything."""
+        cfg = self.store.settings()
+        if not cfg["enabled"] or cfg["paused"] or not self.visible():
+            return None
+        context = self.store.learned_context()
+        # Read policy after the database lock is released (settings writes take the opposite order).
+        from services.screen_watch.app_rules import rules
+        context = {key: [row for row in rows if rules.allowed(row['app'])] for key, rows in context.items()}
+        if not any(context.values()) or self.store.settings()["epoch"] != cfg["epoch"] or not self.visible():
+            return None
+        return {"epoch": cfg["epoch"], "as_of": datetime.now().isoformat(timespec="seconds"), **context}
+
+    def focused(self):
+        """Only a timing flag leaves private context; no subject text enters public prompts."""
+        attention = self._attention
+        return bool(attention and attention["kind"] in {"reading", "watching", "writing"}
+                    and time.monotonic() - self._focus_since >= 120
+                    and 0 <= (datetime.now() - attention["at"]).total_seconds() <= 75
+                    and self._allowed(attention["window"], attention["epoch"], attention["generation"]))
 
 
 watch = ScreenWatch()

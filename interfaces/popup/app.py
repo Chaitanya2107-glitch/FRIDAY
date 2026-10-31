@@ -67,6 +67,12 @@ def _send_chat_message(text, generation=None):
         generation = _state["request_generation"]
     automation_job = None
     try:
+        from services.screen_watch.commands import is_query
+        if is_query(text):
+            time.sleep(FOCUS_SETTLE_SECONDS)
+            target = _state["target_window"]
+            if not target or user32.GetForegroundWindow() != target:
+                raise backend.BackendError("I couldn't return focus to your app. Open it and ask again.")
         computer_bar.before_request(text, _state["target_window"])
         reply = backend.chat(text)
         if _state["request_generation"] != generation:
@@ -244,7 +250,9 @@ def _submit(hwnd, edit_hwnd):
     user32.SetWindowTextW(edit_hwnd, "Sending...")
     _state["response_ready"] = False
     _state["computer"] = is_computer_command(text)
-    if _state["computer"]:
+    from services.screen_watch.commands import is_query
+    _state["screen_query"] = is_query(text)
+    if _state["computer"] or _state["screen_query"]:
         computer_bar.restore_target(hwnd, _state["target_window"], _hide)
     _state["request_generation"] += 1
     generation = _state["request_generation"]
@@ -273,6 +281,15 @@ def _type_into_target(hwnd, steps):
 def _show_reply(hwnd, edit_hwnd):
     if _state.get("computer"):
         computer_bar.show_reply(hwnd, edit_hwnd, _state, _hint_hwnd, _reply_listener, _show_ask)
+        return
+    if _state.get("screen_query") or (_state.get("private") and not _state.get("command")):
+        _state["ask_text"] = _state["response"]
+        _state["ask"] = True  # refresh a visible private conversation, including its Sending state
+        _show_ask(hwnd, edit_hwnd)
+        if _hint_hwnd:
+            user32.SetWindowTextW(_hint_hwnd, "Ctrl+Shift+F to reply; Esc to dismiss")
+        if _reply_listener:
+            _reply_listener(_state["response"], _state.get("command", False), _state.get("private", False))
         return
     steps, _state["keyboard"] = _state["keyboard"], ()
     if steps:

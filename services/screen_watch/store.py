@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import json
 
 from services.mind.cognition import cognition
+from services.screen_watch import learning
 
 
 class ScreenStore:
@@ -23,6 +24,7 @@ class ScreenStore:
                     session TEXT NOT NULL, scope TEXT NOT NULL, app TEXT NOT NULL,
                     summary TEXT NOT NULL, activity TEXT NOT NULL, source TEXT NOT NULL);
             """)
+            learning.tables(conn)
             yield conn
 
     def settings(self):
@@ -41,20 +43,31 @@ class ScreenStore:
             else:
                 conn.execute("UPDATE screen_settings SET enabled=0,paused=0,epoch=epoch+1 WHERE id=1")
 
-    def save(self, *, epoch, session, scope, app, summary, activity, source, at):
-        if source not in {"accessible_text", "vision"} or not (0 < len(summary) <= 300 and len(activity) <= 200):
+    def invalidate(self):
+        with self.db() as conn:
+            conn.execute("UPDATE screen_settings SET epoch=epoch+1 WHERE id=1")
+
+    def save(self, *, epoch, session, scope, app, summary, activity, source, at,
+             subject="", kind="unknown", generation=0):
+        if (source not in {"accessible_text", "vision"} or kind not in learning.KINDS
+                or not (0 < len(summary) <= 300 and len(activity) <= 200 and len(subject) <= 80)):
             raise ValueError("Invalid screen interpretation")
         with self.db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             state = conn.execute("SELECT * FROM screen_settings WHERE id=1").fetchone()
             if state["epoch"] != epoch or not state["enabled"] or state["paused"]:
                 return False
-            conn.execute("INSERT INTO screen_observations(at,epoch,session,scope,app,summary,activity,source) "
-                         "VALUES(?,?,?,?,?,?,?,?)", (at.isoformat(timespec="seconds"), epoch, session,
-                                                   json.dumps(scope, sort_keys=True), app, summary, activity, source))
+            previous = conn.execute("SELECT * FROM screen_observations ORDER BY id DESC LIMIT 1").fetchone()
+            item = dict(at=at.isoformat(timespec="seconds"), epoch=epoch, session=session,
+                        scope=json.dumps(scope, sort_keys=True), app=app, summary=summary, activity=activity,
+                        source=source, subject=subject, kind=kind, generation=generation)
+            conn.execute("INSERT INTO screen_observations(at,epoch,session,scope,app,summary,activity,source,subject,kind,generation) "
+                         "VALUES(:at,:epoch,:session,:scope,:app,:summary,:activity,:source,:subject,:kind,:generation)", item)
+            learning.observe(conn, dict(previous) if previous else None, item)
             conn.execute("DELETE FROM screen_observations WHERE at<? OR id NOT IN "
                          "(SELECT id FROM screen_observations ORDER BY id DESC LIMIT 200)",
                          ((at - timedelta(days=7)).isoformat(timespec="seconds"),))
+            learning.prune(conn, at)
             return True
 
     def latest(self, scope, session, epoch, now=None):
@@ -79,12 +92,30 @@ class ScreenStore:
         cutoff = ((now or datetime.now()) - timedelta(days=7)).isoformat(timespec="seconds")
         with self.db() as conn:
             conn.execute("DELETE FROM screen_observations WHERE at<?", (cutoff,))
+            learning.prune(conn, now or datetime.now())
+
+    def learned_context(self, now=None):
+        now = now or datetime.now()
+        with self.db() as conn:
+            learning.prune(conn, now)
+            context = learning.context(conn, now)
+            context["recent_observations"] = [dict(r) for r in conn.execute(
+                "SELECT at,app,summary,activity,source,subject,kind FROM screen_observations "
+                "WHERE at>=? AND at<=? ORDER BY id DESC LIMIT 3",
+                ((now - timedelta(hours=12)).isoformat(timespec="seconds"), now.isoformat(timespec="seconds")))]
+        return context
 
     def forget(self, description=None):
         with self.db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("UPDATE screen_settings SET paused=1,epoch=epoch+1 WHERE id=1")
             where, args = ("", ()) if not description else (
-                " WHERE instr(lower(summary),?) OR instr(lower(activity),?) OR instr(lower(app),?)",
-                (description.lower(),) * 3)
-            return conn.execute("DELETE FROM screen_observations" + where, args).rowcount
+                " WHERE instr(lower(summary),?) OR instr(lower(activity),?) OR instr(lower(app),?) OR instr(lower(subject),?)",
+                (description.lower(),) * 4)
+            related = conn.execute("SELECT at,app,subject,kind FROM screen_observations" + where, args).fetchall() if description else []
+            count = conn.execute("DELETE FROM screen_observations" + where, args).rowcount
+            days = conn.execute("DELETE FROM screen_activity_days" + where, args).rowcount
+            for row in related:
+                days += conn.execute("DELETE FROM screen_activity_days WHERE day=? AND app=? AND subject=? AND kind=?",
+                                     (row["at"][:10], row["app"], " ".join(row["subject"].casefold().split()), row["kind"])).rowcount
+            return max(count, days)

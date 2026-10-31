@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT))
 
 class PreviewClient:
     rows = {
+        'screen_apps': [{'name': 'chrome', 'value': {'allowed': True}, 'label': 'chrome · Allowed'},
+                        {'name': 'powershell', 'value': {'allowed': False}, 'label': 'powershell · Blocked'}],
         'contacts': [{'name': 'alex', 'value': {'number': '+447700900123'}},
                      {'name': 'family', 'value': {'number': '+447700900456'}},
                      {'name': 'team', 'value': {'number': '+447700900789'}}],

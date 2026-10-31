@@ -27,6 +27,9 @@ from pathlib import Path
 from core.config import config
 from core.logger import logger
 from services.automation.system_control import AutomationError
+from services.automation.command_words import COLLEGE_SCHEDULE_OPEN, COLLEGE_NEXT_FACULTY, COLLEGE_EVENTS_QUERY
+from services import settings_store
+from services.proactive import deadline_store
 from services.proactive import deadlines, timetable
 
 path = config.MEMORY_DIR / "college.json"  # tests point this elsewhere
@@ -37,7 +40,7 @@ PROFILE_KEYS = {"usn": "USN", "srn": "SRN", "roll number": "roll number", "regis
                 "section": "section", "college email": "college email", "student id": "student ID", "semester": "semester",
                 "branch": "branch", "college id": "college ID"}
 COLLEGE_ACTIONS = {"set_class_link", "join_class", "revision_pack", "set_syllabus", "show_syllabus", "start_assignment",
-                   "set_profile", "show_profile"}
+                   "set_profile", "show_profile", "open_college_schedules", "next_class_faculty", "college_events"}
 
 _KEYS = "|".join(sorted(map(re.escape, PROFILE_KEYS), key=len, reverse=True))
 _LINK = re.compile(r"^(?:(?:the |my )?(?P<a>.+?) (?:class |meet |lecture )?link is|(?:set|save|add) (?:the |a )?link for "
@@ -73,8 +76,7 @@ def load() -> dict:
 
 
 def _save(data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    settings_store.save(path, data)
 
 
 def _subject(said: str) -> str:
@@ -219,6 +221,12 @@ def revision_pack(subject: str, log, now: datetime) -> Path:
 def match_college_command(text: str) -> dict | None:
     """`text` has been through normalize_command()."""
     text = text.strip().rstrip("?.!")
+    if text.lower() in COLLEGE_SCHEDULE_OPEN:
+        return {'type': 'system', 'action': 'open_college_schedules'}
+    if text.lower() in COLLEGE_NEXT_FACULTY:
+        return {'type': 'system', 'action': 'next_class_faculty'}
+    if text.lower() in COLLEGE_EVENTS_QUERY:
+        return {'type': 'system', 'action': 'college_events'}
     if m := _PROFILE_SET.match(text):
         return {"type": "system", "action": "set_profile", "key": m["key"].lower(), "value": m["value"].strip()}
     if m := _PROFILE_ASK.match(text):
@@ -243,6 +251,28 @@ def _is_subject(said: str) -> bool:
 
 
 def run(parsed: dict, log=None, now: datetime | None = None) -> str:
+    if parsed['action'] == 'college_events':
+        from services.college.reading import events_message
+        return events_message(now) or 'No upcoming college events saved.'
+    if parsed['action'] == 'open_college_schedules':
+        from interfaces.college.launcher import launch
+        launch()
+        return 'Opened College Schedules.'
+    if parsed['action'] == 'next_class_faculty':
+        from services.college.catalogs import subject_for
+        c = timetable.next_class_occurrence(now or datetime.now())
+        if c is None:
+            return 'There are no upcoming classes in your effective timetable.'
+        details = subject_for(c['subject'])
+        return (f"{details['faculty']} takes your next {c['subject']} class." if details['faculty'] else
+                f"I don't have the faculty for {c['subject']}. Save it in College Schedules → Timetable → Edit faculty / room.")
+    if parsed['action'] in {'set_profile', 'set_class_link', 'set_syllabus'}:
+        with deadline_store.edit(path):
+            return _run(parsed, log, now)
+    return _run(parsed, log, now)
+
+
+def _run(parsed: dict, log=None, now: datetime | None = None) -> str:
     now = now or datetime.now()
     action, data = parsed["action"], load()
     if action == "set_profile":

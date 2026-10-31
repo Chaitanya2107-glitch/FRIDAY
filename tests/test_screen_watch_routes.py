@@ -57,6 +57,21 @@ def test_remote_owner_cannot_enable_or_inspect_desktop_watch(screen):
     assert not asyncio.run(commands.handle("screen memory", remote=True)).success
 
 
+def test_nonlocal_http_cannot_enable_watch_or_renew_badge(screen, monkeypatch):
+    import httpx
+    from interfaces.api.app import create_app
+    monkeypatch.setattr(screen, "heartbeat", lambda hwnd: pytest.fail("Remote request touched the native badge"))
+    async def request():
+        transport = httpx.ASGITransport(app=create_app(), client=("198.51.100.2", 50000))
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
+            result = await client.post("/api/v1/chat", json={"message": "start screen awareness", "speak": False})
+            assert result.status_code == 200 and "laptop only" in result.json()["response"]
+            result = await client.post("/api/v1/screen-watch/indicator", json={"hwnd": 42})
+            assert result.json() == {"accepted": False}
+    asyncio.run(request())
+    assert not screen.store.settings()["enabled"]
+
+
 def test_explicit_screen_history_is_private_and_not_owner_fact(screen):
     screen.control("start")
     screen.store.save(epoch=screen.store.settings()["epoch"], session="one", scope={"hwnd": 1}, app="notes",
@@ -134,3 +149,19 @@ def test_panel_resume_callback_has_actual_tray_signature():
     panel.screen_badge = SimpleNamespace(_pending_pause=False)
     panel._screen_control()
     assert calls == ["resume screen awareness"]
+
+
+def test_badge_heartbeat_does_not_wait_for_menu_requests():
+    import threading
+    from interfaces.tray.tray import FridayTray
+    stopped, calls = threading.Event(), []
+    class Api:
+        BackendError = RuntimeError
+        def screen_indicator(self, hwnd):
+            calls.append(hwnd)
+            stopped.set()
+        def runtime_status(self):
+            pytest.fail("Heartbeat depends on slow menu requests")
+    tray = SimpleNamespace(screen_indicator=123, _api=Api(), _stopping=stopped)
+    FridayTray._screen_heartbeat_loop(tray)
+    assert calls == [123]

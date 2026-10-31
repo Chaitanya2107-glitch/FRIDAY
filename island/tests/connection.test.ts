@@ -55,3 +55,17 @@ test('disconnect settles pending request and malformed frames do not authenticat
     assert.equal(connection.online, false);
   } finally { connection.stop(); globalThis.WebSocket = original; }
 });
+
+test('widget mutation rejects malformed acknowledgements without claiming success', async () => {
+  const original = globalThis.WebSocket;
+  globalThis.WebSocket = Socket as unknown as typeof WebSocket;
+  const connection = new Connection({ port: 17321, token: '0'.repeat(64) }, () => {}, () => {});
+  try {
+    connection.start(); const socket = Socket.instances.at(-1)!;
+    socket.onopen!(); socket.receive({ v: 1, type: 'handshake', ok: true });
+    const response = connection.pluginAction('todo', { action: 'add', value: 'Keep draft' });
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive({ v: 1, type: 'command_result', id: request.id, ok: 'false', text: 'Malformed' });
+    await assert.rejects(response, /verify whether it was saved/);
+  } finally { connection.stop(); globalThis.WebSocket = original; }
+});

@@ -16,6 +16,13 @@ from services.proactive import deadlines
 ACTIONS = {"move_deadline", "recall_deadline", "deadline_history", "link_deadline_reminder", "deadline_reminder_updates"}
 
 
+def complete(row):
+    """Retain optional done status, with the same history/link removal as completion."""
+    row.update(done=True, revision=uuid.uuid4().hex)
+    for field in ('history', 'linked_reminders', 'reminder_updates'):
+        row.pop(field, None)
+
+
 def identity(row):
     return {k: row.get(k) for k in ("id", "what", "due", "revision")}
 

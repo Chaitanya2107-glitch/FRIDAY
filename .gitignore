@@ -47,3 +47,5 @@ tasks/*
 !tasks/semantic_holdout_v*.json
 !tasks/recall_holdout_v1.json
 !tasks/ordinary-followups-live-fixtures.json
+# College Schedules originals (saved only after explicit Confirm)
+/memory/college/uploads/

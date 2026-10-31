@@ -48,18 +48,24 @@ class CollegePlugin(StubPlugin):
         from services.proactive.timetable import next_class_occurrence
         return next_class_occurrence(datetime.now())
 
-    def snippet(self) -> str:
+    def reminder(self) -> dict | None:
         try:
             row = self.next_class()
             if not row:
-                return ""
+                return None
             now = self.now()
             start = datetime.fromisoformat(f"{row.get('date', now.date().isoformat())}T{row['start']}")
+            if now.tzinfo and not start.tzinfo:
+                start = start.replace(tzinfo=now.tzinfo)
             if not timedelta(0) < start - now <= timedelta(minutes=15):
-                return ""
-            return self.describe(row)
+                return None
+            return {'text': self.describe(row), 'show_from': int((start - timedelta(minutes=15)).timestamp() * 1000),
+                    'expires_at': int(start.timestamp() * 1000)}
         except Exception:
-            return ""
+            return None
+
+    def snippet(self) -> str:
+        return (self.reminder() or {}).get('text', '')
 
     def describe(self, row: dict | None) -> str:
         if not row:
@@ -85,12 +91,13 @@ class CollegePlugin(StubPlugin):
 
 class Registry:
     def __init__(self, plugins: list[Plugin] | None = None):
+        from .productivity import TrackerPlugin
         self.plugins: dict[str, Plugin] = {}
         self.commands: dict[str, Plugin] = {}
         for plugin in plugins if plugins is not None else [
             CollegePlugin(),
-            StubPlugin(Manifest("habit_tracker", "Habit tracker", ("habit",)), "Habits · ready when you are"),
-            StubPlugin(Manifest("todo", "Todo", ("todo",)), "Todos · a little room to think"),
+            TrackerPlugin('habit'),
+            TrackerPlugin('todo'),
         ]:
             self.register(plugin)
 
@@ -112,9 +119,11 @@ class Registry:
     def snippet(self) -> dict:
         for plugin in self.plugins.values():
             try:
-                text = plugin.snippet()
+                reminder_fn = getattr(plugin, 'reminder', None)
+                reminder = reminder_fn() if reminder_fn else None
+                text = (reminder or {}).get('text', '') if reminder_fn else plugin.snippet()
                 if text:
-                    return {"plugin": plugin.manifest.id, "text": text[:80]}
+                    return {"plugin": plugin.manifest.id, **(reminder or {}), "text": text[:80]}
             except Exception:
                 continue
         return {"plugin": None, "text": ""}

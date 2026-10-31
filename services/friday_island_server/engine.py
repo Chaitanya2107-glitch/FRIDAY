@@ -38,6 +38,9 @@ class Engine:
     def suggestions(self, text: str, config: IslandConfig) -> list[dict]:
         head, _, tail = text.strip().partition(" ")
         candidates: list[tuple[str, str]] = []
+        plugin = self.registry.commands.get(head.casefold())
+        if plugin and hasattr(plugin, 'suggestions'):
+            return plugin.suggestions(text)
         if head.casefold() == "open":
             return []  # Installed apps and favourites are indexed natively.
         if head == "proj":

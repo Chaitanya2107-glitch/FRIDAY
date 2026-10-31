@@ -1,5 +1,38 @@
 # FRIDAY Island protocol v1
 
+## Live tracker widgets (additive v1 extension)
+
+`plugin_widget.widget` may include `items` (up to six displayed rows), each with
+`id`, literal `label`, `detail`, and an optional `action` containing `label`,
+`action`, `item`, numeric `revision`, optional `value` and `disabled`. An optional
+`input` contains `label`, `placeholder`, `action` and `max_length` (at most 160).
+These are generic host controls; no HTML, executable code or native launch target
+is accepted from a widget. Rendering never triggers an action.
+
+A deliberate button/form submission sends `plugin_action` with `plugin`, `action`,
+`item` (default empty), `value` (up to 160 characters), and `revision` (finite
+number or null), plus the usual `v` and request `id`. Its response is a correlated
+`command_result`. It uses the same authentication, rate limit, serialized command
+handling and no-retry policy as palette commands. Each registered plugin validates
+its own action names, record IDs and revisions; other plugins cannot receive it.
+Todo allows `add`/`complete`; habits allow `add`/`check`/`uncheck`. Habit row actions
+include the displayed local date in `value`, so crossing midnight requires refresh.
+Failed or stale writes return `ok: false`; unknown plugins/actions never execute
+native commands. Open widgets refresh every 15 seconds and after explicit writes.
+
+Tracker adapters reuse FRIDAY's `services.productivity.store.Tracker` and existing
+cognition/workspace database. They do not use the broader automation command router.
+Tests inject an isolated Tracker. Existing planned-task completion rules and store
+revision checks remain authoritative. This local checkout's productivity store and
+workspace changes are prerequisites; they are not republished by Island commits.
+
+Near-class `pill_snippet_update` frames additionally include `show_from` and
+`expires_at`, both Unix epoch milliseconds. Only within that interval does the
+frontend replace the date with the snippet; battery, clock and orb stay in place.
+The class plugin emits this only during the 15 minutes before class, never at or
+after its start. Empty snippets, disconnect, expiry and connection changes restore
+the date. Frames lacking timing metadata do not replace the date.
+
 Transport: WebSocket `ws://127.0.0.1:<connection.port>/`, default port **17321**.
 The Python server binds only IPv4 loopback. No HTTP API, discovery broadcast,
 remote listener or telemetry. Maximum inbound frame: 16 KiB; raw command length:

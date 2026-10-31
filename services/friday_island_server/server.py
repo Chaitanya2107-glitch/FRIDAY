@@ -10,7 +10,7 @@ from collections import deque
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
@@ -26,11 +26,15 @@ ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localho
 class Request(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     v: Literal[1]
-    type: Literal["handshake", "command", "suggestions", "plugin_list", "plugin_widget", "status"]
+    type: Literal["handshake", "command", "suggestions", "plugin_list", "plugin_widget", "plugin_action", "status"]
     id: str = Field(min_length=1, max_length=64)
     text: str = Field(default="", max_length=4000)
     token: str = Field(default="", max_length=128)
     plugin: str = Field(default="", max_length=64)
+    action: str = Field(default='', max_length=32, pattern=r'^[a-z_]*$')
+    item: str = Field(default='', max_length=64)
+    value: str = Field(default='', max_length=160)
+    revision: int | FiniteFloat | None = None
 
 
 class Bridge:
@@ -90,9 +94,16 @@ class Bridge:
                     if request.type == "command":
                         result = await asyncio.wait_for(self.engine.execute(request.text, config), 60)
                         await self.send(ws, "command_result", request.id, **result)
+                    elif request.type == 'plugin_action':
+                        plugin = self.registry.plugins.get(request.plugin)
+                        handler = getattr(plugin, 'action', None)
+                        if handler is None:
+                            raise ValueError('Unknown plugin action')
+                        result = await asyncio.wait_for(handler(request.action, request.item, request.value, request.revision), 60)
+                        await self.send(ws, 'command_result', request.id, **result)
                     elif request.type == "suggestions":
                         await self.send(ws, "suggestions", request.id,
-                                        items=self.engine.suggestions(request.text, config))
+                                        items=await asyncio.to_thread(self.engine.suggestions, request.text, config))
                     elif request.type == "plugin_list":
                         await self.send(ws, "plugin_list", request.id, plugins=self.registry.manifests())
                     elif request.type == "plugin_widget":

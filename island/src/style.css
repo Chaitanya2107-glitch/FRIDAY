@@ -58,7 +58,7 @@ img { width: 22px; height: 22px; object-fit: contain; }
 .character { width: 38px; height: 38px; flex: 0 0 38px; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent), transparent 62%)); }
 .character svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 75%; animation: breathe 6s steps(12, end) infinite; will-change: transform; }
 .eyes { fill: var(--orb-eye); transform-origin: 32px 32px; transform: translate(var(--eye-x, 0), var(--eye-y, 0)); animation: blink 9s steps(1, end) infinite; }
-.live-line { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .01em; color: var(--muted); }
+.live-line { visibility: hidden; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: .01em; color: var(--muted); }
 .command { display: none; border: 0; background: none; min-width: 70px; flex: 1; width: 0; padding: var(--space-2) 0; font-size: 13px; user-select: text; }
 .command::placeholder { color: var(--muted); opacity: .75; }
 .command:focus-visible { outline: 0; }
@@ -168,7 +168,8 @@ input[type='checkbox'] { accent-color: var(--accent); cursor: pointer; }
 .surface[data-mode='sneak'] .suggestion.selected, .surface[data-mode='sneak'] .suggestion:hover { background: var(--white-hover); }
 .surface[data-mode='hidden'] { opacity: 0; transform: translateY(-110%); pointer-events: none; }
 .surface[data-mode='hidden'] *, .surface[data-mode='sneak'] .character * { animation-play-state: paused !important; }
-.character-only .surface[data-mode='rest'], .character-only .surface[data-mode='hidden'] { width: 62px; }
+/* Quiet capsule for now: keep the full shape even when no snippet is available. */
+.character-only .surface[data-mode='rest'], .character-only .surface[data-mode='hidden'] { width: 278px; }
 .character-only .surface[data-mode='rest'] .live-line { display: none; }
 .surface[data-mood='listening'] .character { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent), transparent 35%)); }
 .surface[data-mood='happy'] .character svg { animation: happy 700ms var(--spring); }

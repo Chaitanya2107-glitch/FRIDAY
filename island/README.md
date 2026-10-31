@@ -47,9 +47,10 @@ network behavior. The island UI itself connects only to `127.0.0.1`.
 
 ## Everyday use
 
-- **Rest:** one short plugin line, or just the character. Hover reveals Peek.
-  Class reminders appear only in the 15 minutes before class (refreshed each
-  minute). Otherwise Rest shows just the character. `next` still answers on demand.
+- **Rest:** a full capsule with the character and no visible text for now.
+  Hover reveals Peek. Snippet text and automatic shrinking are temporarily hidden
+  regardless of the saved appearance toggle. `next` still answers on demand;
+  the backend's class reminder window remains 15 minutes before class.
 - **Peek:** one command input, up to eight visible app icons, Projects and Settings.
   Hover does not activate the window. Clicking the input deliberately activates it.
 - **Expanded:** Projects · Plugins · Settings. Extra pinned apps appear above

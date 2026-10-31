@@ -144,7 +144,7 @@ def main():
             evidence['favourites_and_recents_survive_restart'] = True
             scan = invoke(page, 'rescan_apps')
             assert scan['count'] > 0 and not scan['scanning']; evidence['manual_rescan'] = True
-            evidence['offline'] = page.locator('.live-line').inner_text() == 'FRIDAY offline'
+            evidence['offline'] = page.locator('.surface').evaluate("node => node.classList.contains('offline')")
             assert evidence['offline']
             print(json.dumps(evidence, indent=2))
             print('PASS: real native offline app search/launch, ID rejection, icons, pin/unpin, rescan and restart persistence')

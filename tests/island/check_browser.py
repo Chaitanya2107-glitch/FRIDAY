@@ -105,9 +105,12 @@ async def main():
                 await page.goto("http://127.0.0.1:1420")
                 surface = page.locator(".surface")
                 await expect(page.locator(".live-line")).to_have_text("Next: DBMS · 10:30")
+                await expect(page.locator('.live-line')).to_be_hidden()
                 for ws in tuple(bridge.clients):
                     await bridge.send(ws, 'pill_snippet_update', text='', plugin=None)
                 await expect(page.locator('#app')).to_have_class('character-only')
+                await page.wait_for_timeout(300)
+                assert abs((await page.locator('.surface').bounding_box())['width'] - 278) < 1, 'Quiet capsule shrank to character'
                 for ws in tuple(bridge.clients):
                     await bridge.send(ws, 'pill_snippet_update', text='Next: DBMS · 10:30', plugin='college_schedule')
                 await expect(page.locator('#app')).not_to_have_class('character-only')

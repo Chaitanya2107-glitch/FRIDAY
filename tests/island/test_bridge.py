@@ -17,6 +17,17 @@ from services.friday_island_server.server import Bridge, ORIGINS
 
 
 class ConfigTests(unittest.TestCase):
+    def test_startup_preferences_survive_python_rewrites(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            config = load_config(path)
+            self.assertTrue(config.startup.manage_bridge)
+            self.assertFalse(config.startup.launch_at_login)
+            config.startup.backend_root = 'C:/FRIDAY'
+            config.startup.launch_at_login = True
+            path.write_text(config.model_dump_json(), encoding='utf-8')
+            self.assertEqual(load_config(path).startup, config.startup)
+        with self.assertRaises(ValidationError): IslandConfig.model_validate({'startup': {'backend_root': 'relative'}})
     def test_future_class_snippet_includes_weekday(self):
         from datetime import datetime, timedelta
         future = datetime.now().date() + timedelta(days=2)

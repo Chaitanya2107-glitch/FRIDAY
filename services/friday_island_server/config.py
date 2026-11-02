@@ -104,6 +104,17 @@ class RecentApp(Model):
     count: int = Field(ge=0, le=4294967295)
 
 
+class Startup(Model):
+    manage_bridge: bool = True
+    backend_root: str = ''
+    launch_at_login: bool = False
+
+    @field_validator('backend_root')
+    @classmethod
+    def root_path(cls, value: str) -> str:
+        return absolute_path(value) if value else value
+
+
 class IslandConfig(Model):
     version: Literal[1] = 1
     revision: int = Field(default=0, ge=0)
@@ -113,6 +124,7 @@ class IslandConfig(Model):
     hotkeys: Hotkeys = Field(default_factory=Hotkeys)
     appearance: Appearance = Field(default_factory=Appearance)
     connection: Connection = Field(default_factory=Connection)
+    startup: Startup = Field(default_factory=Startup)
 
     @model_validator(mode="after")
     def unique_ids(self):

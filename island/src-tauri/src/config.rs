@@ -23,6 +23,23 @@ pub struct Config {
     pub hotkeys: Hotkeys,
     pub appearance: Appearance,
     pub connection: Connection,
+    pub startup: Startup,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Startup {
+    pub manage_bridge: bool,
+    pub backend_root: String,
+    pub launch_at_login: bool,
+}
+impl Default for Startup {
+    fn default() -> Self {
+        Self {
+            manage_bridge: true,
+            backend_root: String::new(),
+            launch_at_login: false,
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pin {
@@ -145,6 +162,7 @@ impl Default for Config {
             hotkeys: Hotkeys::default(),
             appearance: Appearance::default(),
             connection: Connection::default(),
+            startup: Startup::default(),
         }
     }
 }
@@ -193,6 +211,9 @@ fn ids<'a>(items: impl Iterator<Item = (&'a str, &'a str)>) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
+        if !self.startup.backend_root.is_empty() && !safe_path(&self.startup.backend_root) {
+            return Err("Use an absolute FRIDAY folder without traversal".into());
+        }
         if self.version != 1
             || self.connection.port < 1024
             || self.connection.token.len() != 64

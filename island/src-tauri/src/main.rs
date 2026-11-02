@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod apps_commands;
+mod bridge_process;
 mod catalog;
 mod config;
 mod desktop;
@@ -9,6 +10,7 @@ mod discovery;
 #[cfg(windows)]
 mod picker;
 mod shell;
+mod startup;
 #[cfg(windows)]
 mod windows;
 
@@ -58,15 +60,26 @@ async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
         .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-async fn save_config(next: Config, state: State<'_, AppState>) -> Result<Config, String> {
+async fn save_config(
+    next: Config,
+    state: State<'_, AppState>,
+    supervisor: State<'_, startup::Supervisor>,
+) -> Result<Config, String> {
     let path = state.path.clone();
-    let saved = tauri::async_runtime::spawn_blocking(move || config::save(&path, next))
-        .await
-        .map_err(|e| e.to_string())??;
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        let old = config::load(&path)?;
+        if old.startup.launch_at_login != next.startup.launch_at_login {
+            return Err("Use the explicit sign-in startup control to change this setting.".into());
+        }
+        config::save(&path, next)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     state
         .hotkeys
         .send(saved.hotkeys.clone())
         .map_err(|e| e.to_string())?;
+    supervisor.configure(saved.clone());
     Ok(saved)
 }
 #[tauri::command]
@@ -223,13 +236,19 @@ fn quit(app: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            let _ = app.emit("hotkey", "expand");
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if !args.iter().any(|a| a == "--background") {
+                let _ = app.emit("hotkey", "expand");
+            }
         }))
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
             runtime_status,
+            startup::startup_status,
+            startup::restart_bridge,
+            startup::set_login,
+            startup::reload_config,
             set_mode,
             set_regions,
             local_command,
@@ -275,6 +294,7 @@ fn main() {
                 (runtime.max_width, runtime.max_height) = windows::limits(&window)?;
                 runtime.reduce_motion = windows::reduce_motion();
             }
+            app.manage(startup::Supervisor::start(config.clone(), path.clone()));
             app.manage(AppState {
                 path,
                 runtime: Mutex::new(runtime),
@@ -292,6 +312,11 @@ fn main() {
             catalog::Catalog::start(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Unable to start FRIDAY Island");
+        .build(tauri::generate_context!())
+        .expect("Unable to start FRIDAY Island")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<startup::Supervisor>().stop();
+            }
+        });
 }

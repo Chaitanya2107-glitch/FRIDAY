@@ -110,6 +110,17 @@ def main():
     def focus(hwnd):
         u.SetWindowPos(hwnd, None, 0, 0, 0, 0, 3)
         u.SetForegroundWindow(hwnd); pump()
+        if u.GetForegroundWindow() != hwnd:
+            # Windows may deny initial activation from a newly started test
+            # process. Join the foreground queue only to focus our owned fixture.
+            current_thread = c.windll.kernel32.GetCurrentThreadId()
+            foreground_thread = u.GetWindowThreadProcessId(u.GetForegroundWindow(), None)
+            u.AttachThreadInput.argtypes = [w.DWORD, w.DWORD, w.BOOL]
+            attached = current_thread != foreground_thread and u.AttachThreadInput(current_thread, foreground_thread, True)
+            try: u.SetForegroundWindow(hwnd)
+            finally:
+                if attached: u.AttachThreadInput(current_thread, foreground_thread, False)
+            pump()
         assert u.GetForegroundWindow() == hwnd, "Cannot focus owned test fixture"
         return hwnd
 
@@ -149,7 +160,13 @@ def main():
             assert authenticated.wait(5), 'Native release did not authenticate to isolated bridge'
             evidence['native_authenticated'] = True
         evidence["startup_passive"] = u.GetForegroundWindow() == fixture_a
-        assert evidence["startup_passive"], "Startup stole focus"
+        if not evidence['startup_passive']:
+            foreground_pid = w.DWORD(); u.GetWindowThreadProcessId(u.GetForegroundWindow(), c.byref(foreground_pid))
+            evidence['startup_foreground_is_island'] = u.GetForegroundWindow() == hwnd
+            evidence['startup_foreground_pid'] = foreground_pid.value
+            evidence['test_pid'] = os.getpid()
+            evidence['island_pid'] = app.pid
+        assert evidence["startup_passive"], f"Startup changed focus: {evidence}"
 
         def region():
             handle = g.CreateRectRgn(0, 0, 0, 0)

@@ -60,7 +60,7 @@ const apps = new Apps(next => { config = next; applyConfig(); settings.refreshFa
 const settings = new Settings(panels, {
   config: () => config, status: () => nativeStatus, online: () => online, message,
   apps,
-  reload: async () => { config = await call<Config>('get_config'); applyConfig(); connect(); },
+  reload: async () => { config = await call<Config>('reload_config'); applyConfig(); connect(); },
   save: async next => {
     const previous = config.connection;
     config = await call<Config>('save_config', { next });
@@ -321,6 +321,7 @@ function connect() {
     }
   }, connected => {
     online = connected;
+    settings.connectionChanged();
     if (!connected) { manifests = []; snippet = ''; reminder = null; }
     updateLive();
     if (mode === 'expanded' && tab === 'plugins') renderPanel();

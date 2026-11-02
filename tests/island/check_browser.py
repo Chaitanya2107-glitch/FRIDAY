@@ -65,6 +65,7 @@ async def main():
                 window.desktop = {battery:{percent:74,charging:true,plugged_in:true},media:null};
                 window.mediaActions = [];
                 window.desktopReads = 0;
+                window.loginChanges = [];
                 window.catalog = [
                     {id:'app-'+ 'a'.repeat(32),name:'Calculator',source:'Windows Store',kind:'app',pinned:false},
                     {id:'app-'+ 'b'.repeat(32),name:'Duplicate',source:'Start Menu',kind:'app',pinned:false},
@@ -77,7 +78,10 @@ async def main():
                 window.__TAURI_INTERNALS__ = {
                     transformCallback(fn) { const id = ++next; callbacks.set(id, fn); return id; },
                     async invoke(cmd, args) {
-                        if (cmd === 'get_config') return structuredClone(window.fixture);
+                        if (cmd === 'get_config' || cmd === 'reload_config') return structuredClone(window.fixture);
+                        if (cmd === 'startup_status') return {phase:'external',error:'',owned_pid:null,attempts:0,isolated:false,login_enabled:window.fixture.startup.launch_at_login};
+                        if (cmd === 'set_login') { window.loginChanges.push(args.enabled); window.fixture.startup.launch_at_login=args.enabled; return structuredClone(window.fixture); }
+                        if (cmd === 'restart_bridge') return;
                         if (cmd === 'desktop_status') { window.desktopReads++; return structuredClone(window.desktop); }
                         if (cmd === 'media_control') {
                             if (args.source !== window.desktop.media.source) throw new Error('Player changed');
@@ -252,6 +256,15 @@ async def main():
                 assert len([t for t in store.snapshot()['tasks'] if t['title'] == 'Only once after navigation']) == 1
                 await page.screenshot(path='tasks/island-live-plugins.png')
                 await page.get_by_role("button", name="Settings", exact=True).last.click()
+                await page.get_by_role('button', name='Connection', exact=True).click()
+                login = page.get_by_role('checkbox', name='Launch Island at Windows sign-in', exact=True)
+                await expect(login).not_to_be_checked()
+                assert await page.evaluate('window.loginChanges') == [], 'Sign-in startup enabled without a click'
+                await login.check()
+                await expect(login).to_be_checked()
+                await login.uncheck()
+                await expect(login).not_to_be_checked()
+                assert await page.evaluate('window.loginChanges') == [True, False]
                 await page.get_by_role("button", name="Pinned apps", exact=True).click()
                 await page.get_by_role("button", name="Add app", exact=True).click()
                 await expect(page.get_by_role("textbox", name="New app display name")).to_be_visible()

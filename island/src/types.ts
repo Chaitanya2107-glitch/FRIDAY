@@ -12,7 +12,9 @@ export interface Config {
   hotkeys: { sneak: string; expand: string };
   appearance: { glow: string; idle_mode: 'always' | 'auto-hide' | 'hover'; idle_seconds: number; snippet: boolean };
   connection: { port: number; token: string };
+  startup?: { manage_bridge: boolean; backend_root: string; launch_at_login: boolean };
 }
+export interface StartupStatus { phase: string; error: string; owned_pid: number | null; attempts: number; isolated: boolean; login_enabled: boolean }
 export interface Suggestion { text: string; detail?: string; app?: AppMatch; rescan?: boolean }
 export interface CommandResult { text: string; ok: boolean; action?: { kind: 'settings' | 'pin' | 'project' | 'app' | 'app_search'; id?: string; query?: string } }
 export interface Manifest { id: string; name: string; version: number; commands: string[]; widget: boolean }

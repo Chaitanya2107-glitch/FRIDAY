@@ -1,6 +1,7 @@
 import { call, native } from './native';
 import { element as el } from './state';
 import { icon } from './icons';
+import { startupSettings } from './startup-settings';
 import type { Config, NativeStatus, OpenAction, Pin, Project } from './types';
 import type { Apps } from './apps';
 
@@ -100,8 +101,9 @@ export class Settings {
     } else {
       const port = input(String(config.connection.port), 'number'); port.min = '1024'; port.max = '65535';
       port.onchange = () => void this.change(c => { c.connection.port = Number(port.value); });
-      this.root.append(el('div', 'connection-label', this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline'), field('Backend port', port, '127.0.0.1 only. Restart the Python bridge after changing this.'));
+      this.root.append(el('div', 'connection-label', this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline'), field('Backend port', port, '127.0.0.1 only. An owned bridge restarts when this changes.'));
       this.root.append(el('p', 'muted', native ? 'Apps, projects and settings work without the backend. Config lives in %APPDATA%\\FRIDAY\\island\\config.json.' : 'Browser preview. Launch with npm run tauri dev for desktop controls.'));
+      this.root.append(startupSettings(config, next => this.persist(next), async () => { await this.host.reload(); this.render(); }, this.host.message));
       this.root.append(el('p', 'muted', 'Transparent window · glass is drawn only on the island.'));
       this.root.append(textButton('Reload config', async () => { await this.host.reload(); this.host.message('Config reloaded'); this.render(); }, 'back'));
       this.root.append(textButton('Quit Island', () => call('quit'), 'power'));
@@ -112,6 +114,12 @@ export class Settings {
     if (this.section === 'apps' && this.favourites?.isConnected) {
       this.favourites.replaceChildren(); this.renderList('pins', this.favourites);
     }
+  }
+
+  connectionChanged() {
+    if (this.section !== 'connection') return;
+    const label = this.root.querySelector('.connection-label');
+    if (label) label.textContent = this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline';
   }
   private renderList(kind: 'pins' | 'projects', target = this.root) {
     const config = this.host.config();

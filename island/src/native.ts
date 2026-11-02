@@ -15,4 +15,5 @@ export const previewConfig = (): Config => ({
   hotkeys: { sneak: 'Ctrl+Shift+Alt+Space', expand: 'Ctrl+Shift+Alt+F' },
   appearance: { glow: '#FFB347', idle_mode: 'always', idle_seconds: 30, snippet: true },
   connection: { port: 17321, token: '' },
+  startup: { manage_bridge: true, backend_root: '', launch_at_login: false },
 });

@@ -1,7 +1,7 @@
 # FRIDAY Island
 
 A quiet, original amber companion for Windows 10/11. Tauri 2 + plain TypeScript,
-Vite and token-based CSS; an optional Python WebSocket bridge supplies FRIDAY's
+Vite and token-based CSS; a managed Python WebSocket bridge supplies FRIDAY's
 commands and plugins. Existing FRIDAY startup and desktop interfaces are untouched.
 
 ## Setup and run
@@ -11,14 +11,13 @@ Rust with MSVC build tools/Windows SDK, and Microsoft Edge WebView2 Runtime.
 [Tauri's Windows prerequisites](https://v2.tauri.app/start/prerequisites/) describe
 the Rust/Visual Studio setup. On this laptop the required tooling is installed.
 
-From the repository root, start the bridge in one PowerShell terminal:
+From the repository root, install the Python bridge dependencies once:
 
 ```powershell
 venv/Scripts/python.exe -m pip install -r services/friday_island_server/requirements.txt
-venv/Scripts/python.exe -m services.friday_island_server --verbose
 ```
 
-Then start the island in another:
+Then start the island. It starts/reuses the local bridge automatically:
 
 ```powershell
 cd island
@@ -38,12 +37,53 @@ controls disabled.
 in Settings → Hotkeys. Hover, open Settings, and choose an unused shortcut such
 as `Ctrl+Shift+Alt+I`. It never unregisters another app's hotkeys.
 
-Normal FRIDAY startup is unchanged. The bridge is opt-in and can run alongside
+Normal FRIDAY startup is unchanged. The bridge can run alongside
 `python main.py`; it does not start FRIDAY's voice, tray, watchers or API loops.
 The `next` adapter reads FRIDAY's actual timetable directly, without requiring
 the main API process. Natural-language replies use FRIDAY's existing **tool-free**
 language handler and configured AI provider; they can use that provider's normal
 network behavior. The island UI itself connects only to `127.0.0.1`.
+
+## Startup and recovery
+
+Settings → Connection controls **Start and recover the bridge** (on by default)
+and **Launch Island at Windows sign-in** (off by default). The latter is an explicit
+per-user Windows Run entry for this executable with `--background`; it does not
+require administrator rights. A repeated background launch never expands or focuses
+an already-running island. Turning the toggle off removes only Island's entry.
+Enable sign-in startup from the standalone release app. Development builds require
+Vite and reject registration so they cannot leave a broken sign-in launch.
+
+The supervisor finds FRIDAY beside the executable or at the development repo,
+using `venv/Scripts/python.exe` and the fixed island-server module. If the app was
+moved, choose the FRIDAY folder in Connection. No Python is resolved through PATH,
+and no free-text command is executed. The same config path is passed to Python.
+Owned bridge logs are `bridge.log` and `bridge-error.log` next to `config.json`.
+Configuration tokens are not passed on the command line.
+
+If a listener already occupies the port, Island reuses it without starting or
+stopping that process; the normal token handshake decides whether it is FRIDAY.
+Connection status distinguishes this from an Island-managed child. Crashed owned
+children restart with a 2–30 second backoff. An owned child that never listens is
+retried after 30 seconds. Restart managed bridge affects only Island's child.
+Changing the backend folder, port or token restarts an owned bridge. Quitting or
+crashing Island closes its Windows Job Object, stopping that child and descendants.
+Externally started bridges remain running. Turning management off stops an owned
+child but keeps local clock/media/app/project features available.
+
+Custom `FRIDAY_ISLAND_CONFIG` runs suppress bridge management and sign-in writes by
+default, keeping test runs isolated. Set `FRIDAY_ISLAND_MANAGE_BRIDGE=1` to explicitly
+test supervision with a custom config (`0` disables it for a normal run too).
+Sign-in writes always remain unavailable for isolated-config runs.
+
+These use Windows' [per-user Run entry](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys)
+and [Job Object cleanup](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+
+The bridge can still be started manually for development:
+
+```powershell
+venv/Scripts/python.exe -m services.friday_island_server --verbose
+```
 
 ## Everyday use
 
@@ -207,6 +247,9 @@ private: do not publish this file or its corruption backups.
 | `appearance.idle_mode` | `always`, `auto-hide`, or `hover` |
 | `appearance.idle_seconds` | `30`; range 5–3600 |
 | `appearance.snippet` | `true`; enable expiring near-class reminders in the date slot |
+| `startup.manage_bridge` | `true`; start/recover an owned bridge or reuse an existing server |
+| `startup.backend_root` | Empty means automatic detection; otherwise absolute FRIDAY folder |
+| `startup.launch_at_login` | `false`; intent persisted by the explicit Windows sign-in control |
 | `connection.port` | `17321`; range 1024–65535 |
 | `connection.token` | 64 lowercase hex characters, generated on first run |
 
@@ -240,8 +283,8 @@ npm run tauri build -- --no-bundle
 ```
 
 The executable is `island/src-tauri/target/release/friday-island.exe`.
-It embeds the frontend and needs no Vite server. Installer packaging and
-autostart integration are outside v1. No auto-update or telemetry is installed.
+It embeds the frontend and needs no Vite server. Installer packaging remains
+outside v1. No auto-update or telemetry is installed.
 
 From the repository root:
 
@@ -307,6 +350,18 @@ database and native WebView2, with no owner records changed:
 ```powershell
 venv/Scripts/python.exe -B tests/island/check_plugins_native.py
 ```
+
+The startup/recovery check launches only a temporary fake bridge and leaves the
+real sign-in registry entry and owner database unchanged (close the normal Island
+first):
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_startup_native.py
+```
+
+It verifies crash recovery, explicit restart, config reload, missing-folder
+recovery, existing-server reuse, passive duplicate background launches, and that
+both descendants and the listening port disappear when the island is killed.
 
 See [validation evidence](docs/VALIDATION.md) for measured checks and remaining
 manual coverage, and [the protocol](docs/PROTOCOL.md) for connection details.

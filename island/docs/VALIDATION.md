@@ -1,5 +1,66 @@
 # FRIDAY Island v1 validation
 
+## Automatic startup and bridge recovery — 2026-11-02
+
+The island now starts its fixed Python bridge when needed, reuses an occupied
+port without stopping its owner, and restarts an exited owned child with bounded
+backoff. Only the authenticated frontend connection is reported as FRIDAY online.
+The separate Windows sign-in option remains opt-in. This supersedes earlier
+instructions requiring a manually started bridge and the earlier autostart exclusion.
+
+Focused checks:
+
+- **Rust: 10 passed, 1 opt-in discovery test ignored.** Includes startup argument
+  quoting, invalid backend-folder handling and capped retry delay; existing config,
+  app-launch boundary, hotkey and battery/media tests also passed.
+- **Python: 19 passed.** New startup preferences survive shared-config roundtrips,
+  default sign-in is off, and invalid backend paths are rejected.
+- **Frontend: 8 passed.** Existing state/connection/widget checks remain green.
+  Chromium integration also exercised Settings → Connection: no sign-in mutation
+  before a click, explicit enable/disable calls, and the existing tracker/media flows.
+- **Native lifecycle fixture passed.** It uses a temporary Python venv launcher
+  and fake local bridge, never the owner's database. It verifies auto-start,
+  crash recovery, explicit restart, hand-edited-port reload, recovery from a missing
+  backend folder, disable stopping only owned processes, reuse of an external
+  server, passive duplicate `--background` launches, and hard-exit cleanup.
+  Cleanup checks both captured descendants and the released listening port.
+- The real `FRIDAYIsland` sign-in registry value remained byte-for-byte unchanged
+  through the fixture. Isolated-config registration is rejected. Registration from
+  a debug build is also rejected, since it would require Vite at sign-in.
+- **Native focus regression passed at 120 DPI / 125%.** Startup and hover remain
+  passive, explicit input focus and Esc restoration work, and the four states
+  retain their compact regions. The lifecycle fixture also checks actual owned
+  Python startup preserves the foreground app. The test harness handles Windows'
+  initial foreground lock only when activating its own fixture windows.
+- The extra compositor-pixel regression was attempted, but its owned browser
+  fixture could not be made visible on the physical desktop **before Island was
+  launched**. No new compositor/pixel-pass claim is made for this build. Native
+  rounded-region/click-area checks passed; physical pixel verification remains
+  manual. The window's transparency and geometry code were unchanged in this step.
+
+The exact release/source hashes are recorded in
+[startup-validation.json](startup-validation.json); native source capture and the
+lifecycle fixture's results live under ignored `tasks/island-native-release` and
+`tasks/island-startup-native`. The native supervisor milestone is `b378c52`.
+
+Python starts suspended, enters its Windows Job Object, and only then resumes.
+This prevents the venv launcher creating an unowned Python child before job
+assignment. The job terminates owned descendants even if Island itself is killed.
+No external FRIDAY server is attached to that job or stopped by a restart request.
+The implementation uses the existing Windows crates, without adding a new package.
+
+Run `tests/island/check_startup_native.py` with the normal Island closed. The
+fixture enables supervision explicitly via `FRIDAY_ISLAND_MANAGE_BRIDGE=1`; other
+isolated-config native checks continue to suppress automatic Python startup.
+Detailed fixture evidence is under ignored `tasks/island-startup-native/`.
+
+Try manually: close/reopen the standalone island and check Connection status;
+use Restart managed bridge when it owns the server. To opt into actual Windows
+sign-in launch, enable the toggle from the standalone release, then sign out/in
+when convenient. Actual sign-out/in, Windows Startup Apps overrides, separate
+Windows 10 hardware, and deliberately hanging a still-running Python process
+remain manual coverage; recovery tests cover exited processes and startup deadlines.
+
 ## Live todos, habits and timed class reminders — 2026-10-31
 
 The tracker placeholders have been replaced with adapters for FRIDAY's shared

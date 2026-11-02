@@ -1,5 +1,20 @@
 # FRIDAY Island v1 validation
 
+## Idle-mode distinction — 2026-11-02
+
+Auto-hide and hover-only previously shared a boolean dismissal rule, so both hid
+immediately on leaving Peek or closing a panel. They now use the full idle-mode
+setting. Auto-hide returns to Rest and waits for the idle delay; hover-only starts
+hidden and hides on dismissal. Both can reveal at the top edge. Switching to Always
+visible restores Rest, and auto-hide waits while the pointer is over the capsule.
+The delay control is enabled only for auto-hide.
+
+Nine frontend tests passed, including the three-mode transition matrix. The real
+Chromium/isolated-bridge test also passed pointer leave, delayed auto-hide, top-edge
+reveal, immediate hover-only dismissal and the disabled delay control. Existing
+commands, tracker widgets, media and offline/reconnect checks remained green.
+Behavior source is in `94e61f3`; the test selector correction follows separately.
+
 ## Automatic startup and bridge recovery — 2026-11-02
 
 The island now starts its fixed Python bridge when needed, reuses an occupied

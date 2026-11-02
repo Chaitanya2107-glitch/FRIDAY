@@ -87,6 +87,12 @@ venv/Scripts/python.exe -m services.friday_island_server --verbose
 
 ## Everyday use
 
+Idle modes differ deliberately: **Always visible** keeps the resting capsule;
+**Auto-hide when idle** returns to the capsule after use and hides it only after
+the configured delay; **Hidden until top-edge hover** starts hidden and hides
+again on leaving or closing. Both hidden modes can be revealed at the top edge.
+Auto-hide waits while the pointer is over the island.
+
 - **Rest:** a centered amber orb, local **12-hour time** and weekday on the left,
   date and battery percentage on the right. Charging has an amber indicator.
   Hover the top row to reveal Peek; the song strip stays put when approached

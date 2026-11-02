@@ -75,11 +75,12 @@ export class Settings {
       const idle = select(config.appearance.idle_mode, [['always', 'Always visible'], ['auto-hide', 'Auto-hide when idle'], ['hover', 'Hidden until top-edge hover']]);
       idle.onchange = () => void this.change(c => { c.appearance.idle_mode = idle.value as Config['appearance']['idle_mode']; });
       const seconds = input(String(config.appearance.idle_seconds), 'number'); seconds.min = '5'; seconds.max = '3600';
+      seconds.disabled = config.appearance.idle_mode !== 'auto-hide';
       seconds.onchange = () => void this.change(c => { c.appearance.idle_seconds = Number(seconds.value); });
       const snippet = input('', 'checkbox'); snippet.checked = config.appearance.snippet;
       snippet.onchange = () => void this.change(c => { c.appearance.snippet = snippet.checked; });
       const sample = el('div', 'theme-sample'); sample.append(el('span', 'sample-dot'), el('div', '', 'A little light. A little space.'));
-      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Idle delay (seconds)', seconds), field('Near-class reminders', snippet));
+      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Auto-hide delay (seconds)', seconds), field('Near-class reminders', snippet));
       this.root.append(el('p', 'muted', this.host.status().reduce_motion ? 'Windows reduced motion is on.' : 'Animations follow Windows motion preferences.'));
     } else if (this.section === 'apps') {
       this.root.append(el('p', 'muted', 'Your first eight visible apps appear in Peek. Drag to reorder.'));

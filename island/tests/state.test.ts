@@ -11,17 +11,29 @@ test('four states and repeat-expand cycle', () => {
   assert.equal(transition('peek', 'projects'), 'expanded');
   for (const mode of ['rest', 'peek', 'expanded', 'hidden', 'sneak'] as const) {
     assert.equal(transition(mode, 'escape'), 'rest');
-    assert.equal(transition(mode, 'escape', true), 'hidden');
+    assert.equal(transition(mode, 'escape', 'hover'), 'hidden');
     if (mode !== 'sneak') assert.equal(transition(mode, 'sneak'), 'sneak');
   }
   assert.equal(transition('sneak', 'sneak'), 'rest');
-  assert.equal(transition('expanded', 'expand', true), 'hidden');
+  assert.equal(transition('expanded', 'expand', 'hover'), 'hidden');
 });
 test('hover and idle never open a keyboard state', () => {
-  assert.equal(transition('hidden', 'hover', true), 'peek');
-  assert.equal(transition('rest', 'idle', true), 'hidden');
-  assert.equal(transition('expanded', 'idle', true), 'expanded');
-  assert.equal(transition('sneak', 'leave', true), 'sneak');
+  assert.equal(transition('hidden', 'hover', 'hover'), 'peek');
+  assert.equal(transition('rest', 'idle', 'auto-hide'), 'hidden');
+  assert.equal(transition('expanded', 'idle', 'auto-hide'), 'expanded');
+  assert.equal(transition('sneak', 'leave', 'hover'), 'sneak');
+});
+
+test('auto-hide waits for inactivity after dismissal; hover mode hides immediately', () => {
+  for (const setting of ['always', 'auto-hide', 'hover'] as const) {
+    const dismissed = setting === 'hover' ? 'hidden' : 'rest';
+    assert.equal(transition('peek', 'leave', setting), dismissed);
+    assert.equal(transition('expanded', 'escape', setting), dismissed);
+    assert.equal(transition('sneak', 'sneak', setting), dismissed);
+    assert.equal(transition('expanded', 'expand', setting), dismissed);
+    assert.equal(transition('rest', 'idle', setting), setting === 'auto-hide' ? 'hidden' : 'rest');
+    assert.equal(transition('hidden', 'hover', setting), 'peek');
+  }
 });
 test('offline suggestions include visible configured entries only', () => {
   const config = { pins: [{ name: 'Editor', visible: true }, { name: 'Secret', visible: false }], projects: [{ name: 'FRIDAY' }] };

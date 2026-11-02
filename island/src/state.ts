@@ -1,4 +1,4 @@
-import type { Mode, PillSnippet } from './types.ts';
+import type { Config, Mode, PillSnippet } from './types.ts';
 
 export function readReminder(value: unknown, now = Date.now()): PillSnippet | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -11,14 +11,15 @@ export function readReminder(value: unknown, now = Date.now()): PillSnippet | nu
 }
 
 export type Event = 'hover' | 'leave' | 'expand' | 'sneak' | 'escape' | 'idle' | 'projects' | 'settings';
-export function transition(mode: Mode, event: Event, hide = false): Mode {
+export function transition(mode: Mode, event: Event, idleMode: Config['appearance']['idle_mode'] = 'always'): Mode {
+  const hide = idleMode === 'hover';
   if (event === 'sneak') return mode === 'sneak' ? (hide ? 'hidden' : 'rest') : 'sneak';
   if (event === 'escape') return hide ? 'hidden' : 'rest';
   if (event === 'projects' || event === 'settings') return 'expanded';
   if (event === 'expand') return mode === 'peek' ? 'expanded' : mode === 'expanded' ? (hide ? 'hidden' : 'rest') : 'peek';
   if (event === 'hover' && (mode === 'rest' || mode === 'hidden')) return 'peek';
   if (event === 'leave' && mode === 'peek') return hide ? 'hidden' : 'rest';
-  if (event === 'idle' && mode === 'rest' && hide) return 'hidden';
+  if (event === 'idle' && mode === 'rest' && idleMode === 'auto-hide') return 'hidden';
   return mode;
 }
 

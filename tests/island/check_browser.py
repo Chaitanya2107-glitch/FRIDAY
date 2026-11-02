@@ -362,6 +362,28 @@ async def main():
                 assert await page.locator(".character > svg").evaluate("node => getComputedStyle(node).animationName") == "none"
                 assert not errors, errors
                 assert await page.evaluate("window.launches.length") == 2
+                await page.get_by_role('button', name='Look', exact=True).click()
+                await page.get_by_label('When idle', exact=True).select_option('auto-hide')
+                delay = page.get_by_label('Auto-hide delay (seconds)', exact=True)
+                await delay.fill('5'); await delay.press('Tab')
+                await page.keyboard.press('Escape')
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await page.locator('.island-row').hover(); await page.mouse.move(0, 450)
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                current_time = await page.evaluate('Date.now()')
+                await page.clock.set_fixed_time(current_time + 6000)
+                await expect(surface).to_have_attribute('data-mode', 'hidden', timeout=6500)
+                await page.evaluate("window.__emit('pointer',{x:360,y:0,reveal:true})")
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.get_by_role('button', name='Settings', exact=True).first.click()
+                await page.get_by_label('When idle', exact=True).select_option('hover')
+                await expect(page.get_by_label('Auto-hide delay (seconds)', exact=True)).to_be_disabled()
+                await page.keyboard.press('Escape')
+                await expect(surface).to_have_attribute('data-mode', 'hidden')
+                await page.evaluate("window.__emit('pointer',{x:360,y:0,reveal:true})")
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.locator('.island-row').hover(); await page.mouse.move(0, 450)
+                await expect(surface).to_have_attribute('data-mode', 'hidden', timeout=1500)
                 await browser.close()
                 print("PASS: centered capsule, 12h midnight/noon + date rollover, battery, media + literal metadata + passive controls; real bridge/Chromium, four states, app search/pins/reorder, offline/reconnect, reduced motion")
 

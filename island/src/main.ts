@@ -50,6 +50,7 @@ let completed: Suggestion | undefined;
 let busy = false;
 let active = false;
 let lastActivity = Date.now();
+let appliedIdleMode: Config['appearance']['idle_mode'] | undefined;
 let leaveTimer: ReturnType<typeof setTimeout>;
 let suggestionTimer: ReturnType<typeof setTimeout>;
 let feedbackTimer: ReturnType<typeof setTimeout>;
@@ -134,13 +135,14 @@ async function setMode(next: Mode, activate = false) {
   catch (error) { message(String(error), true); }
 }
 function dispatch(event: Parameters<typeof transition>[1], activate = false) {
-  return setMode(transition(mode, event, config.appearance.idle_mode !== 'always'), activate);
+  return setMode(transition(mode, event, config.appearance.idle_mode), activate);
 }
 async function openTab(next: Tab) { tab = next; await setMode('expanded', active); }
-surface.onpointerenter = () => clearTimeout(leaveTimer);
+surface.onpointerenter = () => { lastActivity = Date.now(); clearTimeout(leaveTimer); };
 // Entering the song strip keeps its controls stationary and immediately clickable.
 row.onpointerenter = () => { if (mode === 'rest') void dispatch('hover'); };
 surface.onpointerleave = () => {
+  lastActivity = Date.now();
   if (mode === 'peek' && !active && !command.value) leaveTimer = setTimeout(() => void dispatch('leave'), 400);
 };
 surface.addEventListener('pointerdown', event => {
@@ -158,7 +160,13 @@ function applyConfig() {
   document.documentElement.style.setProperty('--orb-edge', `color-mix(in srgb, ${config.appearance.glow}, #b65018 45%)`);
   root.classList.toggle('character-only', !config.appearance.snippet);
   renderPins(); updateLive();
-  if (config.appearance.idle_mode === 'hover' && mode === 'rest') void setMode('hidden');
+  if (appliedIdleMode !== config.appearance.idle_mode) {
+    appliedIdleMode = config.appearance.idle_mode;
+    if (mode === 'rest' || mode === 'hidden') {
+      const next = appliedIdleMode === 'hover' ? 'hidden' : 'rest';
+      if (next !== mode) void setMode(next);
+    }
+  }
 }
 function updateLive() {
   capsule.setReminder(online && config.appearance.snippet ? reminder : null);
@@ -349,7 +357,7 @@ async function boot() {
     orb.style.setProperty('--eye-y', `${Math.max(-2, Math.min(2, (point.y - bounds.y - bounds.height / 2) / 90))}px`);
   });
   setInterval(() => {
-    if (config.appearance.idle_mode !== 'always' && !active && !command.value && mode === 'rest' && Date.now() - lastActivity > config.appearance.idle_seconds * 1000) void dispatch('idle');
+    if (config.appearance.idle_mode === 'auto-hide' && !active && !command.value && !surface.matches(':hover') && mode === 'rest' && Date.now() - lastActivity > config.appearance.idle_seconds * 1000) void dispatch('idle');
     mood();
   }, 5000);
   syncRegions();

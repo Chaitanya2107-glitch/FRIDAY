@@ -25,18 +25,23 @@ def enrich(row, day, subjects):
             'join_link': safe_link(college.link_for(row['subject']))}
 
 
-def overview(now=None):
+def class_status(now=None):
     now = now or datetime.now()
     subjects = catalogs._subject_rows()
     today = timetable.classes_for_date(now.date())
     current = next((r for r in today if r['start'] <= now.strftime('%H:%M') < r['end']), None)
     following = timetable.next_class_occurrence(now) if timetable.load() else None
-    rows = work.snapshot()['items']
-    active = [r for r in rows if not r['done']]
     return {'now': now.isoformat(timespec='seconds'),
             'current_class': enrich(current, now.date().isoformat(), subjects),
             'next_class': enrich(following, following['date'], subjects) if following else None,
-            'today': [enrich(r, now.date().isoformat(), subjects) for r in today],
+            'today': [enrich(r, now.date().isoformat(), subjects) for r in today]}
+
+
+def overview(now=None):
+    now = now or datetime.now()
+    rows = work.snapshot()['items']
+    active = [r for r in rows if not r['done']]
+    return {**class_status(now),
             'cancellations': [f.context() for f in schedule.facts() if not f.available],
             'due_soon': [r for r in active if datetime.fromisoformat(r['due']) <= now + timedelta(days=7)],
             'exams': [r for r in active if work.is_exam(r) and datetime.fromisoformat(r['due']) >= now][:20],

@@ -1,5 +1,6 @@
-import type { Config, CommandResult, PluginAction, Suggestion, Widget } from './types';
+import type { Config, CommandResult, ExecutionTarget, PluginAction, Suggestion, Widget } from './types';
 import { readWidget } from './widgets.ts';
+import { readReply } from './conversation.ts';
 
 interface Frame { v: number; type: string; id?: string; [key: string]: unknown }
 export class Connection {
@@ -74,7 +75,7 @@ export class Connection {
       this.ws!.send(JSON.stringify({ v: 1, type, id, ...data }));
     });
   }
-  async command(text: string) { return await this.request('command', { text }) as unknown as CommandResult; }
+  async command(text: string, target?: ExecutionTarget) { return readReply(await this.request('command', { text, ...(target ? { target } : {}) }, 125000)); }
   async suggestions(text: string): Promise<Suggestion[]> {
     const frame = await this.request('suggestions', { text }, 3000);
     if (!Array.isArray(frame.items)) return [];

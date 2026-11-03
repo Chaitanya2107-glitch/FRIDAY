@@ -1,0 +1,20 @@
+.friday-panel { display: grid; gap: 12px; padding: 4px; }
+.friday-status { margin: 0; font-size: 16px; font-weight: 600; color: var(--accent); }
+.friday-panel p { margin: 0; }
+.friday-controls, .friday-features { display: flex; flex-wrap: wrap; gap: 7px; }
+.friday-controls button, .friday-features button { font-size: 12px; padding: 6px 9px; margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.friday-controls select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.friday-controls [aria-pressed='true'] { color: var(--accent); outline: 1px solid var(--accent); }
+.friday-transcript { display: grid; gap: 10px; max-height: 230px; overflow: auto; user-select: text; }
+.friday-turn { padding: 10px 12px; border-radius: 12px; background: #ffffff08; overflow-wrap: anywhere; }
+.friday-turn.user { background: #ffb34710; margin-left: 24px; }
+.friday-turn strong { display: block; font-size: 11px; color: var(--accent); margin-bottom: 4px; }
+.friday-turn p, .friday-notice p { white-space: pre-wrap; line-height: 1.45; }
+.friday-turn.private { border: 1px solid #ffb34760; }
+.friday-pending { font-size: 12px; color: var(--accent); }
+.friday-notices { display: grid; gap: 8px; max-height: 120px; overflow: auto; }
+.friday-automation { white-space: pre-wrap; max-height: 160px; overflow: auto; font-size: 12px; }
+.friday-notice { padding: 10px; border: 1px solid #ffb34740; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+.friday-notice strong, .friday-notice p { flex-basis: 100%; }
+.surface[data-mood='thinking'] .character { filter: drop-shadow(0 0 8px #ffb347); }
+.surface[data-mood='speaking'] .character { filter: drop-shadow(0 0 12px #8ae8cf); }

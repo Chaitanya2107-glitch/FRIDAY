@@ -189,6 +189,9 @@ def show_toast(title: str, body: str, buttons: list[tuple[str, str]] | None = No
     recorded = f"{title}\n{body}" if cognition_text is None else cognition_text
     with cognition.operation("notification", "desktop", recorded, public=cognition_public) as event:
         accepted = _show_toast(title, body, buttons, transient, mirror_telegram=mirror_telegram)
+        if accepted and cognition_text is None and not transient:
+            from services.friday_island_server.events import publish
+            publish('notification', body, title=title, buttons=buttons)
         event.finish("submitted" if accepted else "failed")
         return accepted
 

@@ -164,7 +164,7 @@ async def chat(request: ChatRequest):
         cancel_pending_confirmation()
         reply = await computer_agent.handle(request.message, provider_name)
         return ChatResponse(response=reply.message, provider=reply.provider or provider_name, model="computer_agent",
-                            tokens_used=reply.tokens_used, action_success=reply.success, awaiting_reply=reply.awaiting_reply)
+                            tokens_used=reply.tokens_used, action_success=reply.success, awaiting_reply=reply.awaiting_reply, private=True)
     # Switching to another command cancels any old desktop proposal. A later yes
     # cannot apply to something the user is no longer reviewing.
     if not remote_request.get() and computer_agent.session is not None:

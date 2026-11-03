@@ -7,8 +7,9 @@ use std::{
 
 pub struct BridgeProcess {
     pub child: Child,
+    pub desktop: bool,
     #[cfg(windows)]
-    _job: Job,
+    _job: Option<Job>,
 }
 impl BridgeProcess {
     pub fn spawn(root: &Path, config: &Path) -> Result<Self, String> {
@@ -29,33 +30,48 @@ impl BridgeProcess {
             "venv/bin/python"
         });
         let mut command = Command::new(python);
+        // The production entry starts FRIDAY's existing lifecycle owner. User
+        // applications launched by FRIDAY must never enter a kill-on-close job.
+        let desktop = std::env::var_os("FRIDAY_ISLAND_CONFIG").is_none()
+            && root.join("interfaces/taskbar/launch.py").is_file();
         command
             .current_dir(root)
-            .args(["-B", "-m", "services.friday_island_server", "--config"])
-            .arg(config)
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err);
+        if desktop {
+            command
+                .arg("-B")
+                .arg(root.join("interfaces/taskbar/launch.py"))
+                .arg(format!("--island-owner={}", std::process::id()));
+        } else {
+            command
+                .args(["-B", "-m", "services.friday_island_server", "--config"])
+                .arg(config);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             // Start suspended: the venv launcher must enter the job before it
             // can create the real Python process, otherwise that child escapes.
-            command.creation_flags(0x08000000 | 0x00000004);
+            command.creation_flags(0x08000000 | if desktop { 0 } else { 0x00000004 });
         }
         #[cfg(windows)]
-        let job = Job::new()?;
+        let job = if desktop { None } else { Some(Job::new()?) };
         let mut child = command
             .spawn()
             .map_err(|e| format!("Could not start FRIDAY's Python: {e}"))?;
         #[cfg(windows)]
-        if let Err(error) = job.assign(&child).and_then(|_| resume(&child)) {
+        if let Err(error) = job.as_ref().map_or(Ok(()), |job| {
+            job.assign(&child).and_then(|_| resume(&child))
+        }) {
             let _ = child.kill();
             let _ = child.wait();
             return Err(error);
         }
         Ok(Self {
             child,
+            desktop,
             #[cfg(windows)]
             _job: job,
         })
@@ -105,6 +121,9 @@ fn resume(child: &Child) -> Result<(), String> {
 }
 impl Drop for BridgeProcess {
     fn drop(&mut self) {
+        if self.desktop {
+            return; // Desktop observes its Island owner's exit and shuts down gracefully.
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

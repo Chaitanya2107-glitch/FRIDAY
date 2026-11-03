@@ -1,6 +1,19 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { localSuggestions, readReminder, transition } from '../src/state.ts';
+import { localSuggestions, readReminder, sneakMode, transition } from '../src/state.ts';
+
+test('persistent Sneak permits only the command bar and hidden states', () => {
+  for (const next of ['rest', 'peek', 'expanded', 'hidden', 'sneak'] as const) {
+    assert.equal(sneakMode(next, false, true, 'hidden'), next);
+    for (const active of [false, true]) {
+      assert.ok(['hidden', 'sneak'].includes(sneakMode(next, true, active, 'hidden')));
+    }
+  }
+  assert.equal(sneakMode('peek', true, false, 'hidden'), 'hidden');
+  assert.equal(sneakMode('expanded', true, false, 'hidden'), 'hidden');
+  assert.equal(sneakMode('peek', true, true, 'hidden'), 'sneak');
+  assert.equal(sneakMode('rest', true, false, 'sneak'), 'hidden');
+});
 
 test('four states and repeat-expand cycle', () => {
   assert.equal(transition('rest', 'hover'), 'peek');

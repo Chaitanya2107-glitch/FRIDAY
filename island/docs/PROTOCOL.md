@@ -1,5 +1,53 @@
 # FRIDAY Island protocol v1
 
+## Integrated FRIDAY runtime (additive v1 extension)
+
+Production transport lives in the full API lifespan. `status.integrated:true`
+identifies that runtime; `/health.island` separately reports listener readiness.
+The isolated compatibility bridge keeps `integrated:false` and its narrow engine.
+
+| Type | Request | Result |
+| --- | --- | --- |
+| `command` | `text`, optional native `target:{hwnd,pid,captured_at}` | Canonical FRIDAY reply and privacy/confirmation/job metadata |
+| `runtime_state` | Server event, about once per second | Backend epoch, body/voice state, desktop lease, mode/screen state, automation status, bounded identified events |
+| `runtime_action` | Fixed `action`, optional bounded `value` | Requested control/result; actual state comes from subsequent snapshots |
+| `history` | No extra fields | Up to 20 bounded canonical history entries |
+| `keyboard_apply` | Backend-issued one-use token in `item` | Original foreground process/window is checked before backend-generated steps run |
+| `projects` | Optional `action:"import"` | Revision-aware shared catalog and native launch-profile references |
+
+`command_result` preserves `private`, `awaiting_reply`, `action_success`,
+`automation_job`, provider/model and an optional `keyboard_token`. It never sends
+raw typing steps to the webview. `awaiting_reply` can mean a date or ordinary
+question, so the UI does not invent generic approval buttons. Existing `next`,
+habit and todo plugin shortcuts retain their meanings; pending system
+confirmations take precedence. Other assistant text uses the decorated canonical
+chat flow under explicit local authority, without Telegram confirmation bypass.
+
+Long commands run separately from the receive loop. Stop controls remain
+receivable and no command is automatically retried after disconnect or timeout.
+Token rotation is checked before live pushes as well as incoming requests.
+
+The sole desktop controller polls `/api/v1/island/desktop` using the shared token
+in a header, loopback-only middleware and an ownership lease. Commands are claimed
+once, then acknowledged by identifier after dispatch. Typed turns wait for the
+controller acknowledgement before chat begins; microphone cancellation and the
+existing conversation state machine therefore precede the assistant action.
+The Island never consumes the proactive-question queue. Notification display
+events preserve Windows delivery receipts and do not claim the owner read them.
+
+Nonprivate desktop replies include `transient:true` for short voice-command
+acknowledgements. These display in the capsule and stay out of its conversation
+history. Reminder `notification` events retain their titles and validated
+`friday://` action buttons. Capsule acknowledgement dismisses only the display;
+it never approves a pending action or changes reminder-delivery receipts.
+
+Private turn content is never appended to Island history or localStorage and
+clears on close, tab change and disconnect. Session events are bounded and
+identified by backend epoch plus sequence; old events are not invitations to
+restart listening. Native Start FRIDAY and All controls remain available while
+the backend is offline. The trusted screen-awareness badge keeps its existing
+native visibility and heartbeat requirements.
+
 ## Live tracker widgets (additive v1 extension)
 
 `plugin_widget.widget` may include `items` (up to six displayed rows), each with
@@ -102,9 +150,10 @@ Pins are favourites, not a launch whitelist. Unpinning/hiding an indexed app
 does not remove it from search. Successful launches update native recent history
 in the shared config. See [native catalog details](APPS.md).
 
-Unrecognized text goes to FRIDAY's tool-free language handler. The main `/chat`
-automation router is not used: it has broader desktop authority. Conversation
-may use FRIDAY's configured provider; conversational text cannot become a launch.
+In the isolated compatibility bridge, unrecognized text goes to the tool-free
+language handler. Production assistant requests use FRIDAY's full local command
+authority and existing confirmations as described above. Native app suggestions
+and selected catalog IDs still use the validated Rust launch path.
 
 ## Errors, lifecycle, reconnection
 
@@ -124,7 +173,8 @@ and resets after authentication. Offline mode changes the character's mood and
 keeps installed-app search, manual pin/project commands and settings available through Rust.
 Pill data updates on connect and every 60 seconds; plugin failures are contained.
 
-Changing the port in Settings reconnects the UI; restart the server to rebind.
+Changing the port in Settings reconnects the UI and rebinds the integrated
+transport. An isolated compatibility bridge must be restarted manually.
 Hand-edited config requires Reload config or an app restart. A single config
 file is shared through an interoperable byte-zero/whole-file OS lock, atomic
 replacement, revision checking and Rust's source-content stamp. No token is

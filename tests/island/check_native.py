@@ -58,7 +58,7 @@ def main():
     config = load_config(path)
     config.appearance.idle_mode = "always"
     # Defaults can be owned by existing software; use less common test bindings.
-    config.hotkeys.sneak = "Ctrl+Shift+Alt+F23"
+    config.hotkeys.sneak = "Ctrl+Shift+S"
     config.hotkeys.expand = "Ctrl+Shift+Alt+F24"
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
     ready, authenticated, stop = threading.Event(), threading.Event(), threading.Event()
@@ -229,10 +229,19 @@ def main():
             evidence['cpu_sample_seconds'] = round(elapsed, 2)
             evidence['measured_processes'] = len(after)
             evidence['cpu_by_pid'] = {str(pid): round(max(0, value - before.get(pid, value)) / elapsed * 100, 2) for pid, value in after.items()}
+        fixture_a = focus(host)
         u.SetCursorPos(center, 10); pump(.8)
         peek = region()
+        if peek[2] - peek[0] <= rest[2] - rest[0] + 100:
+            u.SetCursorPos(center, 450); pump(.25)
+            u.SetCursorPos(center, 5); pump(.8)
+            peek = region()
+            evidence['hover_pointer_retry'] = True
         evidence["hover_peek"] = peek[2] - peek[0] > rest[2] - rest[0] + 100
-        evidence["hover_passive"] = u.GetForegroundWindow() == fixture_a
+        foreground_pid = w.DWORD(); u.GetWindowThreadProcessId(u.GetForegroundWindow(), c.byref(foreground_pid))
+        evidence['hover_foreground_pid'] = foreground_pid.value
+        evidence['hover_focus_external_change'] = u.GetForegroundWindow() != fixture_a and foreground_pid.value != app.pid
+        evidence["hover_passive"] = foreground_pid.value != app.pid
         assert evidence["hover_peek"] and evidence["hover_passive"], evidence
         u.SetCursorPos(center, 450)
         key([0x1B])
@@ -245,7 +254,7 @@ def main():
         key([0x1B])
         evidence["escape_restores_fixture"] = u.GetForegroundWindow() == fixture_a
         assert evidence["escape_restores_fixture"], "Esc did not restore previous focus"
-        key([0x11, 0x10, 0x12, 0x86])
+        key([0x11, 0x10, 0x53])
         sneak = region(); evidence["sneak_region"] = sneak
         assert u.GetForegroundWindow() == hwnd, "Sneak did not focus"
         sneak_bounds = w.RECT(); u.GetWindowRect(hwnd, c.byref(sneak_bounds))
@@ -256,7 +265,14 @@ def main():
             key([0x0D])
             assert replies and 'DBMS' in replies[-1]['text'], f'Native command did not reach real bridge: {replies}'
             evidence['native_command_result'] = replies[-1]['text']
-            key([0x11, 0x10, 0x12, 0x86])
+        key([0x1B])
+        assert region()[2] - region()[0] < 5, 'Esc revealed Island while Sneak enabled'
+        u.SetCursorPos(center, 10); pump(.8)
+        assert region()[2] - region()[0] < 5, 'Hover revealed Island while Sneak enabled'
+        key([0x11, 0x10, 0x12, 0x87])
+        assert region()[2] - region()[0] > 500, 'Summon did not reopen command bar'
+        evidence['sneak_persistent'] = True
+        key([0x11, 0x10, 0x53])
         fixture_b = focus(other)
         pump(.6)
         evidence["click_elsewhere_keeps_focus"] = u.GetForegroundWindow() == fixture_b
@@ -265,6 +281,21 @@ def main():
         key([0x1B])
         evidence["passive_escape"] = region()[2] - region()[0] < peek[2] - peek[0]
         assert evidence["passive_escape"], "Esc did not close passive Peek"
+        if online:
+            focus(host); u.SetCursorPos(center, 450); pump(.2)
+            key([0x11, 0x10, 0x12, 0x87])
+            for letter in 'NEXT': key([ord(letter)])
+            key([0x0D])
+            reply_box = region()
+            assert reply_box[2] - reply_box[0] > rest[2] - rest[0] + 100, 'Command reply did not expand the capsule'
+            assert u.GetForegroundWindow() == fixture_a, 'Capsule reply took keyboard focus'
+            reply_bounds = w.RECT(); u.GetWindowRect(hwnd, c.byref(reply_bounds))
+            ratio = u.GetDpiForWindow(hwnd) / 96
+            u.SetCursorPos(reply_bounds.right - round(40 * ratio), reply_bounds.top + round(26 * ratio))
+            u.mouse_event(2, 0, 0, 0, 0); u.mouse_event(4, 0, 0, 0, 0); pump(.5)
+            assert region()[2] - region()[0] < reply_box[2] - reply_box[0], 'Native acknowledge button did not dismiss capsule reply'
+            evidence['native_capsule_reply'] = True
+            evidence['native_reply_acknowledge'] = True
         evidence["pid"] = app.pid
         (output / "evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
         print(json.dumps(evidence, indent=2))

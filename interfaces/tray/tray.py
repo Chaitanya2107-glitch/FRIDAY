@@ -302,6 +302,8 @@ class FridayTray:
             self._set_listening(False)
 
     def _show_voice(self, result: dict, transient: bool = False) -> None:
+        if listener := getattr(self, 'voice_state', None):
+            listener(bool(result.get('awaiting_reply')))
         self.notify(f"You: {result['transcription']}\nFRIDAY: {result['response']}",
                     transient=transient or is_quick_command(result.get("action") == "system", result["response"]),
                     private=result.get("private", False))
@@ -455,6 +457,8 @@ class FridayTray:
 
     def toggle_body(self) -> None:
         if self.body:
+            if self.body._thread.ident is None:
+                self.body.start()
             self.body.visible = not self.body.visible  # the menu tick flips at once; the body saves it
             self.body.set_visible(self.body.visible)
 
@@ -479,7 +483,7 @@ class FridayTray:
             except self._api.BackendError:
                 self._stopping.wait(POLL_SECONDS)
                 continue
-            if question:
+            if question and not self._stopping.is_set():
                 self._answer(question)
 
     def _answer(self, question: str) -> None:

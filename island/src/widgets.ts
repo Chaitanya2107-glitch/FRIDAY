@@ -88,6 +88,11 @@ export class PluginWidgets {
 
   async refresh() { await Promise.all(this.cards.filter(c => !c.busy).map(c => this.refreshCard(c))); }
 
+  updateCollege(text: unknown) {
+    const card = this.cards.find(card => card.id === 'college_schedule');
+    if (card && typeof text === 'string' && text.length <= 500) { card.serial++; card.summary.textContent = text; }
+  }
+
   private async refreshCard(card: Card) {
     const serial = ++card.serial;
     try {

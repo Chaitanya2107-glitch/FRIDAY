@@ -57,7 +57,9 @@ async def lifespan(app: FastAPI):
             logger.warning("Learning-data startup refresh unavailable: %s", type(error).__name__)
     from services.mind import cognitive_runtime
     from services.screen_watch import service as screen_watch
+    from services.friday_island_server.server import run_integrated_bridge
     background_loops = [
+        asyncio.create_task(run_integrated_bridge()),
         asyncio.create_task(screen_watch.watch.run()),
         asyncio.create_task(cognitive_runtime.run()),
         asyncio.create_task(run_scheduler(reminders)),
@@ -124,7 +126,7 @@ def create_app() -> FastAPI:
         from services.screen_watch.commands import local_request
         token = local_request.set(bool(request.client and request.client.host in {'127.0.0.1', '::1', 'testclient'}))
         try:
-            if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator'}:
+            if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator', '/api/v1/island/desktop', '/api/v1/island/event'}:
                 from services.mind.cognition import cognition
                 with cognition.operation('feature_request', 'api', request.method + ' local feature operation') as operation:
                     response = await call_next(request)
@@ -150,14 +152,18 @@ def create_app() -> FastAPI:
     app.include_router(body.router, prefix="/api/v1", tags=["Body"])
     app.include_router(customization.router, prefix="/api/v1", tags=["Customization"])
     app.include_router(college_routes.router, prefix="/api/v1", tags=["College"])
+    from interfaces.api.routes import island
+    app.include_router(island.router, prefix="/api/v1", tags=["Island"])
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["System"])
     async def health():
+        from services.friday_island_server.server import transport_state
         return {
             "status": "online",
             "service": "F.R.I.D.A.Y",
             "version": "0.2.0",
+            "island": dict(transport_state),
         }
 
     return app

@@ -82,7 +82,7 @@ class Project(Model):
 
 
 class Hotkeys(Model):
-    sneak: str = Field(default="Ctrl+Shift+Alt+Space", min_length=1, max_length=100)
+    sneak: str = Field(default="Ctrl+Shift+S", min_length=1, max_length=100)
     expand: str = Field(default="Ctrl+Shift+Alt+F", min_length=1, max_length=100)
 
 
@@ -138,6 +138,12 @@ class IslandConfig(Model):
 
 
 def config_path() -> Path:
+    override = os.environ.get('FRIDAY_ISLAND_CONFIG')
+    if override:
+        path = Path(override)
+        if not path.is_absolute():
+            raise ValueError('FRIDAY_ISLAND_CONFIG must be absolute')
+        return path
     base = Path(os.environ.get("APPDATA", Path.home() / ".config"))
     return base / "FRIDAY" / "island" / "config.json"
 
@@ -196,7 +202,11 @@ def load_config(path: Path | None = None) -> IslandConfig:
                     raise ValueError("Island config exceeds 1 MiB")
                 raw = path.read_text(encoding="utf-8-sig")
                 config = IslandConfig.model_validate_json(raw)
-                if "token" not in json.loads(raw).get("connection", {}):
+                migrated = config.hotkeys.sneak == "Ctrl+Shift+Alt+Space"
+                if migrated:
+                    config.hotkeys.sneak = Hotkeys().sneak
+                    config.revision += 1
+                if migrated or "token" not in json.loads(raw).get("connection", {}):
                     atomic_write(path, config)
                 return config
             except (ValueError, UnicodeError):

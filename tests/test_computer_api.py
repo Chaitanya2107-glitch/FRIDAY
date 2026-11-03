@@ -40,6 +40,7 @@ def test_computer_route_skips_history_search_learning_and_speech(client, monkeyp
     assert data["model"] == "computer_agent" and data["awaiting_reply"]
     assert data["provider"] == "anthropic" and data["tokens_used"] == 25
     assert data["keyboard"] == [] and len(calls) == 1
+    assert data['private'] is True
 
 
 def test_telegram_cannot_start_or_approve_computer_tasks(monkeypatch):

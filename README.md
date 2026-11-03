@@ -1,5 +1,16 @@
 # F.R.I.D.A.Y
 
+Dynamic Island integration (2026-11-02): `launch_friday.vbs` starts the full
+FRIDAY backend and Island together. The Island now uses the normal conversation,
+command and confirmation flow, shared history, live voice state, the existing
+wake/conversation controller, approved notifications and native feature editors.
+Its FRIDAY tab exposes voice/provider controls, task progress and stop controls;
+the native Start control also works after stopping the backend. Project folders
+are registered additively, with conflicts preserved for review. Native apps,
+clock, battery and media remain available offline. The trusted screen-awareness
+badge remains visible independently of Island hiding. See [Island usage](island/README.md)
+and [integration contract](docs/specs/2026-11-02-island-integration.md).
+
 Browser/research automation (2026-10-22): Playwright, Scrapling and pywinauto
 now support explicit supervised browser/Windows tasks and bounded cited research.
 Browsers are visible by default; `research headless <subject>` or

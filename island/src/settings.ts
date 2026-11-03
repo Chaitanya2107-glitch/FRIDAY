@@ -14,6 +14,7 @@ interface Host {
   reload: () => Promise<void>;
   message: (text: string, bad?: boolean) => void;
   apps: Apps;
+  restart?: () => Promise<unknown>;
 }
 export function button(label: string, glyph: string, action: () => unknown, className = 'icon-button'): HTMLButtonElement {
   const node = el('button', className);
@@ -97,17 +98,17 @@ export class Settings {
         node.onchange = () => void this.change(c => { c.hotkeys[key] = node.value; });
         this.root.append(field(title, node));
       }
-      this.root.append(el('p', 'muted', 'Ctrl, Shift, Alt or Win + a letter, number, Space or F1–F24. Esc closes the island.'));
+      this.root.append(el('p', 'muted', 'Sneak is a persistent toggle. Esc dismisses its command bar; Peek / expand reopens only the bar until Sneak is turned off. Use Ctrl, Shift, Alt or Win + a letter, number, Space or F1–F24.'));
       for (const error of this.host.status().hotkey_errors) this.root.append(el('p', 'error-text', error));
     } else {
       const port = input(String(config.connection.port), 'number'); port.min = '1024'; port.max = '65535';
       port.onchange = () => void this.change(c => { c.connection.port = Number(port.value); });
       this.root.append(el('div', 'connection-label', this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline'), field('Backend port', port, '127.0.0.1 only. An owned bridge restarts when this changes.'));
       this.root.append(el('p', 'muted', native ? 'Apps, projects and settings work without the backend. Config lives in %APPDATA%\\FRIDAY\\island\\config.json.' : 'Browser preview. Launch with npm run tauri dev for desktop controls.'));
-      this.root.append(startupSettings(config, next => this.persist(next), async () => { await this.host.reload(); this.render(); }, this.host.message));
+      this.root.append(startupSettings(config, next => this.persist(next), async () => { await this.host.reload(); this.render(); }, this.host.message, this.host.restart));
       this.root.append(el('p', 'muted', 'Transparent window · glass is drawn only on the island.'));
       this.root.append(textButton('Reload config', async () => { await this.host.reload(); this.host.message('Config reloaded'); this.render(); }, 'back'));
-      this.root.append(textButton('Quit Island', () => call('quit'), 'power'));
+      this.root.append(textButton('Quit FRIDAY', () => call('quit'), 'power'));
     }
   }
 

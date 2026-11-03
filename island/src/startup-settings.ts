@@ -2,7 +2,7 @@ import { call, native } from './native';
 import { element as el } from './state';
 import type { Config, StartupStatus } from './types';
 
-export function startupSettings(config: Config, save: (next: Config) => Promise<unknown>, reload: () => Promise<void>, message: (text: string, bad?: boolean) => void) {
+export function startupSettings(config: Config, save: (next: Config) => Promise<unknown>, reload: () => Promise<void>, message: (text: string, bad?: boolean) => void, restartFriday?: () => Promise<unknown>) {
   const box = el('div', 'startup-settings');
   const prefs = config.startup ?? { manage_bridge: true, backend_root: '', launch_at_login: false };
   function field(label: string, control: HTMLElement) {
@@ -14,7 +14,7 @@ export function startupSettings(config: Config, save: (next: Config) => Promise<
     box.append(button); return button;
   }
   const manage = el('input'); manage.type = 'checkbox'; manage.checked = prefs.manage_bridge;
-  field('Start and recover the bridge', manage);
+  field('Start FRIDAY when Island opens', manage);
   manage.onchange = () => {
     const next = structuredClone(config); next.startup = { ...prefs, manage_bridge: manage.checked };
     void save(next);
@@ -28,7 +28,7 @@ export function startupSettings(config: Config, save: (next: Config) => Promise<
   const error = el('p', 'error-text'); box.append(status, error);
   const login = el('input'); login.type = 'checkbox'; login.checked = false; login.disabled = true;
   login.setAttribute('aria-label', 'Launch Island at Windows sign-in');
-  field('Launch Island at Windows sign-in', login);
+  field('Launch FRIDAY at Windows sign-in', login);
   let loginBusy = false;
   login.onchange = async () => {
     if (loginBusy) return;
@@ -38,8 +38,8 @@ export function startupSettings(config: Config, save: (next: Config) => Promise<
     catch (failure) { message(String(failure), true); }
     finally { loginBusy = false; void poll(); }
   };
-  const restart = action('Restart managed bridge', () => call('restart_bridge')); restart.disabled = true;
-  box.append(el('small', 'muted', 'Sign-in startup is optional. Existing servers are reused and never stopped by Island.'));
+  const restart = action('Restart FRIDAY', () => restartFriday ? restartFriday() : call('restart_bridge')); restart.disabled = true;
+  box.append(el('small', 'muted', 'FRIDAY owns the backend lifecycle. Manually started backends keep their own ownership.'));
   let timer: ReturnType<typeof setTimeout>;
   const poll = async () => {
     clearTimeout(timer);
@@ -50,7 +50,7 @@ export function startupSettings(config: Config, save: (next: Config) => Promise<
       const labels: Record<string,string> = { managed: 'Bridge managed by Island', external: 'Existing server detected; authentication is checked separately', starting: 'Starting FRIDAY bridge…', retrying: 'Waiting to retry the bridge…', disabled: 'Automatic bridge launch is off', error: 'Bridge needs attention' };
       status.textContent = labels[state.phase] ?? 'Checking bridge…'; error.textContent = state.error;
       if (!loginBusy) login.checked = state.login_enabled;
-      login.disabled = state.isolated || loginBusy; restart.disabled = !state.owned_pid;
+      login.disabled = state.isolated || loginBusy; restart.disabled = state.isolated || (!restartFriday && !state.owned_pid);
     } catch { status.textContent = 'Startup status unavailable.'; }
     if (box.isConnected) timer = setTimeout(() => void poll(), 2000);
   };

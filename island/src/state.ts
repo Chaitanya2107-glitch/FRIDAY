@@ -11,6 +11,12 @@ export function readReminder(value: unknown, now = Date.now()): PillSnippet | nu
 }
 
 export type Event = 'hover' | 'leave' | 'expand' | 'sneak' | 'escape' | 'idle' | 'projects' | 'settings';
+export function sneakMode(next: Mode, enabled: boolean, activate: boolean, current: Mode): Mode {
+  if (!enabled) return next;
+  if (next === 'rest' || next === 'hidden') return 'hidden';
+  return next === 'sneak' || activate || current === 'sneak' ? 'sneak' : 'hidden';
+}
+
 export function transition(mode: Mode, event: Event, idleMode: Config['appearance']['idle_mode'] = 'always'): Mode {
   const hide = idleMode === 'hover';
   if (event === 'sneak') return mode === 'sneak' ? (hide ? 'hidden' : 'rest') : 'sneak';

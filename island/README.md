@@ -1,8 +1,8 @@
 # FRIDAY Island
 
 A quiet, original amber companion for Windows 10/11. Tauri 2 + plain TypeScript,
-Vite and token-based CSS; a managed Python WebSocket bridge supplies FRIDAY's
-commands and plugins. Existing FRIDAY startup and desktop interfaces are untouched.
+Vite and token-based CSS. Island is FRIDAY's primary desktop surface; its
+authenticated WebSocket transport runs inside the full FRIDAY backend.
 
 ## Setup and run
 
@@ -17,7 +17,11 @@ From the repository root, install the Python bridge dependencies once:
 venv/Scripts/python.exe -m pip install -r services/friday_island_server/requirements.txt
 ```
 
-Then start the island. It starts/reuses the local bridge automatically:
+Normal use: run `launch_friday.vbs` at the repository root. It starts the existing
+FRIDAY desktop lifecycle, full backend and Island together. A standalone Island
+launch starts the same controller; repeated launches reuse the session.
+
+For frontend/native development:
 
 ```powershell
 cd island
@@ -28,26 +32,27 @@ npm run tauri dev
 The app also starts without the bridge. `open <installed app>`,
 `proj <configured project>` and `settings` still work through Rust.
 There is no taskbar entry: reach the app by top-center hover or its hotkeys;
-use Settings → Connection → Quit Island to stop it. A second launch summons
+use FRIDAY → Quit FRIDAY to stop the managed session. A second launch summons
 the running instance. `npm run dev` alone is a browser preview with desktop
 controls disabled.
 
-**Existing shortcut conflict:** FRIDAY's current taskbar flyout already uses
-`Ctrl+Shift+Alt+F`. The island keeps that requested default and reports the failure
-in Settings → Hotkeys. Hover, open Settings, and choose an unused shortcut such
-as `Ctrl+Shift+Alt+I`. It never unregisters another app's hotkeys.
+Island owns `Ctrl+Shift+Alt+F` while it is the primary surface. FRIDAY's
+`Ctrl+Shift+F` shortcut also summons Island. The old taskbar button stays hidden;
+the native All controls panel and original robot remain available from Island.
 
-Normal FRIDAY startup is unchanged. The bridge can run alongside
-`python main.py`; it does not start FRIDAY's voice, tray, watchers or API loops.
-The `next` adapter reads FRIDAY's actual timetable directly, without requiring
-the main API process. Natural-language replies use FRIDAY's existing **tool-free**
-language handler and configured AI provider; they can use that provider's normal
-network behavior. The island UI itself connects only to `127.0.0.1`.
+Assistant commands use FRIDAY's normal chat, history, memory, provider, privacy
+and confirmation paths. Existing `next`, `habit` and `todo` shortcuts retain their
+meaning. The FRIDAY tab shows a session conversation, actual listening/thinking/
+speaking state, provider and voice controls, browser/research progress and Stop
+tasks. Typed answers share the laptop conversation with voice. Private turns
+are transient and clear on close/disconnect. Keyboard output is held behind an
+expiring, connection-bound, one-use token and checks the original foreground
+window/process before typing. The UI connects only to `127.0.0.1`.
 
 ## Startup and recovery
 
-Settings → Connection controls **Start and recover the bridge** (on by default)
-and **Launch Island at Windows sign-in** (off by default). The latter is an explicit
+Settings → Connection controls **Start FRIDAY when Island opens** (on by default)
+and **Launch FRIDAY at Windows sign-in** (off by default). The latter is an explicit
 per-user Windows Run entry for this executable with `--background`; it does not
 require administrator rights. A repeated background launch never expands or focuses
 an already-running island. Turning the toggle off removes only Island's entry.
@@ -55,7 +60,7 @@ Enable sign-in startup from the standalone release app. Development builds requi
 Vite and reject registration so they cannot leave a broken sign-in launch.
 
 The supervisor finds FRIDAY beside the executable or at the development repo,
-using `venv/Scripts/python.exe` and the fixed island-server module. If the app was
+using `venv/Scripts/python.exe` and the fixed desktop launcher. If the app was
 moved, choose the FRIDAY folder in Connection. No Python is resolved through PATH,
 and no free-text command is executed. The same config path is passed to Python.
 Owned bridge logs are `bridge.log` and `bridge-error.log` next to `config.json`.
@@ -64,12 +69,14 @@ Configuration tokens are not passed on the command line.
 If a listener already occupies the port, Island reuses it without starting or
 stopping that process; the normal token handshake decides whether it is FRIDAY.
 Connection status distinguishes this from an Island-managed child. Crashed owned
-children restart with a 2–30 second backoff. An owned child that never listens is
-retried after 30 seconds. Restart managed bridge affects only Island's child.
-Changing the backend folder, port or token restarts an owned bridge. Quitting or
-crashing Island closes its Windows Job Object, stopping that child and descendants.
-Externally started bridges remain running. Turning management off stops an owned
-child but keeps local clock/media/app/project features available.
+children restart with a 2–30 second backoff. FRIDAY's desktop controller owns its
+backend and observes Island's lifetime. Stop FRIDAY leaves Island available;
+Start FRIDAY works through native IPC while the backend is offline. Restart
+FRIDAY uses the existing lifecycle owner. Port edits rebind the integrated
+transport; token rotation revokes old connections. The production desktop never
+places launched user applications in a kill-on-close Job Object. Manually started
+backends retain their separate ownership. Isolated compatibility bridges retain
+their bounded startup and Job Object supervision.
 
 Custom `FRIDAY_ISLAND_CONFIG` runs suppress bridge management and sign-in writes by
 default, keeping test runs isolated. Set `FRIDAY_ISLAND_MANAGE_BRIDGE=1` to explicitly
@@ -103,8 +110,11 @@ Auto-hide waits while the pointer is over the island.
   Hover does not activate the window. Clicking the input deliberately activates it.
 - **Expanded:** Projects · Plugins · Settings. Extra pinned apps appear above
   the project grid. Text fields accept focus when deliberately clicked.
-- **Sneak:** `Ctrl+Shift+Alt+Space` opens a centered white input. Enter submits
-  and dismisses it; Esc closes it. Results appear briefly by the resting island.
+- **Sneak:** `Ctrl+Shift+S` toggles persistent stealth mode and opens the centered
+  command bar. Esc or switching apps dismisses the bar while keeping the Island
+  hidden. `Ctrl+Shift+F` summons only the bar; hover and notifications cannot reveal
+  the Island. Replies stay inside the bar. Press `Ctrl+Shift+S` again to restore
+  normal Island behavior. The toggle survives restart.
 - **Expand hotkey:** `Ctrl+Shift+Alt+F` cycles Peek → Expanded → Rest. The first
   deliberate summon focuses the command input. Esc also closes a hover-opened
   passive panel while another app owns keyboard focus.
@@ -116,8 +126,8 @@ over partial matches. Ambiguous project names need more text; app matches are
 ranked by name and recent use. Hiding/unpinning an installed app only changes
 favourites: the app stays searchable and launchable.
 `habit` and `todo` use FRIDAY's existing saved tracker data (details below).
-`note` and `focus` currently reach the tool-free conversational fallback; v1
-does not add note storage or a focus timer.
+`note` and other assistant commands now reach FRIDAY's existing command flow.
+This integration reuses existing focus features; it does not add a new timer.
 
 The character is drawn in SVG code, with CSS breathing/blinking and mood changes.
 The global pointer sample updates eyes at most 12.5 times/second; it does not
@@ -247,7 +257,7 @@ private: do not publish this file or its corruption backups.
 | `pins` | `[{id,name,app_id?,path,visible}]`; at most 64, IDs unique; indexed favourites use `app_id` and empty `path`, manual favourites use `.exe`/`.lnk` `path` |
 | `recent_apps` | `[{id,last_used,count}]`; up to 100 distinct app records, epoch seconds and use count |
 | `projects` | `[{id,name,path,color,last_opened,actions}]`; at most 64 |
-| `hotkeys.sneak` | `Ctrl+Shift+Alt+Space` |
+| `hotkeys.sneak` | `Ctrl+Shift+S` |
 | `hotkeys.expand` | `Ctrl+Shift+Alt+F` |
 | `appearance.glow` | `#FFB347` |
 | `appearance.idle_mode` | `always`, `auto-hide`, or `hover` |

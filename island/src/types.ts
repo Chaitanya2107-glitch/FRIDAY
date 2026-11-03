@@ -1,5 +1,5 @@
 export type Mode = 'rest' | 'peek' | 'expanded' | 'sneak' | 'hidden';
-export type Tab = 'projects' | 'plugins' | 'settings';
+export type Tab = 'friday' | 'projects' | 'plugins' | 'settings';
 export interface Pin { id: string; name: string; path: string; visible: boolean; app_id?: string | null }
 export interface AppMatch { id: string; name: string; source: string; kind: 'app' | 'pin'; pinned: boolean }
 export interface IndexStatus { count: number; scanning: boolean; updated_at: number; errors: string[] }
@@ -15,8 +15,22 @@ export interface Config {
   startup?: { manage_bridge: boolean; backend_root: string; launch_at_login: boolean };
 }
 export interface StartupStatus { phase: string; error: string; owned_pid: number | null; attempts: number; isolated: boolean; login_enabled: boolean }
-export interface Suggestion { text: string; detail?: string; app?: AppMatch; rescan?: boolean }
-export interface CommandResult { text: string; ok: boolean; action?: { kind: 'settings' | 'pin' | 'project' | 'app' | 'app_search'; id?: string; query?: string } }
+export interface Suggestion { text: string; detail?: string; app?: AppMatch; rescan?: boolean; fill?: boolean }
+export interface CommandResult {
+  text: string; ok: boolean; private?: boolean; awaiting_reply?: boolean;
+  keyboard_token?: string; automation_job?: string | null; provider?: string; model?: string;
+  action_success?: boolean | null;
+  action?: { kind: 'settings' | 'pin' | 'project' | 'app' | 'app_search'; id?: string; query?: string };
+}
+export interface ExecutionTarget { hwnd: number; pid: number; captured_at: number }
+export interface FridayState {
+  backend: boolean; epoch: string; last: number; provider: string;
+  body: { listening: boolean; thinking: boolean; speaking: boolean };
+  desktop: { connected: boolean; listening: boolean; wake: boolean; conversation: boolean; speak: boolean; speak_typed: boolean; body: boolean; owned: boolean; provider?: string | null; message: string };
+  system: { mode: { name: string | null }; screen_watch: { state?: string; enabled?: boolean; paused?: boolean } };
+  automation: { active: boolean; job_id?: string | null; state?: string; response?: string; awaiting_reply?: boolean };
+  events: { id: number; kind: string; text: string; title: string; at: number; buttons: [string, string][]; awaiting_reply?: boolean; transient?: boolean }[];
+}
 export interface Manifest { id: string; name: string; version: number; commands: string[]; widget: boolean }
 export interface PluginAction { action: string; item?: string; value?: string; revision?: number | null }
 export interface WidgetAction extends PluginAction { label: string; disabled?: boolean }

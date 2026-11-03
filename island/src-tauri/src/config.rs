@@ -127,7 +127,7 @@ fn folder_action() -> Vec<Action> {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
-            sneak: "Ctrl+Shift+Alt+Space".into(),
+            sneak: "Ctrl+Shift+S".into(),
             expand: "Ctrl+Shift+Alt+F".into(),
         }
     }
@@ -375,7 +375,13 @@ fn write(path: &Path, config: &Config) -> Result<(), String> {
 pub fn load(path: &Path) -> Result<Config, String> {
     let _lock = lock(path)?;
     if path.exists() {
-        if let Ok(config) = read(path, true) {
+        if let Ok(mut config) = read(path, true) {
+            if config.hotkeys.sneak == "Ctrl+Shift+Alt+Space" {
+                config.hotkeys.sneak = Hotkeys::default().sneak;
+                config.revision += 1;
+                write(path, &config)?;
+                return read(path, false);
+            }
             return Ok(config);
         }
         fs::copy(
@@ -421,6 +427,20 @@ mod tests {
         assert!(fs::read_to_string(&path)
             .unwrap()
             .contains(&first.connection.token));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn migrates_old_sneak_shortcut_without_resetting_config() {
+        let root = std::env::temp_dir().join(format!("friday-island-test-{}", Uuid::new_v4()));
+        let path = root.join("config.json");
+        let mut config = load(&path).unwrap();
+        let token = config.connection.token.clone();
+        config.hotkeys.sneak = "Ctrl+Shift+Alt+Space".into();
+        write(&path, &config).unwrap();
+        let migrated = load(&path).unwrap();
+        assert_eq!(migrated.hotkeys.sneak, "Ctrl+Shift+S");
+        assert_eq!(migrated.connection.token, token);
+        assert_eq!(load(&path).unwrap().revision, migrated.revision);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

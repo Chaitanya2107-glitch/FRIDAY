@@ -21,6 +21,24 @@ enum Event {
     Restart,
     Stop,
 }
+
+#[tauri::command]
+pub async fn start_friday(state: tauri::State<'_, crate::AppState>) -> Result<(), String> {
+    if std::env::var_os("FRIDAY_ISLAND_CONFIG").is_some() {
+        return Err("Starting the owner's FRIDAY is disabled in isolated runs.".into());
+    }
+    let path = state.path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = crate::config::load(&path)?;
+        let root = backend_root(&config.startup.backend_root)?;
+        if !root.join("interfaces/taskbar/launch.py").is_file() {
+            return Err("Update the FRIDAY backend before starting it from Island.".into());
+        }
+        BridgeProcess::spawn(&root, &path).map(|_| ())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
 pub struct Supervisor {
     sender: mpsc::Sender<Event>,
     status: Arc<Mutex<Status>>,
@@ -121,7 +139,7 @@ impl Supervisor {
                             }
                         } else {
                             current.phase = "starting".into();
-                            if launched.elapsed() > Duration::from_secs(30) {
+                            if !process.desktop && launched.elapsed() > Duration::from_secs(30) {
                                 child = None;
                                 attempts = attempts.saturating_add(1);
                                 next = Instant::now() + retry_delay(attempts);

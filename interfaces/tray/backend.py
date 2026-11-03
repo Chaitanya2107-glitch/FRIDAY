@@ -162,7 +162,7 @@ def set_talk(on: bool) -> bool:
     return _request("POST", "/api/v1/mind/talk", timeout=5, json={"on": on})["on"]
 
 
-def next_ask(wait: float = 25) -> str | None:
+def next_ask(wait: float = 10) -> str | None:
     """Blocks until FRIDAY asks something on her own (or `wait` seconds pass)."""
     return _request("GET", "/api/v1/mind/ask", timeout=wait + 10, params={"wait": wait})["question"]
 

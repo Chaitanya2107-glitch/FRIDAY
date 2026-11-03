@@ -71,18 +71,29 @@ def _run_desktop(runtime):
     command_bar.set_chat_done_listener(tray.typed_reply_done)
 
     panel = ControlPanel(tray, runtime, command_bar)
-    host = TaskbarButton(panel.request_toggle, state=lambda: "busy" if runtime.busy else tray.status,
-                         show=panel.request_show)
+    from interfaces.taskbar.island import IslandDesktop
+    island = IslandDesktop(tray, panel, runtime, command_bar)
+    host = TaskbarButton(island.summon if island.enabled else panel.request_toggle,
+                         state=lambda: "busy" if runtime.busy else tray.status,
+                         show=island.summon if island.enabled else panel.request_show,
+                         island_primary=island.enabled, controls=panel.request_show)
     panel.host = host
     tray.body = FridayBody(tray, command_bar)
+    if island.enabled:
+        tray.body.visible = False
     try:
         panel.start()
         host.start()
         panel._lifecycle("start")
+        island.start()
+        if island.enabled:
+            command_bar.set_surface_listener(island.summon)
         threading.Thread(target=tray.run, kwargs={"show_icon": False}, name="friday-controls", daemon=True).start()
         command_bar.run_message_loop()
     finally:
         tray._stopping.set()
+        tray.pause_microphone(wait=True)
+        island.close()
         tray.icon.stop()
         host.stop()
         if tray.body._thread.is_alive():

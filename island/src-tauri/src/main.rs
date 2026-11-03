@@ -8,6 +8,8 @@ mod desktop;
 #[cfg(windows)]
 mod discovery;
 #[cfg(windows)]
+mod friday_commands;
+#[cfg(windows)]
 mod picker;
 mod shell;
 mod startup;
@@ -31,6 +33,10 @@ pub struct RuntimeStatus {
     reduce_motion: bool,
     #[serde(skip)]
     previous_window: usize,
+    #[serde(skip)]
+    previous_pid: u32,
+    #[serde(skip)]
+    previous_captured_at: f64,
     #[serde(skip)]
     width: f64,
     #[serde(skip)]
@@ -114,6 +120,15 @@ fn set_mode(
             let own = window.hwnd().map_err(|e| e.to_string())?.0 as usize;
             if current != own {
                 runtime.previous_window = current;
+                unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                        current as _,
+                        &mut runtime.previous_pid,
+                    );
+                }
+                runtime.previous_captured_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0.0, |time| time.as_secs_f64());
             }
         }
         windows::passive(&window, !deliberate)?;
@@ -237,7 +252,9 @@ fn quit(app: tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !args.iter().any(|a| a == "--background") {
+            if args.iter().any(|a| a == "--quit") {
+                app.exit(0);
+            } else if !args.iter().any(|a| a == "--background") {
                 let _ = app.emit("hotkey", "expand");
             }
         }))
@@ -247,11 +264,15 @@ fn main() {
             runtime_status,
             startup::startup_status,
             startup::restart_bridge,
+            startup::start_friday,
             startup::set_login,
             startup::reload_config,
             set_mode,
             set_regions,
             local_command,
+            friday_commands::execution_target,
+            friday_commands::clear_execution_target,
+            friday_commands::open_controls,
             launch,
             choose_path,
             pin_icon,
@@ -265,6 +286,10 @@ fn main() {
             quit
         ])
         .setup(|app| {
+            if std::env::args().any(|arg| arg == "--quit") {
+                app.handle().exit(0);
+                return Ok(());
+            }
             let path = std::env::var_os("FRIDAY_ISLAND_CONFIG")
                 .map(PathBuf::from)
                 .map(Ok)
@@ -316,7 +341,9 @@ fn main() {
         .expect("Unable to start FRIDAY Island")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<startup::Supervisor>().stop();
+                if let Some(supervisor) = app.try_state::<startup::Supervisor>() {
+                    supervisor.stop();
+                }
             }
         });
 }

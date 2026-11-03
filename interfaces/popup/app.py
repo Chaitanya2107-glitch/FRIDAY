@@ -49,6 +49,7 @@ _hwnd = None
 _hint_hwnd = None  # the line under the box showing the guesses
 _reply_listener = None
 _voice_hotkey_listener = None
+_surface_listener = None
 _conversation_hotkey_listener = None
 _chat_done_listener = None
 _wake_hotkey_listener = None
@@ -329,10 +330,16 @@ def _make_wndproc(hwnd_box):
             elif wparam == HANDY_HOTKEY_ID:
                 _handy_hotkey(hwnd, hwnd_box["edit"])
             else:
-                _toggle(hwnd, hwnd_box["edit"])
+                if _surface_listener:
+                    _surface_listener()
+                else:
+                    _toggle(hwnd, hwnd_box["edit"])
             return 0
         if msg == WM_APP_SHOW:
-            _show(hwnd, hwnd_box["edit"])
+            if _surface_listener:
+                _surface_listener()
+            else:
+                _show(hwnd, hwnd_box["edit"])
             return 0
         if msg == WM_APP_HINT:
             _show_hint(hwnd_box["edit"])
@@ -400,6 +407,11 @@ def _make_edit_subclass(main_hwnd, edit_hwnd, orig_proc):
         return user32.CallWindowProcW(orig_proc, hwnd, msg, wparam, lparam)
 
     return edit_proc
+
+
+def set_surface_listener(listener):
+    global _surface_listener
+    _surface_listener = listener
 
 
 def set_reply_listener(listener):

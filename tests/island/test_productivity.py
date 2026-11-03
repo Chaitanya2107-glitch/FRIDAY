@@ -103,7 +103,9 @@ class TrackerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frame['expires_at'], int(now.replace(minute=30).timestamp() * 1000))
         self.assertEqual(frame['show_from'], frame['expires_at'] - 15 * 60 * 1000)
         plugin.now = lambda: now.replace(minute=30)
-        self.assertEqual(Registry([plugin]).snippet(), {'plugin': None, 'text': ''})
+        after = Registry([plugin]).snippet()
+        self.assertNotIn('expires_at', after)
+        self.assertEqual(after['schedule'], 'Next: DBMS · 10:30')
         self.assertEqual(self.todo.snippet(), '')
         self.assertEqual(self.habits.snippet(), '')
 

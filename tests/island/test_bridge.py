@@ -17,6 +17,19 @@ from services.friday_island_server.server import Bridge, ORIGINS
 
 
 class ConfigTests(unittest.TestCase):
+    def test_old_sneak_shortcut_migrates_once_and_preserves_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            original = load_config(path)
+            original.hotkeys.sneak = 'Ctrl+Shift+Alt+Space'
+            original.appearance.glow = '#FF9900'
+            path.write_text(original.model_dump_json(), encoding='utf-8')
+            migrated = load_config(path)
+            self.assertEqual(migrated.hotkeys.sneak, 'Ctrl+Shift+S')
+            self.assertEqual(migrated.connection.token, original.connection.token)
+            self.assertEqual(migrated.appearance.glow, '#FF9900')
+            self.assertEqual(load_config(path).revision, migrated.revision)
+
     def test_startup_preferences_survive_python_rewrites(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.json'

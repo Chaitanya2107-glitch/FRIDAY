@@ -13,6 +13,7 @@ export class Capsule {
   private weekday = el('span', 'clock-secondary');
   private date = el('time', 'clock-date');
   private reminder = el('span', 'capsule-reminder');
+  private schedule = el('span', 'capsule-schedule');
   private reminderData: PillSnippet | null = null;
   private reminderTimer?: ReturnType<typeof setTimeout>;
   private battery = el('span', 'capsule-battery clock-secondary');
@@ -42,7 +43,8 @@ export class Capsule {
     this.battery.append(batteryIcon, this.percent);
     this.battery.hidden = true;
     this.reminder.hidden = true; this.reminder.setAttribute('aria-live', 'polite');
-    this.right.append(this.date, this.reminder, this.battery);
+    this.schedule.hidden = true;
+    this.right.append(this.date, this.reminder, this.schedule, this.battery);
     const metadata = el('div', 'media-metadata'); metadata.append(this.title, this.artist);
     const controls = el('div', 'media-controls'); controls.append(this.previous, this.toggle, this.next);
     this.media.append(icon('music'), metadata, controls);
@@ -63,6 +65,10 @@ export class Capsule {
   setReminder(value: unknown) {
     this.reminderData = readReminder(value);
     this.updateReminder();
+  }
+
+  setSchedule(text: string) {
+    this.schedule.textContent = text; this.schedule.title = text; this.schedule.hidden = !text;
   }
 
   private updateReminder() {

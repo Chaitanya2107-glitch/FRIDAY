@@ -78,9 +78,11 @@ def taskbar_layout():
 
 
 class TaskbarButton:
-    def __init__(self, activate, state=lambda: "offline", show=None):
+    def __init__(self, activate, state=lambda: "offline", show=None, island_primary=False, controls=None):
         self._activate, self._state = activate, state
         self._show = show or activate
+        self.island_primary = island_primary
+        self._controls = controls
         self.hwnd = self.button = None
         self.rect = None
         self._parent = self._placement = None
@@ -127,12 +129,13 @@ class TaskbarButton:
             self._taskbar_created = W.RegisterWindowMessage("TaskbarCreated")
             self.hwnd = W.CreateWindowEx(C.WS_EX_TOOLWINDOW, HOST_CLASS, "FRIDAY widget host",
                                         C.WS_POPUP, 0, 0, 0, 0, 0, 0, instance, None)
-            try:
-                W.RegisterHotKey(self.hwnd, HOTKEY_ID, C.MOD_CONTROL | C.MOD_ALT | C.MOD_SHIFT | 0x4000, ord("F"))
-                self._hotkey_registered = True
-            except W.error:
-                self._hotkey_registered = False
-                self._errors.put((f"Could not register {HOTKEY} for FRIDAY's flyout", None))
+            if not self.island_primary:
+                try:
+                    W.RegisterHotKey(self.hwnd, HOTKEY_ID, C.MOD_CONTROL | C.MOD_ALT | C.MOD_SHIFT | 0x4000, ord("F"))
+                    self._hotkey_registered = True
+                except W.error:
+                    self._hotkey_registered = False
+                    self._errors.put((f"Could not register {HOTKEY} for FRIDAY's flyout", None))
             if not user.SetTimer(self.hwnd, 1, 500, None):
                 raise ctypes.WinError(ctypes.get_last_error())
             self._refresh()
@@ -172,6 +175,9 @@ class TaskbarButton:
             W.ShowWindow(self.button, C.SW_HIDE)
 
     def _refresh(self):
+        if self.island_primary:
+            self._hide()
+            return
         layout = taskbar_layout()
         if not layout:
             self._hide()
@@ -266,6 +272,9 @@ class TaskbarButton:
                     self._refresh()
                     return 0
                 if message in (ACTIVATE, C.WM_HOTKEY):
+                    if message == ACTIVATE and wparam == 2 and self._controls:
+                        self._controls()
+                        return 0
                     self._click(show=message == ACTIVATE and bool(wparam))
                     return 0
                 if message == STOP:

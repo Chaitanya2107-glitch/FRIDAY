@@ -42,15 +42,20 @@ class CollegePlugin(StubPlugin):
         super().__init__(Manifest("college_schedule", "College schedule", ("next",)), "No timetable yet")
         self.next_class = next_class or self._next_class
         self.now = now
+        self.custom_provider = next_class is not None
 
-    @staticmethod
-    def _next_class() -> dict | None:
+    def _next_class(self) -> dict | None:
         from services.proactive.timetable import next_class_occurrence
-        return next_class_occurrence(datetime.now())
+        return next_class_occurrence(self.now())
 
     def reminder(self) -> dict | None:
         try:
-            row = self.next_class()
+            return self._reminder(self.next_class())
+        except Exception:
+            return None
+
+    def _reminder(self, row) -> dict | None:
+        try:
             if not row:
                 return None
             now = self.now()
@@ -82,7 +87,22 @@ class CollegePlugin(StubPlugin):
             return self.text
 
     def widget(self) -> dict:
-        return {"title": self.manifest.name, "text": self.next_text(), "placeholder": False}
+        return {"title": self.manifest.name, "text": self.live()['college_text'], "placeholder": False}
+
+    def live(self) -> dict:
+        try:
+            if self.custom_provider:
+                state = {'current_class': None, 'next_class': self.next_class()}
+            else:
+                from services.college.overview import class_status
+                state = class_status(self.now())
+            current, following = state['current_class'], state['next_class']
+            next_text = self.describe(following)
+            current_text = f"Now: {str(current['subject'])[:38]} · until {current['end']}" if current else ''
+            return {'text': next_text if following else '', 'schedule': current_text or (next_text if following else ''),
+                    'college_text': '\n'.join(filter(None, [current_text, next_text])), **(self._reminder(following) or {})}
+        except Exception:
+            return {'text': '', 'schedule': '', 'college_text': 'Schedule unavailable. Refresh or open College schedules.'}
 
     async def command(self, text: str) -> dict:
         import asyncio
@@ -119,6 +139,9 @@ class Registry:
     def snippet(self) -> dict:
         for plugin in self.plugins.values():
             try:
+                live = getattr(plugin, 'live', None)
+                if live:
+                    return {'plugin': plugin.manifest.id, **live()}
                 reminder_fn = getattr(plugin, 'reminder', None)
                 reminder = reminder_fn() if reminder_fn else None
                 text = (reminder or {}).get('text', '') if reminder_fn else plugin.snippet()

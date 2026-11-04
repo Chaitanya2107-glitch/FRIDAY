@@ -207,8 +207,13 @@ recent launch history stays in the shared config and improves similar matches.
 
 If nothing matches, the UI says **No app found** and offers Rescan apps. All this
 works with the Python bridge stopped. App searches/launches are native in both
-skins; other commands still use FRIDAY. Known plugin commands retain priority,
-so `focus` remains a command while `open Focus` can launch an installed app.
+skins; other commands still use FRIDAY. Registered plugin commands retain priority;
+`open Focus` explicitly selects an installed app.
+
+The slash catalog is checked against the connected runtime. Unsupported entries
+are hidden while offline or using the standalone bridge. See the
+[command and integration audit](../docs/FRIDAY_INTEGRATION_AUDIT.md) for handlers,
+prerequisites and the fixes verified across the frontend and backend.
 
 Pins are only favourites. Your first eight visible pins appear in Peek, with
 extras in Expanded. In Settings → Pinned apps, search the installed-app list and

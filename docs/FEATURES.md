@@ -5,6 +5,11 @@ command bar or said by voice unless it says otherwise. How it's built: `docs/cur
 
 Different wording for the same task: [command synonyms and sentence examples](COMMAND_LANGUAGE.md).
 
+FRIDAY notices edits to its own source during development. Ask "development
+status", "what changed in your code" or "are you being upgraded" for observed
+changes and restart guidance. Chat and voice share coarse development context.
+[Development awareness and limits](DEVELOPMENT_AWARENESS.md).
+
 Friday's default role is your personal assistant: your day, schedule, routines,
 preferences and activities. “What am I doing” reports fresh app/window evidence
 and any task you explicitly labelled. “I'm studying graphs” saves a scoped task;
@@ -421,7 +426,7 @@ Windows 11 puts legacy verbs under [Show more options](https://learn.microsoft.c
 - **Done alerts (automatic):** long Claude Code replies and permission requests, long terminal commands (pass/fail,
   failed ones get [Explain]), finished downloads, heavy CPU/GPU work finishing.
 - **Downloads filing:** a new download naming a subject or project → "Move it to College\\<Subject>?"
-  [Move it] [Move & rename] [Leave it]. Screenshots taken in class / study mode are filed to the subject.
+  [Move it] [Move & rename] [Leave it]. Screenshots stay in Pictures\\Screenshots, including during class / study mode.
 
 ---
 

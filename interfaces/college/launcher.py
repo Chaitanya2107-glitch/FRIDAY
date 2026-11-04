@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from urllib.request import ProxyHandler, build_opener
+from .client import Client
 
 TITLE = 'FRIDAY - College Schedules'
 MUTEX = 'Local\\FRIDAY.CollegeSchedules'
@@ -74,9 +74,9 @@ def dpi_awareness():
 def ensure_backend():
     """Run in a worker. Taskbar runtime remains the backend's lifecycle owner."""
     import json
-    opener = build_opener(ProxyHandler({}))
+    client = Client()
     try:
-        with opener.open('http://127.0.0.1:8000/health', timeout=2) as response:
+        with client.opener.open(client.base_url + '/health', timeout=2) as response:
             data = json.loads(response.read())
             if isinstance(data, dict) and data.get('service') == 'F.R.I.D.A.Y':
                 return

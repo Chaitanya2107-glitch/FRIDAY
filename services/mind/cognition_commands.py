@@ -9,6 +9,10 @@ from services.mind.cognition import cognition, mark_introspection
 from services.mind.cognition_context import live_state
 
 _QUERIES = {
+    'development_status': (r'development status|(?:your |friday )?(?:code|upgrade) status|'
+                           r'what (?:changed|has changed) in your code|'
+                           r'are you being (?:upgraded|updated|worked on)|'
+                           r'do you (?:know|notice) (?:that )?i(?: am|\x27m) (?:upgrading|updating|working on) you'),
     'brain_status': r'brain status|question status|thinking status|why (?:did|do|are) you (?:not )?ask(?:ing)?(?: me)? (?:that|this|questions)|why did you stay silent',
     "executive_status": r"executive status|cognitive review status",
     "executive_on": r"executive review on|enable cognitive review",
@@ -36,6 +40,12 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
     mark_introspection()
     from services.automation.intent import telegram_owner
     owner_inspection = telegram_owner.get()
+    if kind == 'development_status':
+        from services.mind.development import development
+        development.scan()
+        return ActionResult(True, development.describe(details=False),
+                            memory_message='Reviewed factual source-change awareness; loaded behavior is unverified.',
+                            repeatable=False)
     if kind == 'brain_status':
         if remote and not owner_inspection:
             return ActionResult(False, 'Brain decisions and dialogue memory are local-only. Ask me at the laptop.', repeatable=False)

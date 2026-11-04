@@ -1,5 +1,6 @@
 import io
 import json
+from types import SimpleNamespace
 
 from interfaces.cli import friday
 
@@ -28,7 +29,10 @@ def test_main_sends_question_and_pipe(monkeypatch, capsys):
     def fake_urlopen(request, timeout):
         sent.append(json.loads(request.data))
         return io.BytesIO(json.dumps({"response": "Missing semicolon — obviously."}).encode())
-    monkeypatch.setattr(friday.urllib.request, "urlopen", fake_urlopen)
+    def build_opener(handler):
+        assert handler.proxies == {}
+        return SimpleNamespace(open=fake_urlopen)
+    monkeypatch.setattr(friday.urllib.request, "build_opener", build_opener)
     assert friday.main(["why", "did", "this", "fail"], Piped("npm ERR! — oops".encode())) == 0
     assert sent[0]["message"] == "why did this fail\n\nTerminal output:\nnpm ERR! — oops"
     assert capsys.readouterr().out == "Missing semicolon — obviously.\n"
@@ -37,5 +41,5 @@ def test_main_sends_question_and_pipe(monkeypatch, capsys):
 def test_friday_not_running(monkeypatch):
     def refused(request, timeout):
         raise friday.urllib.error.URLError("refused")
-    monkeypatch.setattr(friday.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(friday.urllib.request, "build_opener", lambda handler: SimpleNamespace(open=refused))
     assert friday.ask("hi").startswith("FRIDAY isn't running")

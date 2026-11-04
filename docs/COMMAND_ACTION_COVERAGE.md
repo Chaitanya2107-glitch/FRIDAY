@@ -1,6 +1,6 @@
 # Parser action coverage
 
-**265 family/action outcomes across 56 families; 530 frozen phrase examples.**
+**275 family/action outcomes across 56 families; 552 frozen phrase examples.**
 
 This inventory includes literal actions, helper actions, dictionary-driven actions, explicit finite computed-action domains, and the non-dictionary outcomes of conversation, cognition, screen, learning and mood parsers.
 Media and Spotify share a parser; their outcome rows intentionally overlap. Counts are family/action pairs, not globally unique action names.
@@ -39,6 +39,7 @@ Two phrases per action demonstrate recognition. Different target values, directi
 | brain | brain_thing | what do you know about catjang<br>Could you please what do you know about catjang |
 | brain | brain_timeline | what am i doing<br>show my current activity |
 | cognition | action | what action did you just take<br>show your most recent action |
+| cognition | development_status | development status<br>what changed in your code<br>are you being upgraded |
 | cognition | layers | brain layers<br>describe your cognitive layers |
 | cognition | notification | what notification did you send<br>Could you please what notification did you send |
 | cognition | notification_status | notification status<br>show notification decisions |

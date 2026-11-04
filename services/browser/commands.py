@@ -39,8 +39,8 @@ def match_command(message: str) -> Command | None:
     kind = {"\\b": "browser", "browser task": "browser", "desktop task": "desktop",
             "research": "research", "deep research": "research"}[match[1].lower()]
     task = (match[2] or "").strip()
-    if match[1].lower() == "\\b" and task.lower() in {"yes", "no", "stop", "status", "help", "report"}:
-        return Command("stop" if task.lower() == "no" else task.lower())
+    if match[1].lower() == "\\b" and task.lower() in {"yes", "no", "cancel", "stop", "status", "help", "report"}:
+        return Command("stop" if task.lower() in {"no", "cancel"} else task.lower())
     headless = task.lower().startswith("headless ")
     if headless:
         task = task[len("headless "):].strip()

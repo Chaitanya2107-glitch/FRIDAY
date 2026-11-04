@@ -244,7 +244,7 @@ rechecks stable fact/context fingerprints before transport. Candidate privacy go
 notification events; private filenames/terminal previews do not enter later shared cognition context.
 The local status/why/retry commands and protected GET `/api/v1/mind/notifications` expose recorded reasons,
 evidence and per-channel outcomes. Direct user-requested command feedback, Claude permission requests,
-security/system reports and screenshot filing outcomes retain their existing transport paths.
+security/system reports retain their existing transport paths.
 
 ### Laptop and Telegram temporary context (2026-10-16)
 

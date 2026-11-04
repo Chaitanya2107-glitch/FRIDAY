@@ -304,7 +304,8 @@ async def test_integrated_transport_rebinds_and_reports_readiness(island_config,
     task = asyncio.create_task(run_integrated_bridge())
     reserved = None
     async def until(predicate):
-        async with asyncio.timeout(10):
+        # Real Windows socket release can lag while the native build is running.
+        async with asyncio.timeout(30):
             while not predicate():
                 await asyncio.sleep(.05)
     try:

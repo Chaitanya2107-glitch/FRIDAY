@@ -1,5 +1,6 @@
 """Real Chromium and authenticated transport; isolated fixture runtime and native IPC."""
 import asyncio
+from datetime import datetime
 import json
 from pathlib import Path
 import sys
@@ -67,7 +68,7 @@ async def main():
         config = load_config(path)
         runtime = Runtime()
         next_class = {'subject': 'Fixture class', 'start': '10:30'}
-        registry = Registry([CollegePlugin(lambda: dict(next_class))])
+        registry = Registry([CollegePlugin(lambda: dict(next_class), now=lambda: datetime(2026, 11, 4, 8, 0))])
         bridge = Bridge(path, registry=registry, runtime=runtime)
         async with serve(bridge.handle, '127.0.0.1', 0, origins=ORIGINS) as server:
             sample = config.model_dump()
@@ -78,6 +79,7 @@ async def main():
             window.starts = 0;
             window.targetClears = 0;
             window.nativeModes = []; window.regionWidths = [];
+            window.localCommands = []; window.launches = [];
             const callbacks = new Map(), listeners = new Map(); let next = 0;
             window.__emit = (event, payload) => listeners.get(event)?.({event,payload});
             window.__TAURI_INTERNALS__ = {
@@ -96,7 +98,11 @@ async def main():
                 if (cmd==='desktop_status') return {battery:null,media:null};
                 if (cmd==='app_index_status'||cmd==='rescan_apps') return {count:0,scanning:false,updated_at:1,errors:[]};
                 if (cmd==='search_apps') return [];
-                if (cmd==='local_command') return {ok:false,text:'No app found'};
+                if (cmd==='local_command') {
+                  window.localCommands.push(args.text);
+                  return args.text==='open Calculator' ? {ok:true,text:'Opening Calculator',action:{kind:'app',id:'fixture-calculator'}} : {ok:false,text:'No app found'};
+                }
+                if (cmd==='launch') {window.launches.push(args.id);return 'Opened Calculator';}
                 if (cmd==='plugin:event|listen') {listeners.set(args.event,callbacks.get(args.handler));return ++next;}
                 if (cmd==='plugin:event|unlisten') return;
                 throw Error('Unexpected fixture native command '+cmd);
@@ -106,7 +112,7 @@ async def main():
             async with async_playwright() as playwright:
                 browser = await playwright.chromium.launch()
                 page = await browser.new_page(viewport={'width': 760, 'height': 800})
-                await page.clock.install()
+                await page.clock.install(time='2026-11-04T02:30:00Z')
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 await page.add_init_script(script)
@@ -126,12 +132,28 @@ async def main():
                 async def submit(text):
                     if not await command.is_visible(): await page.evaluate("window.__emit('hotkey','expand')")
                     await command.fill(text); await command.press('Enter'); await expect(page.locator('input.command')).to_be_enabled()
+                async def mochi_keeps_reply(text):
+                    for _ in range(3):
+                        await page.locator('.character').click()
+                    await expect(page.locator('.mochi-popover')).to_have_count(0)
+                    await expect(reply).to_have_text(text)
+                    await page.clock.fast_forward(250)
+                    await page.evaluate("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',repeat:true,bubbles:true}))")
+                    await expect(reply).to_have_text(text)
                 await command.fill('/')
                 assert await page.get_by_role('option').count() > 40
                 assert await page.locator('.suggestions').evaluate('node=>node.scrollHeight>node.clientHeight')
                 await page.get_by_role('option').filter(has_text='/lock').get_by_role('button').click()
                 await expect(command).to_have_value('/lock')
                 assert runtime.commands == [], 'Choosing a slash entry executed it without Enter'
+                await command.fill('/no')
+                await expect(page.locator('.suggestions [role="option"]')).to_have_count(2)
+                await submit('/open Calculator')
+                assert await page.evaluate('window.localCommands.at(-1)') == 'open Calculator'
+                assert await page.evaluate('window.launches') == ['fixture-calculator']
+                assert runtime.commands == [], 'Native slash open bypassed the installed app catalog'
+                await submit('/open https://example.com')
+                assert runtime.commands[-1] == '\\o https://example.com'
                 await submit('/note fixture')
                 assert runtime.commands[-1] == 'note fixture'
                 await expect(reply).to_have_text('FRIDAY handled: note fixture')
@@ -154,6 +176,8 @@ async def main():
                 await expect(reply).to_have_text('FRIDAY handled: open my college schedules')
                 await submit('ask fixture')
                 await expect(page.locator('.capsule-reply-pending')).to_be_visible()
+                await mochi_keeps_reply('FRIDAY handled: ask fixture')
+                await expect(page.locator('.capsule-reply-pending')).to_be_visible()
                 runtime.event('notification', 'Fixture reminder')
                 await asyncio.sleep(1.2)
                 await expect(reply).to_have_text('FRIDAY handled: ask fixture')
@@ -162,6 +186,13 @@ async def main():
                 runtime.event('reply_state', '')
                 runtime.events[-1]['awaiting_reply'] = False
                 await expect(reply).to_have_text('Fixture reminder')
+                await expect(page.locator('.character')).to_have_css('left', '16px')
+                await expect(page.locator('.capsule-reply')).to_be_visible()
+                await reply.click()
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await expect(reply).to_have_text('Fixture reminder')
+                await page.screenshot(path=str(ROOT / 'tasks/island-integration/capsule-reminder.png'))
+                await reply.evaluate('node => node.blur()')
                 await page.mouse.move(0, 700)
                 await page.clock.fast_forward(20000)
                 await expect(reply).to_be_visible()
@@ -232,6 +263,7 @@ async def main():
                 await expect(reply).to_be_hidden()
                 await submit('private fixture')
                 await expect(reply).to_have_text('Fixture private response')
+                await mochi_keeps_reply('Fixture private response')
                 await page.evaluate("window.dispatchEvent(new Event('blur'))")
                 await expect(reply).to_have_text('')
                 assert 'Fixture private response' not in await page.locator('body').text_content()

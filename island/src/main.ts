@@ -1,5 +1,6 @@
 import './style.css';
 import './friday.css';
+import './capsule-layout.css';
 import { FridayPanel } from './friday';
 import { sharedProjects } from './project-links';
 import { Connection } from './connection';
@@ -22,6 +23,7 @@ root.dataset.mode = surface.dataset.mode;
 surface.setAttribute('aria-label', 'FRIDAY Island');
 const row = el('div', 'island-row');
 const orb = character();
+orb.onpointerdown = event => { if (event.button === 0) event.preventDefault(); };
 const capsule = new Capsule(message);
 const live = el('span', 'live-line', 'FRIDAY offline');
 const command = el('input', 'command');
@@ -72,7 +74,7 @@ let suggestionGeneration = 0;
 const icons = new Map<string, string>();
 const replies = new ReplySurface(surface, {
   mode: () => mode, sneak: () => sneakEnabled,
-  available: () => !active && !command.value && mode !== 'expanded' && mode !== 'peek',
+  available: () => !active && !command.value && mode !== 'expanded',
   reveal: () => setMode('rest'), restore: () => busy ? Promise.resolve() : setMode(config.appearance.idle_mode === 'hover' ? 'hidden' : 'rest'),
   changed: () => animateRegions(),
   action: async value => { const result = await connection.request('runtime_action', { action: 'notification', value }); return { ok: result.ok === true, text: String(result.text ?? '') }; },
@@ -150,6 +152,7 @@ async function setMode(next: Mode, activate = false) {
   mode = next; active = activate && ['peek', 'expanded', 'sneak'].includes(next);
   surface.dataset.mode = next;
   root.dataset.mode = next;
+  surface.dataset.active = String(active);
   capsule.setMode(next);
   command.placeholder = next === 'sneak' ? 'What would you like to do?' : 'A thought, a command…';
   if (next === 'rest' || next === 'hidden') { command.value = ''; clearSuggestions(); }
@@ -176,8 +179,15 @@ function dispatch(event: Parameters<typeof transition>[1], activate = false) {
 }
 async function openTab(next: Tab) { tab = next; await setMode('expanded', active); }
 surface.onpointerenter = () => { lastActivity = Date.now(); clearTimeout(leaveTimer); };
-// Entering the song strip keeps its controls stationary and immediately clickable.
-row.onpointerenter = () => { if (mode === 'rest' && !replies.visible) void dispatch('hover'); };
+surface.onpointermove = event => {
+  if (mode !== 'rest' || replies.visible) return;
+  const bounds = orb.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right) void dispatch('hover');
+};
+row.onclick = event => {
+  if ((mode === 'rest' || mode === 'peek') && !active && !(event.target as Element).closest('.character,.capsule-reply,button,input,textarea,select,a')) void setMode('peek', true);
+};
+orb.addEventListener('click', () => { lastActivity = Date.now(); });
 surface.onpointerleave = () => {
   lastActivity = Date.now();
   if (mode === 'peek' && !active && !command.value) leaveTimer = setTimeout(() => void dispatch('leave'), 400);
@@ -195,7 +205,7 @@ window.addEventListener('blur', () => {
   if (mode === 'peek' || mode === 'sneak') void dispatch('escape');
   else if (mode === 'rest') replies.resolvePrivate();
 });
-window.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); void dispatch('escape'); } });
+window.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); if (!event.repeat) void dispatch('escape'); } });
 
 function applyConfig() {
   document.documentElement.style.setProperty('--accent', config.appearance.glow);
@@ -211,7 +221,7 @@ function applyConfig() {
   }
 }
 function updateLive() {
-  capsule.setReminder(online && config.appearance.snippet ? reminder : null);
+  if (online && config.appearance.snippet) replies.snippet(readReminder(reminder));
   capsule.setSchedule(online ? schedule : '');
   live.textContent = online ? snippet : 'FRIDAY offline';
   root.classList.toggle('character-only', !config.appearance.snippet || (online && !snippet.trim()));
@@ -301,7 +311,7 @@ command.oninput = () => {
   const generation = ++suggestionGeneration;
   const text = command.value;
   selected = -1;
-  if (text.trimStart().startsWith('/')) { suggestions = slashSuggestions(text, manifests); renderSuggestions(); return; }
+  if (text.trimStart().startsWith('/')) { suggestions = slashSuggestions(text, manifests, online ? integrated ? 'full' : 'standalone' : 'offline'); renderSuggestions(); return; }
   suggestionTimer = setTimeout(() => {
     const explicit = /^open(?:\s|$)/i.test(text.trim());
     let local: Suggestion[] = [], brain: Suggestion[] = [], localDone = false;
@@ -356,7 +366,7 @@ async function run(text: string, item?: Suggestion) {
   if (busy || !text.trim()) return;
   const fromSlash = text.trimStart().startsWith('/');
   try {
-    const resolved = resolveSlash(text, manifests);
+    const resolved = resolveSlash(text, manifests, online ? integrated ? 'full' : 'standalone' : 'offline');
     if (resolved.palette) { command.value = '/'; command.oninput?.(new Event('input')); return; }
     if (resolved.view) { if (sneakEnabled) message('Turn off Sneak mode to open Island panels.'); else await openTab(resolved.view); return; }
     text = resolved.text;
@@ -370,15 +380,16 @@ async function run(text: string, item?: Suggestion) {
   try {
     let result: CommandResult;
     const feature = integrated && (isFileReference(text) || /^(?:open (?:college schedules|habits|productivity|friday settings)|settings friday)(?:\s|$)/i.test(text.trim()));
-    const local = native && !feature && /^(?:open|proj|settings)(?:\s|$)/i.test(text.trim());
+    const nativeText = fromSlash && text.startsWith('\\o ') ? `open ${text.slice(3)}` : text;
+    const local = native && !feature && /^(?:open|proj|settings)(?:\s|$)/i.test(nativeText.trim());
     const exact = !fromSlash && !item?.app && !feature && !local && native && !isBrainCommand(text) ? (await apps.search(text, 1).catch(() => [])).find(a => a.name.toLowerCase() === text.trim().toLowerCase()) : undefined;
     const target = item?.app ?? exact;
     if (target) result = { ok: true, text: `Opening ${target.name}`, action: { kind: target.kind, id: target.id } };
     else {
       if (integrated && !local && !target) await setMode('rest');
-      result = local ? await call<CommandResult>('local_command', { text }) : online ? await connection.command(text, targetWindow ?? undefined) : native ? await call<CommandResult>('local_command', { text })
+      result = local ? await call<CommandResult>('local_command', { text: nativeText }) : online ? await connection.command(text, targetWindow ?? undefined) : native ? await call<CommandResult>('local_command', { text: nativeText })
       : { text: 'Desktop commands are available in the Tauri app.', ok: false };
-      if (local && !result.ok && integrated && /^(?:proj|open)\s/i.test(text)) {
+      if (local && !result.ok && integrated && /^(?:proj|open)\s/i.test(nativeText)) {
         await setMode('rest');
         result = await connection.command(/^proj\s/i.test(text) ? `resume ${text.trim().slice(5)}` : text, targetWindow ?? undefined);
       }
@@ -418,17 +429,19 @@ function connect() {
     if (frame.type === 'pill_snippet_update' && typeof frame.text === 'string') {
       schedule = typeof frame.schedule === 'string' ? frame.schedule.slice(0, 100) : '';
       widgets.updateCollege(frame.college_text);
-      snippet = frame.text.slice(0, 80); reminder = readReminder(frame); updateLive(); replies.snippet(reminder);
+      snippet = frame.text.slice(0, 80); reminder = readReminder(frame); updateLive();
     }
     if (frame.type === 'plugin_list' && Array.isArray(frame.plugins)) {
       manifests = frame.plugins.filter((m): m is Manifest => typeof m === 'object' && m !== null && typeof m.id === 'string' && typeof m.name === 'string' && Array.isArray(m.commands));
       if (mode === 'expanded' && tab === 'plugins') renderPanel();
     }
+    if (['status', 'plugin_list'].includes(frame.type) && command.value.trimStart().startsWith('/')) command.oninput?.(new Event('input'));
   }, connected => {
     online = connected;
     friday.connected(connected);
     settings.connectionChanged();
     if (!connected) { manifests = []; snippet = ''; schedule = ''; reminder = null; sneakReply.textContent = ''; sneakReply.hidden = true; replies.clear(); }
+    if (command.value.trimStart().startsWith('/')) command.oninput?.(new Event('input'));
     updateLive();
     if (mode === 'expanded' && tab === 'plugins') renderPanel();
   });

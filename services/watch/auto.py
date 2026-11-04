@@ -7,8 +7,6 @@ The "it's done" alerts FRIDAY gives without being asked, plus the loop that runs
     the real file → "Downloaded setup.exe (1.2 GB)." Only downloads that took a minute or more.
     A new document that looks like a subject's or project's also gets "Move it to College\\DBMS?"
     buttons, however fast it came (services/files/filing.py).
-  - Screenshots: one taken during a class or a subject's study session is moved to
-    College\\<Subject>\\Screenshots (services/files/filing.py) — told once per subject a day.
   - Heavy work: CPU or GPU ≥ 80% for HEAVY_WORK_MINUTES, then calm → "Heavy work finished —
     GPU busy for 42 min." Not while gaming or fullscreen (a game ending isn't news).
 The asked-for watches are in asked.py; Claude Code and terminal alerts arrive through the API (done.py).
@@ -131,30 +129,10 @@ def announce(path: Path, slow: bool) -> str | None:
     return None
 
 
-_told_screenshots: set[tuple[str, str]] = set()  # (subject, day) already told about
-
-
-def file_screenshot(path: Path) -> None:
-    """A new screenshot (blocking): file it with its subject; the first one each day gets a toast."""
-    from datetime import date
-    from services.files import filing
-    from services.reminders.service import show_toast  # avoid an import cycle at startup
-
-    folder = filing.file_screenshot(path)
-    if folder is None:
-        return
-    subject = folder.parent.name
-    if (subject, date.today().isoformat()) not in _told_screenshots:
-        _told_screenshots.add((subject, date.today().isoformat()))
-        show_toast(done.TITLE, f"Screenshots during {subject} go to {filing.describe(folder)}.")
-
-
 async def run_watches() -> None:
     """Runs for the lifetime of the API process; started from app.py's lifespan."""
     logger.info("Done alerts started")
-    from services.automation.system_control import SCREENSHOT_DIR
-
-    downloads, screenshots, heavy = Downloads(), Downloads(SCREENSHOT_DIR), HeavyWork()
+    downloads, heavy = Downloads(), HeavyWork()
     last_load = 0.0
     while True:
         try:
@@ -163,8 +141,6 @@ async def run_watches() -> None:
             for path, slow in await asyncio.to_thread(downloads.check, now):
                 if alert := await asyncio.to_thread(announce, path, slow):
                     alerts.append(alert)
-            for path, _ in await asyncio.to_thread(screenshots.check, now):
-                await asyncio.to_thread(file_screenshot, path)
             alerts += await asyncio.to_thread(asked.check, now, network.online)
             if now - last_load >= LOAD_EVERY_SECONDS:
                 last_load = now

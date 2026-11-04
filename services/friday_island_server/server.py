@@ -95,6 +95,7 @@ class Bridge:
         try:
             head = request.text.strip().split(maxsplit=1)
             if self.runtime and (not head or head[0].casefold() not in self.registry.commands
+                                 or (head[0].casefold() == 'next' and len(head) > 1)
                                  or getattr(self.runtime, 'pending', lambda: False)()):
                 result = await asyncio.wait_for(self.runtime.command(request.text, ws,
                     request.target.model_dump() if request.target else None), 120)

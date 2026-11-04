@@ -182,7 +182,7 @@ async def _run(chat_id: int, text: str) -> None:
         if bypass and not rest.strip():
             return await say(chat_id, "Use /! <command>, for example /! /sleep. This applies to one command only.")
         await _run_remote(chat_id, rest.strip() if bypass else text)
-    except (FridayError, TelegramError, keyboard.KeyboardError, OSError) as e:
+    except (FridayError, TelegramError, keyboard.KeyboardError, OSError, ValueError) as e:
         await say(chat_id, f"That didn't work: {getattr(e, 'message', e)}")
     finally:
         intent.skip_confirmation.reset(flag)
@@ -346,10 +346,17 @@ AS_TEXT = {"open_app": "open {}", "open_url": "go to {}", "media_play": "play mu
 
 def slash_command(text: str) -> str | None:
     """/lock, /sleep, /shutdown 30, /restart, /away, /cancel → what they mean in words."""
-    word, _, rest = text.strip().partition(" ")
+    parts = text.strip().split(maxsplit=1)
+    if not parts:
+        return None
+    word, rest = parts[0], parts[1].strip() if len(parts) > 1 else ''
     word = word.split("@")[0].lower()
     if word == "/shutdown":
-        return f"shut down in {rest.strip()} minutes" if rest.strip().isdigit() else "shut down the laptop"
+        if rest and not re.fullmatch(r'[0-9]{1,5}', rest):
+            raise ValueError('Use /shutdown or /shutdown <minutes>.')
+        return f"shut down in {rest} minutes" if rest else "shut down the laptop"
+    if word in _SLASH and rest:
+        raise ValueError(f'{word} does not take arguments.')
     return _SLASH.get(word)
 
 

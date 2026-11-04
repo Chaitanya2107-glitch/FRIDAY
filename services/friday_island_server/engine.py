@@ -49,7 +49,7 @@ class Engine:
             candidates = [(f"{head} {p.name}", p.name) for p in items]
             query = tail
         else:
-            candidates = [(c, c) for c in ["settings", "proj", "open", *self.registry.commands, "note", "focus"]]
+            candidates = [(c, c) for c in ["settings", "proj", "open", *self.registry.commands]]
             query = text
         ranked = sorted(candidates, key=lambda row: score(query, row[1]), reverse=True)
         return [{"text": label, "detail": "Configured app" if head == "open" else "Command"}
@@ -79,6 +79,6 @@ class Engine:
                 return {"text": "More than one match. Use a longer name.", "ok": False}
             return {"text": f"Opening {best.name}", "ok": True,
                     "action": {"kind": "project", "id": best.id}}
-        if head in self.registry.commands:
+        if head in self.registry.commands and (head != 'next' or not tail.strip()):
             return await self.registry.commands[head].command(text)
         return {"text": await self.assistant(text), "ok": True}

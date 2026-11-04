@@ -12,18 +12,20 @@ files, memory and the rest all work, and replies print here instead of being spo
 
 Piped text is added to the question (the end of it, if it's long: that's where errors are).
 It goes to whichever AI answers the chat, so don't pipe secrets.
-Standard library only, so it starts instantly. The PowerShell profile has a `friday` function
+Uses the same local API configuration as the desktop. The PowerShell profile has a `friday` function
 that runs it with FRIDAY's own Python.
 """
 
 import json
-import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
 
-PORT = os.environ.get("API_PORT", "8000")
-URL = f"http://127.0.0.1:{PORT}/api/v1/chat"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from core.config import config
+
+URL = f"http://{config.API_HOST}:{config.API_PORT}/api/v1/chat"
 MAX_MESSAGE = 4000          # the API's limit
 MAX_REPLY_TOKENS = 1000
 TIMEOUT_SECONDS = 180       # free models can think for a while
@@ -45,7 +47,8 @@ def ask(message: str) -> str:
     request = urllib.request.Request(URL, method="POST", headers={"Content-Type": "application/json"},
                                      data=json.dumps({"message": message, "max_tokens": MAX_REPLY_TOKENS}).encode())
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as reply:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=TIMEOUT_SECONDS) as reply:
             return json.loads(reply.read())["response"]
     except urllib.error.HTTPError as e:
         try:

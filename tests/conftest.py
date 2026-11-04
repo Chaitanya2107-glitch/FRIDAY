@@ -50,6 +50,9 @@ for handler in [h for h in logger.handlers if isinstance(h, logging.FileHandler)
 @pytest.fixture(autouse=True)
 def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     """Tests never read or write the real command and speech caches."""
+    from services.mind import development
+    monkeypatch.setattr(development, 'development', development.DevelopmentAwareness(
+        tmp_path / 'friday-source', tmp_path / 'development.json'))
     from services.files import embed
     from services.friday_island_server import config as island_config
     monkeypatch.setattr(island_config, 'config_path', lambda: tmp_path / 'island.json')

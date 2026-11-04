@@ -1,0 +1,18 @@
+/* The clock, date, and battery capsule is also the resting view. */
+.surface { background: #000; border: 0; backdrop-filter: none; box-shadow: none; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) { width: 288px; border-radius: 0 0 14px 14px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .island-row { position: relative; height: 32px; padding: 0; display: block; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .character { position: absolute; left: calc(50% - 14px); top: 2px; width: 28px; height: 28px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .command,
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .tools { display: none; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .rest-info { position: absolute; display: flex; flex-direction: row;
+  align-items: center; gap: 7px; top: 5px; height: 22px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .rest-clock { left: 14px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .rest-detail { right: 14px; max-width: calc(50% - 34px); }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .clock-secondary:not(.capsule-battery) { display: none; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .clock-time,
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .clock-date { font-size: 11px; line-height: 1; letter-spacing: 0; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .capsule-battery { font-size: 9px; gap: 3px; flex-shrink: 0; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .capsule-schedule { display: none; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .capsule-media { width: 288px; }
+.surface[data-mode='peek'][data-active='true'], .surface[data-mode='expanded'] { width: 640px; }

@@ -1,4 +1,6 @@
 import asyncio
+import io
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -89,8 +91,10 @@ def test_api_endpoint_and_the_link_handler(log, monkeypatch):
     assert client.post("/api/v1/notify/respond", json={"token": token, "answer": "later"}).status_code == 404
 
     sent = []
-    monkeypatch.setattr(protocol_handler.urllib.request, "urlopen",
-                        lambda request, timeout: sent.append(request.data) or type("R", (), {"read": lambda s: b""})())
+    def build_opener(handler):
+        assert handler.proxies == {}
+        return SimpleNamespace(open=lambda request, timeout: sent.append(request.data) or io.BytesIO(b''))
+    monkeypatch.setattr(protocol_handler.urllib.request, "build_opener", build_opener)
     protocol_handler.main("friday://habit?token=abcdefghijkl&answer=open", "8000")
     protocol_handler.main("friday://habit?token=bad token!&answer=open", "8000")  # not a link FRIDAY made
     assert sent == [b'{"token": "abcdefghijkl", "answer": "open"}']

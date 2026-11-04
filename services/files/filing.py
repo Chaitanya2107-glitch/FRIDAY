@@ -12,7 +12,6 @@ one clear winner or no suggestion. Subjects go to Documents\\College\\<Subject>,
 
 import re
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 from core.logger import logger
@@ -90,45 +89,3 @@ def move(source: str, folder: str, rename: bool = False) -> str:
     shutil.move(str(src), str(target))
     logger.info(f"Filed {src.name} → {target}")
     return f"Moved {src.name} to {describe(dest_dir)}" + (f" as {target.name}." if rename else ".")
-
-
-# ── Screenshots ───────────────────────────────────────────────────────────────
-# A screenshot taken during a class (timetable) or a study session for a subject ("study mode
-# for DBMS") is moved to College\<Subject>\Screenshots at once — lecture slides end up with
-# the subject. Others stay where they are. services/watch/auto.py spots new ones.
-
-SCREENSHOT_EXTENSIONS = {".png", ".jpg", ".jpeg"}
-
-
-def subject_now(now: datetime) -> str | None:
-    from services.automation import modes  # avoid an import cycle at startup
-
-    mode = modes.active()
-    if mode and mode.get("subject"):
-        return mode["subject"]
-    clock = now.strftime("%H:%M")
-    try:
-        return next((c["subject"] for c in timetable.classes_for_date(now.date())
-                     if c["start"] <= clock < c["end"]), None)
-    except AutomationError:
-        return None
-
-
-def file_screenshot(path: Path, now: datetime | None = None) -> Path | None:
-    """Move a new screenshot to its subject's folder; the folder it went to, or None if it stays."""
-    now = now or datetime.now()
-    subject = subject_now(now) if path.suffix.lower() in SCREENSHOT_EXTENSIONS else None
-    if not subject:
-        return None
-    folder = COLLEGE_DIR / _folder_name(subject) / "Screenshots"
-    folder.mkdir(parents=True, exist_ok=True)
-    target, n = folder / f"{subject} {now:%Y-%m-%d %H-%M-%S}{path.suffix.lower()}", 1
-    while target.exists():
-        target, n = folder / f"{subject} {now:%Y-%m-%d %H-%M-%S} ({n}){path.suffix.lower()}", n + 1
-    try:
-        shutil.move(str(path), str(target))
-    except OSError as e:  # still being written, or gone
-        logger.warning(f"Couldn't file screenshot {path.name}: {e}")
-        return None
-    logger.info(f"Filed screenshot → {target}")
-    return folder

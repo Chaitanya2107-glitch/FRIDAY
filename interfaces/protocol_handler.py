@@ -30,7 +30,9 @@ def main(link: str, port: str) -> None:
         method="POST",
     )
     try:
-        urllib.request.urlopen(request, timeout=10).read()
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=10) as response:
+            response.read()
     except OSError:
         pass  # FRIDAY isn't running, or the notification expired — nothing to do
 

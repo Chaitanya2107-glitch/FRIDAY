@@ -5,6 +5,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
+from core.config import config
+
 
 class Error(Exception):
     def __init__(self, message, status=None):
@@ -13,7 +15,9 @@ class Error(Exception):
 
 
 class Client:
-    def __init__(self, base_url='http://127.0.0.1:8000', timeout=8):
+    def __init__(self, base_url=None, timeout=8):
+        if base_url is None:
+            base_url = f'http://{config.API_HOST}:{config.API_PORT}'
         parsed = urlsplit(base_url)
         if parsed.scheme != 'http' or parsed.hostname not in {'127.0.0.1', 'localhost', '::1'} or parsed.username:
             raise ValueError('College Schedules connects only to the local FRIDAY backend.')

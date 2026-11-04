@@ -7,13 +7,22 @@ For the tray: the "Let FRIDAY talk on her own" switch, and her questions as they
 
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.mind import talk
 
 router = APIRouter()
 MAX_WAIT_SECONDS = 30
+
+
+@router.get('/mind/development')
+async def development_status():
+    from services.screen_watch.commands import local_request
+    if not local_request.get():
+        raise HTTPException(status_code=403, detail='Detailed development status is available at the laptop only.')
+    from services.mind.development import development
+    return development.status()
 
 
 @router.get('/mind/brain')
@@ -23,7 +32,8 @@ async def brain_status():
     status = await asyncio.to_thread(inquiry.status)
     from services.mind.consolidation import consolidation
     from services.mind.review_metrics import latest
-    return {'attention_running': running(), 'inquiry': status,
+    from services.mind.development import development
+    return {'attention_running': running(), 'inquiry': status, 'development': development.context(),
             'consolidation': await asyncio.to_thread(consolidation.status),
             'local_review': await asyncio.to_thread(latest)}
 

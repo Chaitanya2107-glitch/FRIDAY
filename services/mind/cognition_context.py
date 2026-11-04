@@ -32,6 +32,7 @@ def live_state() -> dict:
     from services.mind import life, talk
     from services.telegram import capabilities
     from services import body_state
+    from services.mind.development import development
 
     try:
         pending = talk.load().get("pending")
@@ -45,6 +46,7 @@ def live_state() -> dict:
                 "mode_active": bool(modes.active()),
                 "mode_name": current_mode.get('name', 'normal'),
                 'integrations': operational_state(),
+                'development': development.context(),
                 "mood": life.mood(datetime.now())[0], "telegram_configured": capabilities.ready(),
                 "waiting_for_answer": bool(pending and time.time() - pending.get("at", 0) <= talk.ANSWER_SECONDS) or dialogue.awaiting(),
                 "speaking": body["speaking"], "listening": body["listening"], "thinking": body["thinking"],
@@ -76,7 +78,9 @@ def prompt_section() -> str:
         events.append({"kind": event["kind"], "channel": event["channel"], "status": event["status"],
                        "time": datetime.fromtimestamp(event["at"]).strftime("%H:%M:%S"),
                        "content": event["text"][:600] if event["public"] else "[local-only content]"})
-    state = json.dumps(live_state(), ensure_ascii=False)
+    live = live_state()
+    development = live.pop('development', None)
+    state = json.dumps(live, ensure_ascii=False)
     from services.mind.workspace import workspace
     work = workspace.context()
     from services.productivity.store import tracker
@@ -102,6 +106,10 @@ def prompt_section() -> str:
             work = {}
             break
     encoded_work = json.dumps(work, ensure_ascii=False)
+    if development and development.get('available'):
+        candidate = json.dumps({**live, 'development': development}, ensure_ascii=False)
+        if len(header) + len(candidate) + len(encoded_work) + 50 <= config.COGNITION_PROMPT_CHARS:
+            state = candidate
     budget = config.COGNITION_PROMPT_CHARS - len(header) - len(state) - len(encoded_work) - 50
     kept = []
     for event in reversed(events):

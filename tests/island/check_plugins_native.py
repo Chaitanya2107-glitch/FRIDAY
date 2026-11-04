@@ -31,13 +31,13 @@ from services.mind.workspace import Workspace
 from services.productivity.store import Tracker
 
 
-def main():
-    output = ROOT / 'tasks/island-plugins-native'; output.mkdir(exist_ok=True)
+def check(executable: Path, output: Path):
+    output.mkdir(parents=True, exist_ok=True)
     original_cursor = w.POINT(); u.GetCursorPos(c.byref(original_cursor))
-    executable = ROOT / 'island/src-tauri/target/release/friday-island.exe'
     evidence = {'artifact_sha256': hashlib.sha256(executable.read_bytes()).hexdigest()}
     with tempfile.TemporaryDirectory(dir=output) as temp:
         path = Path(temp) / 'config.json'; config = load_config(path)
+        config.startup.manage_bridge = False
         config.hotkeys.sneak, config.hotkeys.expand = 'Ctrl+Shift+Alt+F23', 'Ctrl+Shift+Alt+F24'
         store = Tracker(Workspace(Cognition(Path(temp) / 'tracker.db')))
         start = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
@@ -62,10 +62,12 @@ def main():
         try:
             with sync_playwright() as playwright:
                 debug_port = port()
-                env = dict(os.environ, FRIDAY_ISLAND_CONFIG=str(path),
+                env = dict(os.environ, FRIDAY_ISLAND_CONFIG=str(path), FRIDAY_ISLAND_MANAGE_BRIDGE='0',
+                           WEBVIEW2_USER_DATA_FOLDER=str(output / 'webview-profile'),
                            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=f'--remote-debugging-port={debug_port} --remote-debugging-address=127.0.0.1')
                 u.SetCursorPos(u.GetSystemMetrics(0)//2, 450)
-                app = subprocess.Popen([str(executable)], cwd=ROOT / 'island', env=env, stdout=log, stderr=log)
+                app = subprocess.Popen([str(executable)], cwd=ROOT / 'island', env=env, stdout=log, stderr=log,
+                                       creationflags=subprocess.CREATE_NO_WINDOW)
                 for _ in range(100):
                     try:
                         browser = playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{debug_port}', timeout=400); break
@@ -74,10 +76,17 @@ def main():
                         time.sleep(.15)
                 assert browser, 'WebView2 did not start'
                 page = browser.contexts[0].pages[0]
-                expect(page.locator('.capsule-reminder')).to_contain_text('Island test class')
+                expect(page.locator('.capsule-reply-text')).to_contain_text('Island test class')
+                expect(page.locator('.character')).to_have_css('left', '16px')
                 expect(page.locator('.clock-date')).to_be_hidden()
+                expect(page.locator('.capsule-reminder')).to_have_count(0)
+                page.screenshot(path=str(output / 'reminder-reply-view.png'))
                 evidence['authenticated_timed_reminder'] = True
-                page.locator('.island-row').hover()
+                page.get_by_role('button', name='Acknowledge reply').click()
+                expect(page.locator('.clock-date')).to_be_visible()
+                expect(page.locator('.character')).to_have_css('left', '130px')
+                evidence['same_reply_view_and_idle_recentering'] = True
+                page.locator('.rest-clock').click()
                 page.get_by_role('button', name='Projects', exact=True).click()
                 page.get_by_role('button', name='Plugins', exact=True).click()
                 todos, habits = page.locator('[data-plugin="todo"]'), page.locator('[data-plugin="habit_tracker"]')
@@ -118,6 +127,8 @@ def main():
         (output/'evidence.json').write_text(json.dumps(evidence, indent=2), encoding='utf-8')
         print(json.dumps(evidence, indent=2))
         print('PASS: native release tracker widgets, authenticated bridge, shared persistence and expiring class date swap')
+        return evidence
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    check(ROOT / 'island/src-tauri/target/release/friday-island.exe', ROOT / 'tasks/island-plugins-native')

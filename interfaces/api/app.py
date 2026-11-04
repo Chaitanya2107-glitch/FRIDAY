@@ -49,6 +49,8 @@ async def lifespan(app: FastAPI):
     logger.info("F.R.I.D.A.Y API started successfully")
     buttons.register_protocol()  # notification buttons open friday:// links
     register_file_menu()  # Explorer: send the selected file to Chaitu
+    from services.mind.development import development
+    await asyncio.to_thread(development.scan)
     if config.LEARNING_DATA_ENABLED:
         from services.learning import service as learning_service
         try:
@@ -59,6 +61,7 @@ async def lifespan(app: FastAPI):
     from services.screen_watch import service as screen_watch
     from services.friday_island_server.server import run_integrated_bridge
     background_loops = [
+        asyncio.create_task(development.run()),
         asyncio.create_task(run_integrated_bridge()),
         asyncio.create_task(screen_watch.watch.run()),
         asyncio.create_task(cognitive_runtime.run()),
@@ -78,12 +81,16 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         from services.browser.service import automation
-        await automation.close()
-        for loop in background_loops:
-            loop.cancel()
-        await asyncio.gather(*background_loops, return_exceptions=True)
-        from providers.ollama.runtime import runtime
-        await runtime.close()
+        try:
+            await automation.close()
+        finally:
+            for loop in background_loops:
+                loop.cancel()
+            try:
+                await asyncio.gather(*background_loops, return_exceptions=True)
+            finally:
+                from providers.ollama.runtime import runtime
+                await runtime.close()
     logger.info("F.R.I.D.A.Y API shutting down")
 
 

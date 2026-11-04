@@ -1,6 +1,7 @@
 import type { Manifest, Suggestion, Tab } from './types.ts';
 
 interface SlashCommand { name: string; detail: string; command: string; argument?: string; required?: boolean; view?: Tab }
+export type SlashRuntime = 'full' | 'standalone' | 'offline';
 const commands: SlashCommand[] = [
   { name: 'help', detail: 'Show all commands', command: '' },
   { name: 'status', detail: 'FRIDAY status and controls', command: '', view: 'friday' },
@@ -20,15 +21,13 @@ const commands: SlashCommand[] = [
   { name: 'notes', detail: 'Read your notes', command: 'read my notes' },
   { name: 'remind', detail: 'Set a reminder', command: 'remind me {args}', argument: 'when and what', required: true },
   { name: 'reminders', detail: 'List your reminders', command: 'list reminders' },
-  { name: 'due', detail: 'Upcoming deadlines and commitments', command: "what's due" },
+  { name: 'due', detail: 'Your saved deadlines', command: "what's due" },
   { name: 'find', detail: 'Search your indexed files', command: '\\f {args}', argument: 'query', required: true },
   { name: 'open-file', detail: 'Open a numbered file search result', command: 'open {args}', argument: 'result number', required: true },
   { name: 'ask-files', detail: 'Ask a question about your files', command: '\\d {args}', argument: 'question', required: true },
   { name: 'browser', detail: 'Browser task, help, status, yes or stop', command: '\\b {args}', argument: 'task or control' },
   { name: 'research', detail: 'Research a subject', command: 'research {args}', argument: 'subject', required: true },
-  { name: 'computer-status', detail: 'Supervised computer task status', command: '\\c status' },
-  { name: 'computer-stop', detail: 'Cancel a supervised computer proposal', command: '\\c stop' },
-  { name: 'copy', detail: 'Copy text to the clipboard', command: 'copy {args}', argument: 'text', required: true },
+  { name: 'copy', detail: 'Copy text to the clipboard', command: 'copy {args} to clipboard', argument: 'text', required: true },
   { name: 'type', detail: 'Type into the original app', command: 'type {args}', argument: 'exact text', required: true },
   { name: 'press', detail: 'Press keys through FRIDAY’s confirmation flow', command: 'press {args}', argument: 'keys', required: true },
   { name: 'battery', detail: 'Battery status', command: 'battery' },
@@ -59,25 +58,29 @@ const commands: SlashCommand[] = [
   { name: 'cancel', detail: 'Cancel a scheduled shutdown', command: 'cancel the shutdown' },
 ];
 
-function catalog(manifests: Manifest[] = []): SlashCommand[] {
-  return [...commands, ...manifests.flatMap(plugin => plugin.commands.filter(name => !commands.some(item => item.name === name))
+function catalog(manifests: Manifest[] = [], runtime: SlashRuntime = 'full'): SlashCommand[] {
+  const entries: SlashCommand[] = [...commands, ...manifests.flatMap(plugin => plugin.commands.filter(name => !commands.some(item => item.name === name))
     .map(name => ({ name, detail: plugin.name, command: `${name} {args}`, argument: 'command options' })))];
+  return entries.filter(item => runtime === 'full' || item.view || ['help', 'open', 'proj'].includes(item.name)
+    || runtime === 'standalone' && manifests.some(plugin => plugin.commands.includes(item.name)));
 }
 
-export function slashSuggestions(text: string, manifests: Manifest[] = []): Suggestion[] {
+export function slashSuggestions(text: string, manifests: Manifest[] = [], runtime: SlashRuntime = 'full'): Suggestion[] {
   const match = /^\/([a-z0-9_-]*)\s*$/i.exec(text.trimStart());
   if (!match) return [];
-  return catalog(manifests).filter(item => item.name.startsWith(match[1].toLowerCase()))
+  return catalog(manifests, runtime).filter(item => item.name.startsWith(match[1].toLowerCase()))
     .map(item => ({ text: `/${item.name}${item.argument ? ' ' : ''}`, detail: `${item.detail}${item.argument ? ` · ${item.argument}` : ''}`, fill: true }));
 }
 
-export function resolveSlash(text: string, manifests: Manifest[] = []): { text: string; view?: Tab; palette?: boolean } {
+export function resolveSlash(text: string, manifests: Manifest[] = [], runtime: SlashRuntime = 'full'): { text: string; view?: Tab; palette?: boolean } {
   if (!text.trimStart().startsWith('/')) return { text };
   const value = text.trimStart();
   const head = value.split(/\s+/, 1)[0];
   if (head === '/' || head.toLowerCase() === '/help') return { text: '', palette: true };
   const item = catalog(manifests).find(item => `/${item.name}` === head.toLowerCase());
   if (!item) throw Error('Unknown slash command. Type / to see the available commands.');
+  if (!catalog(manifests, runtime).some(available => available.name === item.name))
+    throw Error('This command needs the full FRIDAY backend. Start FRIDAY and try again.');
   const args = value.slice(head.length).replace(/^\s/, '');
   if (item.required && !args.trim()) throw Error(`Use /${item.name} <${item.argument}>.`);
   if (!item.argument && args.trim()) throw Error(`/${item.name} does not take arguments.`);

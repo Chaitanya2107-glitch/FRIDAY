@@ -1,7 +1,7 @@
 import { icon } from './icons';
 import { call, native } from './native';
-import { element as el, readReminder } from './state';
-import type { DesktopStatus, MediaSession, Mode, PillSnippet } from './types';
+import { element as el } from './state';
+import type { DesktopStatus, MediaSession, Mode } from './types';
 
 /** Rest's local clock, battery and optional Windows media strip. */
 export class Capsule {
@@ -12,10 +12,7 @@ export class Capsule {
   private period = el('span', 'clock-period');
   private weekday = el('span', 'clock-secondary');
   private date = el('time', 'clock-date');
-  private reminder = el('span', 'capsule-reminder');
   private schedule = el('span', 'capsule-schedule');
-  private reminderData: PillSnippet | null = null;
-  private reminderTimer?: ReturnType<typeof setTimeout>;
   private battery = el('span', 'capsule-battery clock-secondary');
   private charge = el('span', 'battery-charge');
   private percent = el('span');
@@ -42,9 +39,8 @@ export class Capsule {
     const batteryIcon = el('span', 'battery-icon'); batteryIcon.append(icon('battery'), this.charge);
     this.battery.append(batteryIcon, this.percent);
     this.battery.hidden = true;
-    this.reminder.hidden = true; this.reminder.setAttribute('aria-live', 'polite');
     this.schedule.hidden = true;
-    this.right.append(this.date, this.reminder, this.schedule, this.battery);
+    this.right.append(this.date, this.schedule, this.battery);
     const metadata = el('div', 'media-metadata'); metadata.append(this.title, this.artist);
     const controls = el('div', 'media-controls'); controls.append(this.previous, this.toggle, this.next);
     this.media.append(icon('music'), metadata, controls);
@@ -62,24 +58,8 @@ export class Capsule {
     if (this.visible) { this.tickClock(); void this.refresh(); }
   }
 
-  setReminder(value: unknown) {
-    this.reminderData = readReminder(value);
-    this.updateReminder();
-  }
-
   setSchedule(text: string) {
     this.schedule.textContent = text; this.schedule.title = text; this.schedule.hidden = !text;
-  }
-
-  private updateReminder() {
-    clearTimeout(this.reminderTimer);
-    this.reminderData = readReminder(this.reminderData);
-    this.date.hidden = !!this.reminderData;
-    this.reminder.hidden = !this.reminderData;
-    const text = this.reminderData?.text ?? '';
-    if (this.reminder.textContent !== text) this.reminder.textContent = text;
-    this.reminder.title = text;
-    if (this.reminderData) this.reminderTimer = setTimeout(() => this.updateReminder(), this.reminderData.expires_at - Date.now() + 1);
   }
 
   private tickClock() {
@@ -92,7 +72,6 @@ export class Capsule {
     this.weekday.textContent = this.dayFormat.format(now);
     this.date.textContent = this.dateFormat.format(now); this.date.dateTime = now.toISOString();
     this.date.title = now.toLocaleDateString(undefined, { dateStyle: 'full' });
-    this.updateReminder();
     // Minute-boundary refresh; no ticking seconds or continuous render loop.
     if (this.visible) this.clockTimer = setTimeout(() => this.tickClock(), 60000 - Date.now() % 60000 + 25);
   }

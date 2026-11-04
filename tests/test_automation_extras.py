@@ -2,12 +2,13 @@ import asyncio
 import os
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
 from services.activity import limits
 from services.activity.log import ActivityLog
-from services.automation import clipboard_transforms as ct, intent, modes
+from services.automation import clipboard_transforms as ct, intent, modes, system_control
 from services.files import filing, installers
 from services.watch import auto
 
@@ -78,29 +79,46 @@ def test_no_installers_means_no_question():
 
 # ── Screenshots ───────────────────────────────────────────────────────────────
 
-def test_screenshots_in_class_go_to_the_subject(tmp_path, monkeypatch):
-    monkeypatch.setattr(filing.timetable, "classes_on", lambda day: [
-        {"day": "tuesday", "start": "09:30", "end": "10:30", "subject": "DBMS", "room": None}])
-    shot = tmp_path / "Screenshot 2026-09-29 094500.png"
-    shot.write_bytes(b"png")
-    folder = filing.file_screenshot(shot, datetime(2026, 9, 29, 9, 45))  # a Tuesday
-    assert folder == filing.COLLEGE_DIR / "DBMS" / "Screenshots"
-    assert [p.name for p in folder.iterdir()] == ["DBMS 2026-09-29 09-45-00.png"] and not shot.exists()
-    later = tmp_path / "later.png"
-    later.write_bytes(b"png")
-    assert filing.file_screenshot(later, datetime(2026, 9, 29, 11, 0)) is None and later.exists()
+@pytest.mark.parametrize("context", ["class", "study", "neither"])
+def test_screenshots_stay_in_screenshots_folder(context, tmp_path, monkeypatch):
+    screenshots, downloads = tmp_path / "Screenshots", tmp_path / "Downloads"
+    screenshots.mkdir()
+    downloads.mkdir()
+    monkeypatch.setattr(system_control, "SCREENSHOT_DIR", screenshots)
+    monkeypatch.setattr(system_control.system, "last_screenshot", None)
+    monkeypatch.setattr(system_control.ImageGrab, "grab", lambda **kw:
+                        SimpleNamespace(save=lambda path: path.write_bytes(b"png")))
+    monkeypatch.setattr(auto, "DOWNLOADS", downloads)
+    monkeypatch.setattr(filing.timetable, "classes_for_date", lambda day: [
+        {"start": "00:00", "end": "23:59", "subject": "DBMS"}] if context == "class" else [])
+    monkeypatch.setattr(modes, "active", lambda:
+                        {"name": "study", "subject": "Finance"} if context == "study" else None)
+    monkeypatch.setattr(auto, "read_load", lambda: (0, None, False))
+    monkeypatch.setattr(auto.asked, "check", lambda *a: [])
+    announced, toasts = [], []
+    monkeypatch.setattr(auto, "announce", lambda path, slow: announced.append(path))
+    monkeypatch.setattr("services.reminders.service.show_toast", lambda *a: toasts.append(a))
+    ticks = 0
 
+    async def next_tick(seconds):
+        nonlocal ticks
+        ticks += 1
+        if ticks == 1:
+            system_control.system.take_screenshot()
+            (screenshots / "Screenshot.png").write_bytes(b"external png")
+            (downloads / "notes.txt").write_text("notes")
+        else:
+            raise asyncio.CancelledError
 
-def test_study_mode_subject_counts_and_only_the_first_is_told(tmp_path, monkeypatch):
-    modes._set_active({"name": "study", "subject": "Finance"})
-    toasts = []
-    monkeypatch.setattr("services.reminders.service.show_toast", lambda title, text, *a: toasts.append(text))
-    for name in ("a.png", "b.png"):
-        (tmp_path / name).write_bytes(b"png")
-        auto.file_screenshot(tmp_path / name)
-    assert len(list((filing.COLLEGE_DIR / "Finance" / "Screenshots").iterdir())) == 2
-    assert toasts == ["Screenshots during Finance go to College\\Finance\\Screenshots."]
-    auto._told_screenshots.clear()
+    monkeypatch.setattr(auto.asyncio, "sleep", next_tick)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(auto.run_watches())
+
+    assert system_control.system.last_screenshot.parent == screenshots
+    assert system_control.system.last_screenshot.read_bytes() == b"png"
+    assert (screenshots / "Screenshot.png").read_bytes() == b"external png"
+    assert not filing.COLLEGE_DIR.exists() and toasts == []
+    assert announced == [downloads / "notes.txt"]
 
 
 # ── App limits ────────────────────────────────────────────────────────────────

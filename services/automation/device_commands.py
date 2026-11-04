@@ -148,6 +148,14 @@ def _mute_command(first: str, word_list: list[str], tokens: set[str]) -> dict | 
 
 
 def _clipboard_command(text: str, msg: str, first: str, tokens: set[str]) -> dict | None:
+    if first in words.CLIPBOARD_WRITE_STARTERS:
+        copy = re.match(
+            r"[a-z]+\s+(.+?)\s+(?:to|into|onto|on)\s+(?:the\s+|my\s+)?clipboard\W*$",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if copy:
+            return {"type": "system", "action": "write_clipboard", "text": copy.group(1).strip("\"' ")}
     item = CLIPBOARD_ITEM.search(msg)
     if first in words.CLIPBOARD_RESTORE_STARTERS and item:
         return {"type": "system", "action": "restore_clipboard_item", "number": int(item.group(1))}
@@ -159,14 +167,6 @@ def _clipboard_command(text: str, msg: str, first: str, tokens: set[str]) -> dic
             return {"type": "system", "action": "list_clipboard_history"}
         return None
 
-    if first in words.CLIPBOARD_WRITE_STARTERS:
-        copy = re.match(
-            r"[a-z]+\s+(.+?)\s+(?:to|into|onto|on)\s+(?:the\s+|my\s+)?clipboard\W*$",
-            text,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if copy:
-            return {"type": "system", "action": "write_clipboard", "text": copy.group(1).strip("\"' ")}
     if first in words.CLIPBOARD_READ_STARTERS or words.CLIPBOARD_READ_PHRASES.match(msg):
         return {"type": "system", "action": "read_clipboard"}
     return None

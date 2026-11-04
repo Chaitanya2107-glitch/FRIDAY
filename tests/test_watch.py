@@ -68,6 +68,11 @@ def toasts(monkeypatch):
 def test_terminal_alerts_are_skipped_while_watching_the_terminal(toasts, monkeypatch):
     from services.activity import log
 
+    # This case checks terminal attention; notification policy has separate coverage.
+    async def context(now):
+        return {'live': {'speaking': False, 'listening': False}, 'busy': False, 'telegram_eligible': False}
+    monkeypatch.setattr(notifications, '_context', context)
+
     done.notify("Claude finished.", about_terminal=True)
     done.notify("Downloaded a.zip.")
     assert toasts == ["Downloaded a.zip."]

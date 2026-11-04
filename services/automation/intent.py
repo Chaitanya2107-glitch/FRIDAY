@@ -390,6 +390,12 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         logger.info(f"Shortcut match: {shortcut['action']}")
         return _execute(shortcut)
 
+    # Explicit clipboard writes own their payload before transforms or multi-command parsing.
+    if words.first_word(message.lower()) in words.CLIPBOARD_WRITE_STARTERS:
+        clipboard_write = match_device_command(message)
+        if clipboard_write and clipboard_write['action'] == 'write_clipboard':
+            return _execute(clipboard_write)
+
     message = words.rephrase_command(message)
     from services.spotify.dj import match_command as match_dj
     if dj_command := match_dj(message):

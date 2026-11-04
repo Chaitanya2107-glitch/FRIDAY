@@ -47,6 +47,20 @@ def test_slash_commands_and_away(pc, monkeypatch):
     assert client.away()
 
 
+@pytest.mark.parametrize('text', ['/shutdown nope', '/shutdown -1', '/shutdown 10 minutes',
+    '/shutdown 100000', '/shutdown@friday １２', '/sleep extra', '/lock now'])
+def test_invalid_slash_arguments_are_never_expanded_to_power_actions(pc, text):
+    with pytest.raises(ValueError):
+        bot.slash_command(text)
+    assert pc == []
+
+
+def test_slash_whitespace_and_bot_suffix_are_normalized():
+    assert bot.slash_command('/shutdown@friday\t30') == 'shut down in 30 minutes'
+    assert bot.slash_command('/shutdown') == 'shut down the laptop'
+    assert bot.slash_command('') is None
+
+
 def test_menu_from_usual_commands():
     for _ in range(3):
         activity_log.log_command({"action": "open_app", "app_name": "spotify"}, True)

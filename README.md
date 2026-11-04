@@ -1,5 +1,10 @@
 # F.R.I.D.A.Y
 
+Development awareness (2026-11-03): FRIDAY now notices saves to its own source and
+shares factual upgrade context across chat and voice. Ask `development status`
+or `are you being upgraded`. Restart once to enable the monitor.
+See [what it observes and its limits](docs/DEVELOPMENT_AWARENESS.md).
+
 Dynamic Island integration (2026-11-02): `launch_friday.vbs` starts the full
 FRIDAY backend and Island together. The Island now uses the normal conversation,
 command and confirmation flow, shared history, live voice state, the existing

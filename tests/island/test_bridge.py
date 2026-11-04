@@ -140,6 +140,9 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.engine.execute("proj FRIDAY", self.config))["action"]["id"], "friday")
 
     async def test_plugins_suggestions_and_conversation(self):
+        offered = [row['text'] for row in self.engine.suggestions('focus', self.config)]
+        self.assertNotIn('focus', offered)
+        self.assertNotIn('note', offered)
         self.assertIn("DBMS", (await self.engine.execute("next", self.config))["text"])
         self.assertEqual(self.engine.suggestions("proj fri", self.config)[0]["text"], "proj FRIDAY")
         self.assertEqual((await self.engine.execute("hello FRIDAY", self.config))["text"], "Tool-free answer")

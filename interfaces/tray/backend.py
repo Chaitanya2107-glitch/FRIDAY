@@ -50,6 +50,7 @@ settings = Settings()
 
 
 def _request(method: str, path: str, timeout: float, **kwargs) -> dict:
+    kwargs.setdefault('trust_env', False)
     try:
         response = httpx.request(method, BASE_URL + path, timeout=timeout, **kwargs)
     except httpx.TimeoutException:

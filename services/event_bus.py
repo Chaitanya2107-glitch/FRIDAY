@@ -25,6 +25,7 @@ class Subscription:
     def __init__(self, pattern: str, callback: Callable[[dict], None], plugin_id: str):
         self.pattern, self.callback, self.plugin_id = pattern, callback, plugin_id
         self.stopped = threading.Event()
+        self.dropped = 0
         self.queue: queue.Queue = queue.Queue(maxsize=200)
         self.thread = threading.Thread(target=self._run, name=f'events:{plugin_id}', daemon=True)
         self.thread.start()
@@ -38,6 +39,9 @@ class Subscription:
             if self.stopped.is_set():
                 break
             try:
+                if self.dropped:
+                    logger.warning('Slow event subscriber dropped queued events [plugin=%s]', self.plugin_id)
+                    self.dropped = 0
                 self.callback(deepcopy(event))
             except Exception:
                 logger.exception('Event subscriber failed [plugin=%s]', self.plugin_id)
@@ -56,7 +60,7 @@ class Subscription:
                 self.queue.put_nowait(event)
             except queue.Full:
                 pass
-            logger.warning('Slow event subscriber dropped an event [plugin=%s]', self.plugin_id)
+            self.dropped += 1
 
     def close(self, timeout: float = .25):
         self.stopped.set()

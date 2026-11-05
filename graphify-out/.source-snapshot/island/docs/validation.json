@@ -1,0 +1,134 @@
+{
+  "schema": 1,
+  "created_utc": "2026-10-30T18:53:10.554948+00:00",
+  "policy": {
+    "decision": "allowed",
+    "authority": "User task: build and locally test FRIDAY Island; small clear commits",
+    "scope": [
+      "additive feature files",
+      "local builds/tests",
+      "isolated GUI probes",
+      "feature-only commits"
+    ],
+    "ruflo": "No registered guidance tools; local legacy policy has no live collaboration harness",
+    "release_authority": false,
+    "published": false
+  },
+  "environment": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "python": "3.12.8",
+    "node": "24.18.0",
+    "rust": "1.98.1",
+    "native_dpi": 120
+  },
+  "base_commit": "bd436458489b327928f095f40436634b55791ead",
+  "source_sha256": "d0f3aa7bbea8e50c9ccedd94ebafaae11d362cdd0624124735fd2e15f61d4f8f",
+  "source_files": {
+    "island/index.html": "dfc50d85e0b66fc88d5f1bb4badb959e039b4dd7e222a36379f61328908201f5",
+    "island/package-lock.json": "381e6ac7eab2757621875f0cf6ede74b381e469624bad6a488707b2e5b63c92e",
+    "island/package.json": "4621127b3b548ed481776688fa99eb7652a735b65b6612b6574ffa3f2fd63e86",
+    "island/src/connection.ts": "77cdf07f9b913856e780d0b69a5f699a8ab0a970a75d36b9f2640aae7cc4d79f",
+    "island/src/icons.ts": "fb0ad450d0c2d69bd7be23369a7d38fad2ae37dfee4e209617dac292bae41cb8",
+    "island/src/main.ts": "a47379067bdc317094b7f845828f3ce243ee5c411bff9e556bd0923410be3f39",
+    "island/src/native.ts": "1547fbba3b7b03cbe1b2965dbfa4ffa5d3a3a603049c678269450af5f3008925",
+    "island/src/settings.ts": "598c52e7c7f15f622207ac66543bef411737c9f1ab5ce62727dc5c882be30770",
+    "island/src/state.ts": "7310f40f29dc53dbb30762c20fb9aff25a48f6b839fb7d10d23952a9b6d7da17",
+    "island/src/style.css": "80049bd746518061235022c063ca399c283c15bf47ce0dd495ec666603f14b75",
+    "island/src/types.ts": "d11904cd1db2e85a22d3be8d45a4d4ec5da769cd567430f6db1997b168c4ac33",
+    "island/src-tauri/build.rs": "bffac94a6e725bac47250e706130405e835c7d9416616a34bf6004520629dd00",
+    "island/src-tauri/capabilities/main.json": "c304666ba05814a5ecfd9ae148e91a2cb9e69780ed8c248448425b59945de8aa",
+    "island/src-tauri/Cargo.lock": "a793f2e0ef5bfb111252677534643bde83d8f8c1962e57c7219ff487a66e845d",
+    "island/src-tauri/Cargo.toml": "e0e42fb22eab9581b806857497453999fcf6cee39482fff7c60998f2628cdffe",
+    "island/src-tauri/src/config.rs": "d03f8a0221b5968b4eba5e3f4361711226bc1aa5243f00d3b5745d182f4fc649",
+    "island/src-tauri/src/main.rs": "7cf435013b9b9c718509406f5000bf3d4806c67303ba7c856a918157422b181c",
+    "island/src-tauri/src/picker.rs": "53472fe1f94cf215ffb8e4ca07fb0c0935a3850bc53f6959d7904970615c1b42",
+    "island/src-tauri/src/shell.rs": "996c0c05e662de2def96d73ffb34fe2cc3b49950c485853067535aca09bfca23",
+    "island/src-tauri/src/windows.rs": "4345f42ed11fb3acea64c3a334d25f275452e012e5cfab2ab85c6df75138db1d",
+    "island/src-tauri/tauri.conf.json": "d00f4a714f23c9461b0136cbb32cb8c3d16b101ab94ebebb75bb2e7bc2fd57f8",
+    "island/tests/connection.test.ts": "fc8fdd71e0388fd7c6fa1dc54df9b34ae646514051a1f43f52be0aa508e5aa2d",
+    "island/tests/state.test.ts": "a7fc4d6908f858ad8a3c8634d02d3b0b1810b1701c791a4811e382d475bc20d2",
+    "island/tsconfig.json": "210677844174ff392577adb00d09bea241df0c8828ca126dfcb3559466d79ecd",
+    "island/vite.config.ts": "b626ba88a0fb96573e40a38d604ce19762b396c959dc10a72e5ee0fe95546747",
+    "services/friday_island_server/__init__.py": "f49510dbc32545ba3164bf7494a566c265b4489d83634384f7cb19b3de12a8b8",
+    "services/friday_island_server/__main__.py": "c1c79b3dd5a24630719104cc017f78a7f90e1ed3119332f24551c97535bee7cf",
+    "services/friday_island_server/config.py": "356b9e401bdadf1a0aa4fd7608db56e57bde9a58256676a139547eb5e03ccbbc",
+    "services/friday_island_server/engine.py": "b1c70469dd9adc35cac32b479fdfa16c198a1411ceb75a3f791e5ef6c334ce26",
+    "services/friday_island_server/plugins.py": "88a8cda95d61814a88f67f9086017a35ddeeb4ce355a9c2bc6669ab25a339b28",
+    "services/friday_island_server/requirements.txt": "e7250fcd6b123ec4298ff659ef0e155104aacebbb83fe16a4179b7ce4365ee4b",
+    "services/friday_island_server/server.py": "bb26bf54b4f3ed185f071578b5f2cd42e6a53e82df34de1d64e8b18c1c5028c2",
+    "services/mind/language.py": "2aa535e8b060d39cafe09c811340b8a52233fcd93ab762e78089f3be77828906",
+    "services/proactive/timetable.py": "a22d2f4e10ce48afbb78fd1bed674cbf612a5b89e56b733895fc7b67e74ad789",
+    "tests/island/check_browser.py": "8dba7e08c0bb1153a0d58c6576c7ee188cb6a86ecfa3acdec5315ac0bb4f32c8",
+    "tests/island/check_native.py": "c2bc0c649119db6da75a8dfb88b13ee0cf7e35f4732588a448e2abcbe2d19e13",
+    "tests/island/test_bridge.py": "262f37c7276bfbd244e838c67cce169ff7cd7edc70c838253598352a4aab69b2",
+    "tests/island/write_receipt.py": "a757ea30aa143e020157bc02c94d657fb504257df3770c7b78b76545e1c20418"
+  },
+  "local_immutable_snapshot": "tasks/island-verified-source.zip",
+  "snapshot_sha256": "f34b81ab089687c19ab2b79612b9e8a3f8127847c3998404334e64b54977bf28",
+  "artifact": {
+    "path": "island/src-tauri/target/release/friday-island.exe",
+    "sha256": "0210fd02811b24eae1d946b9fe0925cc9341fc7cd109741b320afbb0df2ee754",
+    "bytes": 3393536
+  },
+  "observed_checks": {
+    "python_tests": 9,
+    "rust_tests": 4,
+    "frontend_tests": 5,
+    "chromium_bridge_integration": "passed; states, config edits/reorder, keyboard, offline, reconnect, reduced motion",
+    "native_windows": {
+      "startup_passive": true,
+      "no_activate": true,
+      "tool_window": true,
+      "always_on_top": true,
+      "top_edge": true,
+      "transparent_regions": true,
+      "hover_peek": true,
+      "hover_passive": true,
+      "expand_focus": true,
+      "escape_restores_fixture": true,
+      "sneak_centered": true,
+      "click_elsewhere_keeps_focus": true,
+      "passive_escape": true
+    },
+    "native_bridge_authentication": true,
+    "native_sneak_command": "Next: DBMS \u00b7 10:30",
+    "typescript_vite_build": "passed",
+    "tauri_release_build": "passed",
+    "tauri_dev_entry_point": "passed",
+    "npm_audit_reported_vulnerabilities": 0
+  },
+  "benchmark": {
+    "method": "One five-second sample after five-second extra warm-up; aggregate CPU percent of one core",
+    "baseline_offline": {
+      "source_sha256": "e8983ce484d984a88194748a8300ee63f9d94b986c366abdd467de68a7d528b8",
+      "exe_sha256": "1aae780a101c6a603394e4dbed88cb10868067e82fe6798c2a2513d91aa8c224",
+      "rest_cpu_percent_one_core": 62.81,
+      "cpu_warmup_seconds": 5,
+      "cpu_sample_seconds": 5.0,
+      "measured_processes": 7
+    },
+    "candidate_offline": {
+      "source_sha256": "6c14783c33e399466f91e158d89e0dadd8164320fab6ab4247d711c8fd9583ec",
+      "exe_sha256": "0210fd02811b24eae1d946b9fe0925cc9341fc7cd109741b320afbb0df2ee754",
+      "rest_cpu_percent_one_core": 0.94,
+      "cpu_warmup_seconds": 5,
+      "cpu_sample_seconds": 5.0,
+      "measured_processes": 7
+    },
+    "candidate_online": {
+      "source_sha256": "6c14783c33e399466f91e158d89e0dadd8164320fab6ab4247d711c8fd9583ec",
+      "exe_sha256": "0210fd02811b24eae1d946b9fe0925cc9341fc7cd109741b320afbb0df2ee754",
+      "rest_cpu_percent_one_core": 7.81,
+      "cpu_warmup_seconds": 5,
+      "cpu_sample_seconds": 5.0,
+      "measured_processes": 7
+    }
+  },
+  "limitations": [
+    "Physical monitor/resolution changes not exercised",
+    "Windows 10/acrylic fallback not tested on separate hardware",
+    "Configured owner apps/editor/terminal/URL launches left for manual check",
+    "No live AI provider calls; automated schedule data is a fixture",
+    "Default expand hotkey conflicts with existing FRIDAY taskbar flyout; configurable"
+  ]
+}

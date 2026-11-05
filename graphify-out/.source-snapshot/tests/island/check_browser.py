@@ -1,0 +1,440 @@
+"""Real Chromium + real bridge; native IPC is mocked so no owner apps/data change.
+
+Run from the repository with Vite listening on 127.0.0.1:1420:
+  venv/Scripts/python.exe -B tests/island/check_browser.py
+"""
+import asyncio
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from playwright.async_api import async_playwright, expect
+from websockets.asyncio.server import serve
+
+from services.friday_island_server.config import load_config
+from services.friday_island_server.engine import Engine
+from services.friday_island_server.plugins import CollegePlugin, Registry
+from services.friday_island_server.productivity import TrackerPlugin
+from services.productivity.store import Tracker
+from services.mind.cognition import Cognition
+from services.mind.workspace import Workspace
+from services.friday_island_server.server import Bridge, ORIGINS
+
+
+async def main():
+    async def assistant(text):
+        return "A calm, tool-free reply."
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "config.json"
+        config = load_config(path)
+        from datetime import datetime
+        store = Tracker(Workspace(Cognition(Path(directory) / 'tracker.db')))
+        registry = Registry([CollegePlugin(lambda: {"subject": "DBMS", "start": "10:30"}, now=lambda: datetime(2026, 10, 31, 10, 20)),
+                             TrackerPlugin('todo', store), TrackerPlugin('habit', store)])
+        class DelayedBridge(Bridge):
+            slow = False
+            delay_action_ack = False
+            async def send(self, ws, kind, id=None, **data):
+                if kind == 'suggestions' and self.slow:
+                    await asyncio.sleep(1.5)
+                if kind == 'command_result' and self.delay_action_ack:
+                    await asyncio.sleep(.8)
+                await super().send(ws, kind, id, **data)
+
+        bridge = DelayedBridge(path, registry, Engine(registry, assistant))
+        async with serve(bridge.handle, "127.0.0.1", 0, origins=ORIGINS) as server:
+            sample = config.model_dump()
+            sample["connection"]["port"] = server.sockets[0].getsockname()[1]
+            sample["pins"] = [{"id": str(i), "name": name, "path": "C:/Windows/notepad.exe", "visible": True}
+                              for i, name in enumerate(["Notes", "Editor", "Browser"])]
+            sample["projects"] = [{"id": "friday", "name": "FRIDAY", "path": "C:/FRIDAY", "color": "#FFB347",
+                                   "last_opened": None, "actions": [{"kind": "folder"}]}]
+            # The bridge sees the same configured entries as the frontend.
+            server_config = dict(sample)
+            path.write_text(json.dumps(server_config), encoding="utf-8")
+            script = """
+                globalThis.isTauri = true;
+                window.fixture = SAMPLE;
+                window.launches = [];
+                window.nativeModes = [];
+                window.rescans = 0;
+                window.desktop = {battery:{percent:74,charging:true,plugged_in:true},media:null};
+                window.mediaActions = [];
+                window.desktopReads = 0;
+                window.loginChanges = [];
+                window.catalog = [
+                    {id:'app-'+ 'a'.repeat(32),name:'Calculator',source:'Windows Store',kind:'app',pinned:false},
+                    {id:'app-'+ 'b'.repeat(32),name:'Duplicate',source:'Start Menu',kind:'app',pinned:false},
+                    {id:'app-'+ 'c'.repeat(32),name:'Duplicate',source:'App Paths',kind:'app',pinned:false},
+                    {id:'app-'+ 'd'.repeat(32),name:'Focus',source:'Start Menu',kind:'app',pinned:false}
+                ];
+                const callbacks = new Map(), listeners = new Map();
+                let next = 0;
+                window.__emit = (name, payload) => listeners.get(name)?.({payload});
+                window.__TAURI_INTERNALS__ = {
+                    transformCallback(fn) { const id = ++next; callbacks.set(id, fn); return id; },
+                    async invoke(cmd, args) {
+                        if (cmd === 'get_config' || cmd === 'reload_config') return structuredClone(window.fixture);
+                        if (cmd === 'startup_status') return {phase:'external',error:'',owned_pid:null,attempts:0,isolated:false,login_enabled:window.fixture.startup.launch_at_login};
+                        if (cmd === 'set_login') { window.loginChanges.push(args.enabled); window.fixture.startup.launch_at_login=args.enabled; return structuredClone(window.fixture); }
+                        if (cmd === 'restart_bridge') return;
+                        if (cmd === 'desktop_status') { window.desktopReads++; return structuredClone(window.desktop); }
+                        if (cmd === 'media_control') {
+                            if (args.source !== window.desktop.media.source) throw new Error('Player changed');
+                            window.mediaActions.push(args.action);
+                            if (args.action === 'toggle') window.desktop.media.playing = !window.desktop.media.playing;
+                            return;
+                        }
+                        if (cmd === 'app_index_status') return {count:window.catalog.length,scanning:false,updated_at:1,errors:[]};
+                        if (cmd === 'search_apps') return window.catalog.filter(a=>a.name.toLowerCase().includes(args.query.toLowerCase())).map(a=>({...a,pinned:window.fixture.pins.some(p=>p.app_id===a.id)}));
+                        if (cmd === 'rescan_apps') { window.rescans++; return {count:window.catalog.length,scanning:false,updated_at:1,errors:[]}; }
+                        if (cmd === 'app_icon') throw new Error('Use glyph in fixture');
+                        if (cmd === 'toggle_app_pin') {
+                            const index = window.fixture.pins.findIndex(p=>p.app_id===args.id);
+                            if (index>=0) window.fixture.pins.splice(index,1);
+                            else { const app=window.catalog.find(a=>a.id===args.id); window.fixture.pins.push({id:app.id,app_id:app.id,name:app.name,path:'',visible:true}); }
+                            window.fixture.revision++; return structuredClone(window.fixture);
+                        }
+                        if (cmd === 'save_config') { window.fixture = structuredClone(args.next); window.fixture.revision++; return structuredClone(window.fixture); }
+                        if (cmd === 'runtime_status') return {mode:'rest',hotkey_errors:[],acrylic:false,reduce_motion:false};
+                        if (cmd === 'set_mode') { window.nativeModes.push(args); return; }
+                        if (cmd === 'set_regions') { window.regions = args.rects; return; }
+                        if (cmd === 'plugin:event|listen') { listeners.set(args.event, callbacks.get(args.handler)); return ++next; }
+                        if (cmd === 'plugin:event|unlisten') return;
+                        if (cmd === 'launch') { window.launches.push(args); return 'Opened configured item'; }
+                        if (cmd === 'pin_icon') throw new Error('Use original fallback glyph');
+                        if (cmd === 'choose_path') return args.folder ? {name:'Workspace',path:'C:/Workspace'} : {name:'New app',path:'C:/Windows/notepad.exe'};
+                        if (cmd === 'local_command') {
+                            if (args.text.startsWith('open ')) {
+                                const query=args.text.slice(5).toLowerCase(),app=window.catalog.find(a=>a.name.toLowerCase().includes(query));
+                                return app ? {ok:true,text:'Opening '+app.name,action:{kind:'app',id:app.id}} : {ok:false,text:'No app found. Rescan apps in Settings.'};
+                            }
+                            return {ok:true,text:'Settings',action:{kind:'settings'}};
+                        }
+                        throw new Error('Unexpected native call: ' + cmd);
+                    }
+                };
+            """.replace("SAMPLE", json.dumps(sample))
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch()
+                page = await browser.new_page(viewport={"width": 720, "height": 560}, device_scale_factor=1.5, timezone_id='UTC')
+                errors = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                await page.add_init_script(script)
+                from datetime import timezone
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 0, 0, tzinfo=timezone.utc))
+                await page.goto("http://127.0.0.1:1420")
+                surface = page.locator(".surface")
+                async def compact():
+                    await page.mouse.move(0, 400)
+                    if await surface.get_attribute('data-mode') == 'rest':
+                        await expect(surface).to_have_css('width', '288px')
+                    compact_bounds = await surface.bounding_box()
+                    await page.mouse.move(compact_bounds['x'] + 4, compact_bounds['y'] + 4)
+                    await expect(surface).to_have_attribute('data-mode', 'peek')
+                    await expect(surface).to_have_attribute('data-active', 'false')
+                    await expect(surface).to_have_css('width', '288px')
+                await expect(page.locator(".live-line")).to_have_text("Next: DBMS · 10:30")
+                await expect(page.locator('.live-line')).to_be_hidden()
+                for ws in tuple(bridge.clients):
+                    await bridge.send(ws, 'pill_snippet_update', text='', plugin=None)
+                await expect(page.locator('#app')).to_have_class('character-only')
+                await page.wait_for_timeout(300)
+                bounds = await surface.bounding_box()
+                assert abs(bounds['width'] - 288) < 1, 'Show the capsule by default'
+                orb = await page.locator('.character').bounding_box()
+                assert abs(orb['x'] + orb['width'] / 2 - bounds['x'] - bounds['width'] / 2) < 0.5, 'Keep Mochi centered in the capsule'
+                await expect(page.locator('.clock-time')).to_have_text('12:00')
+                await expect(page.locator('.clock-period')).to_have_text('AM')
+                await expect(page.locator('.clock-date')).to_have_text('31 Oct')
+                await expect(page.locator('.capsule-battery')).to_have_attribute('aria-label', 'Battery 74% · Charging')
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.clock-time')).to_have_text('12:00')
+                await expect(page.locator('.clock-period')).to_have_text('PM')
+                await page.clock.set_fixed_time(datetime(2026, 11, 1, 0, 0, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.clock-date')).to_have_text('1 Nov')
+                await expect(page.locator('.rest-clock .clock-secondary')).to_have_text('Sunday')
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 10, 3, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                now = await page.evaluate('Date.now()')
+                async def pill(text, **times):
+                    for ws in tuple(bridge.clients):
+                        await bridge.send(ws, 'pill_snippet_update', plugin='college_schedule', text=text, **times)
+                await pill('Next: DBMS · 10:08', show_from=now - 600000, expires_at=now + 300000)
+                await expect(page.locator('.capsule-reply-text')).to_have_text('Next: DBMS · 10:08')
+                await expect(page.locator('.capsule-reply-text')).to_be_visible()
+                await expect(page.locator('.character')).to_have_css('left', '16px')
+                await expect(page.locator('.capsule-reply-title')).to_have_text('Reminder')
+                await page.locator('.capsule-reply-text').click()
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await expect(page.locator('.capsule-reply-text')).to_be_visible()
+                await page.screenshot(path='tasks/island-class-reminder.png')
+                await page.get_by_role('button', name='Acknowledge reply').click()
+                await page.mouse.move(0, 400)
+                await compact()
+                await expect(page.locator('.capsule-reminder')).to_have_count(0)
+                await expect(page.locator('.clock-date')).to_be_visible()
+                idle_orb, idle_capsule = await page.locator('.character').bounding_box(), await surface.bounding_box()
+                assert abs(idle_orb['x'] + idle_orb['width'] / 2 - idle_capsule['x'] - idle_capsule['width'] / 2) < 0.5
+                await expect(page.locator('.capsule-battery')).to_be_visible()
+                await page.screenshot(path='tasks/island-class-reminder.png')
+                await page.clock.set_fixed_time(datetime(2026, 10, 31, 10, 8, tzinfo=timezone.utc))
+                await page.evaluate("window.dispatchEvent(new Event('focus'))")
+                await compact()
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await expect(page.locator('.capsule-reminder')).to_have_count(0)
+                await pill('Too early', show_from=now + 600000, expires_at=now + 900000)
+                await compact()
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await pill('No expiry')
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await pill('Near class', show_from=now, expires_at=now + 600000)
+                await expect(page.locator('.capsule-reply-text')).to_have_text('Near class')
+                await page.get_by_role('button', name='Acknowledge reply').click()
+                await page.mouse.move(0, 400)
+                await compact()
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await pill('')
+                await compact()
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await page.evaluate("""() => {
+                    window.desktop.media = {source:'fixture-player',title:'Golden hour',artist:'FRIDAY test artist',playing:true,can_toggle:true,can_previous:true,can_next:true};
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await expect(page.locator('.media-title')).to_have_text('Golden hour')
+                await compact()
+                await page.screenshot(path='tasks/island-capsule.png')
+                await page.get_by_role('button', name='Pause', exact=True).click()
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.get_by_role('button', name='Play', exact=True).click()
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.mouse.move(0, 400)
+                for ws in tuple(bridge.clients):
+                    await bridge.send(ws, 'pill_snippet_update', text='Next: DBMS · 10:30', plugin='college_schedule')
+                await expect(page.locator('#app')).not_to_have_class('character-only')
+                await expect(surface).to_have_attribute("data-mode", "peek")
+                clock = await page.locator('.rest-clock').bounding_box()
+                await page.mouse.move(clock['x'] + clock['width'] / 2, clock['y'] + clock['height'] / 2)
+                await expect(surface).to_have_attribute("data-mode", "peek")
+                assert not any(v["activate"] for v in await page.evaluate("window.nativeModes"))
+                await page.get_by_role('button', name='Pause', exact=True).click()
+                await expect(page.get_by_role('button', name='Play', exact=True)).to_be_visible()
+                await page.get_by_role('button', name='Previous track', exact=True).click()
+                await page.get_by_role('button', name='Next track', exact=True).click()
+                assert await page.evaluate('window.mediaActions') == ['toggle', 'toggle', 'toggle', 'previous', 'next']
+                assert not any(v['activate'] for v in await page.evaluate('window.nativeModes')), 'Media stole focus'
+                await page.evaluate("""() => {
+                    window.desktop.battery = {percent:null,charging:false,plugged_in:null};
+                    window.desktop.media.title = '<img src=x onerror=alert(1)>';
+                    window.desktop.media.can_next = false;
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await expect(page.locator('.media-title')).to_have_text('<img src=x onerror=alert(1)>')
+                assert await page.locator('.media-title img').count() == 0, 'Media metadata interpreted as HTML'
+                await expect(page.get_by_role('button', name='Next track', exact=True)).to_be_disabled()
+                await expect(page.locator('.capsule-battery')).to_have_attribute('aria-label', 'Battery status unavailable')
+                await page.evaluate("window.desktop.media = null; window.desktop.battery = null; window.dispatchEvent(new Event('focus'))")
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                await expect(page.locator('.capsule-battery')).to_be_hidden()
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await expect(surface).to_have_attribute("data-mode", "expanded")
+                await page.screenshot(path="tasks/island-expanded.png")
+                await page.get_by_role("button", name="Plugins", exact=True).click()
+                await expect(page.locator('[data-plugin="college_schedule"]')).to_contain_text('DBMS')
+                todos, habits = page.locator('[data-plugin="todo"]'), page.locator('[data-plugin="habit_tracker"]')
+                task_input = page.get_by_role('textbox', name='New todo', exact=True)
+                await task_input.fill('<img src=x> buy charger')
+                await task_input.press('Enter')
+                await expect(todos.locator('.widget-label > span')).to_have_text('<img src=x> buy charger')
+                assert await todos.locator('.widget-label img').count() == 0
+                assert await task_input.evaluate('node => document.activeElement === node'), 'Widget submit stole input focus'
+                await task_input.fill('Keep this draft')
+                await page.get_by_role('button', name='Refresh Todos', exact=True).click()
+                await expect(task_input).to_have_value('Keep this draft')
+                await todos.get_by_role('button', name='Done <img src=x> buy charger', exact=True).click()
+                await expect(todos).to_contain_text('All clear')
+                await task_input.fill('Concurrent task'); await task_input.press('Enter')
+                await expect(todos.locator('.widget-label > span')).to_have_text('Concurrent task')
+                existing = next(t for t in store.snapshot()['tasks'] if t['title'] == 'Concurrent task')
+                store.save_task('Changed elsewhere', ident=existing['id'], revision=existing['updated'])
+                await todos.get_by_role('button', name='Done Concurrent task', exact=True).click()
+                await expect(page.locator('.feedback')).to_contain_text('changed elsewhere')
+                await expect(todos.locator('.widget-label > span')).to_have_text('Changed elsewhere')
+                habit_input = page.get_by_role('textbox', name='New habit', exact=True)
+                await habit_input.fill('Read 20 pages'); await habit_input.press('Enter')
+                await habits.get_by_role('button', name='Check in Read 20 pages', exact=True).click()
+                await expect(habits).to_contain_text('1 day streak')
+                await habits.get_by_role('button', name='Undo Read 20 pages', exact=True).click()
+                await expect(habits).to_contain_text('0 day streak')
+                restarted = Tracker(Workspace(Cognition(Path(directory) / 'tracker.db'))).snapshot()
+                assert restarted['tasks'][-1]['status'] == 'completed'
+                assert restarted['habits'][0]['checks'] == []
+                bridge.delay_action_ack = True
+                await task_input.fill('Only once after navigation'); await task_input.press('Enter')
+                await page.get_by_role('button', name='Projects', exact=True).last.click()
+                await page.get_by_role('button', name='Plugins', exact=True).click()
+                await expect(todos).to_contain_text('Saving…')
+                await todos.locator('form').evaluate('form => form.requestSubmit()')
+                await expect(todos).to_contain_text('Only once after navigation')
+                bridge.delay_action_ack = False
+                assert len([t for t in store.snapshot()['tasks'] if t['title'] == 'Only once after navigation']) == 1
+                await page.screenshot(path='tasks/island-live-plugins.png')
+                await page.get_by_role("button", name="Settings", exact=True).last.click()
+                await page.get_by_role('button', name='Connection', exact=True).click()
+                login = page.get_by_role('checkbox', name='Launch Island at Windows sign-in', exact=True)
+                await expect(login).not_to_be_checked()
+                assert await page.evaluate('window.loginChanges') == [], 'Sign-in startup enabled without a click'
+                await login.check()
+                await expect(login).to_be_checked()
+                await login.uncheck()
+                await expect(login).not_to_be_checked()
+                assert await page.evaluate('window.loginChanges') == [True, False]
+                await page.get_by_role("button", name="Pinned apps", exact=True).click()
+                await page.get_by_role("button", name="Add app", exact=True).click()
+                await expect(page.get_by_role("textbox", name="New app display name")).to_be_visible()
+                await page.get_by_role("button", name="Move New app up", exact=True).click()
+                assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[2] == "New app"
+                await page.locator('.config-row').first.drag_to(page.locator('.config-row').last)
+                assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[-1] == 'Notes'
+                await page.get_by_role('button', name='Remove New app', exact=True).click()
+                await page.get_by_role('button', name='Remove New app', exact=True).click()
+                assert len(await page.evaluate('window.fixture.pins')) == 3
+                await page.get_by_role('button', name='Pin Calculator', exact=True).click()
+                await expect(page.get_by_role('textbox', name='Calculator display name')).to_be_visible()
+                await page.get_by_role('button', name='Unpin Calculator', exact=True).click()
+                await expect(page.get_by_role('textbox', name='Calculator display name')).to_have_count(0)
+                editor = page.get_by_role('textbox', name='Editor display name')
+                await editor.fill('Editor renamed'); await editor.press('Tab')
+                assert any(p['name']=='Editor renamed' for p in await page.evaluate('window.fixture.pins'))
+                assert any(p['name']=='Browser' for p in await page.evaluate('window.fixture.pins'))
+                await page.get_by_role("button", name="Projects", exact=True).last.click()
+                await page.get_by_role("button", name="Add project", exact=True).click()
+                project_name = page.get_by_role('textbox', name='Name', exact=True)
+                await project_name.fill('Unsaved project draft')
+                for _ in range(3):
+                    await page.locator('.character').click()
+                await expect(page.locator('.mochi-popover')).to_have_count(0)
+                await expect(project_name).to_be_visible()
+                await expect(project_name).to_have_value('Unsaved project draft')
+                await project_name.fill('Workspace')
+                await page.get_by_role("button", name="Save project", exact=True).click()
+                assert len(await page.evaluate("window.fixture.projects")) == 2
+                await page.get_by_role('button', name='Move Workspace up', exact=True).click()
+                assert (await page.evaluate('window.fixture.projects'))[0]['name'] == 'Workspace'
+                await page.keyboard.press("Escape")
+                await expect(surface).to_have_attribute("data-mode", "rest")
+                await page.evaluate("""() => {
+                    window.desktop.media = {source:'fixture-player',title:'Local song',artist:'Test artist',playing:true,can_toggle:true,can_previous:false,can_next:false};
+                    window.dispatchEvent(new Event('focus'));
+                }""")
+                await compact()
+                await expect(page.locator('.capsule-media')).to_be_visible()
+                await page.evaluate("window.__emit('hotkey','sneak')")
+                await expect(surface).to_have_attribute("data-mode", "sneak")
+                await expect(page.locator('.rest-info').first).to_be_hidden()
+                await expect(page.locator('.capsule-media')).to_be_hidden()
+                reads = await page.evaluate('window.desktopReads')
+                await page.wait_for_timeout(2200)
+                assert await page.evaluate('window.desktopReads') == reads, 'Sneak kept polling Windows media'
+                await expect(surface).to_have_attribute('data-mood', 'sleepy')
+                command = page.get_by_role("combobox", name="FRIDAY command")
+                await command.fill("ne")
+                await expect(page.get_by_role("option").first).to_contain_text("next")
+                await command.press("ArrowDown")
+                await command.press("Tab")
+                await expect(command).to_have_value("next")
+                await page.screenshot(path="tasks/island-sneak.png")
+                await command.press("Enter")
+                await expect(surface).to_have_attribute("data-mode", "sneak")
+                await expect(page.locator(".sneak-reply")).to_contain_text("DBMS")
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await command.fill('open dupl')
+                await expect(page.get_by_role('option')).to_have_count(2)
+                await command.press('ArrowDown'); await command.press('ArrowDown'); await command.press('Tab'); await command.press('Enter')
+                await expect(surface).to_have_attribute('data-mode','hidden')
+                assert (await page.evaluate('window.launches'))[-1] == {'kind':'app','id':'app-'+'c'*32}, 'Tab lost selected app ID'
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await command.fill('focus'); await command.press('Enter')
+                await expect(page.locator('.sneak-reply')).to_contain_text('tool-free reply')
+                assert len(await page.evaluate('window.launches')) == 1, 'App name stole plugin command'
+                bridge.slow = True
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await command.fill('calc')
+                await expect(page.get_by_role('option').first).to_contain_text('Calculator', timeout=900)
+                bridge.slow = False
+                await command.press('Escape')
+                await expect(surface).to_have_attribute('data-mode', 'hidden')
+                await page.evaluate("window.__emit('pointer',{x:360,y:0,reveal:true})")
+                await expect(surface).to_have_attribute('data-mode', 'hidden')
+                await page.evaluate("window.__emit('hotkey','sneak')")
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                # Offline mode must recover the same UI without a backend.
+                now = await page.evaluate('Date.now()')
+                await pill('Near class', show_from=now - 60000, expires_at=now + 600000)
+                await expect(page.locator('.clock-date')).to_be_hidden()
+                server.close()
+                await server.wait_closed()
+                await expect(page.locator(".live-line")).to_have_text("FRIDAY offline")
+                await compact()
+                await expect(page.locator('.clock-date')).to_be_visible()
+                await page.evaluate("window.__emit('hotkey','sneak')")
+                await command.fill('calc')
+                await expect(page.get_by_role('option').first).to_contain_text('Calculator')
+                await page.get_by_role('button', name='Pin Calculator', exact=True).click()
+                assert any(p.get('app_id')=='app-'+'a'*32 for p in await page.evaluate('window.fixture.pins'))
+                await command.press('ArrowDown'); await command.press('Enter')
+                await expect(surface).to_have_attribute('data-mode','hidden')
+                assert (await page.evaluate('window.launches'))[-1]['id'] == 'app-'+'a'*32
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await command.fill('open app-does-not-exist')
+                await expect(page.get_by_role('option')).to_contain_text('No app found')
+                await command.press('ArrowDown'); await command.press('Enter')
+                assert await page.evaluate('window.rescans') == 1
+                await command.press('Escape')
+                await page.evaluate("window.__emit('hotkey','sneak')")
+                await page.evaluate("window.__emit('hotkey','expand')")
+                await command.fill("settings")
+                await command.press("Enter")
+                await expect(surface).to_have_attribute("data-mode", "expanded")
+                async with serve(bridge.handle, '127.0.0.1', sample['connection']['port'], origins=ORIGINS):
+                    await expect(page.locator('.live-line')).to_have_text('Next: DBMS · 10:30', timeout=10000)
+                await page.emulate_media(reduced_motion="reduce")
+                assert await page.locator(".character > svg").evaluate("node => getComputedStyle(node).animationName") == "none"
+                assert not errors, errors
+                assert await page.evaluate("window.launches.length") == 2
+                await page.get_by_role('button', name='Look', exact=True).click()
+                await page.get_by_label('When idle').select_option('auto-hide')
+                delay = page.get_by_label('Auto-hide delay (seconds)', exact=True)
+                await delay.fill('5'); await delay.press('Tab')
+                await page.keyboard.press('Escape')
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                await page.mouse.move(0, 450)
+                await expect(surface).to_have_attribute('data-mode', 'rest')
+                current_time = await page.evaluate('Date.now()')
+                await page.clock.set_fixed_time(current_time + 6000)
+                await expect(surface).to_have_attribute('data-mode', 'hidden', timeout=6500)
+                await page.evaluate("window.__emit('pointer',{x:360,y:0,reveal:true})")
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.locator('.rest-clock').click()
+                await page.get_by_role('button', name='Settings', exact=True).first.click()
+                await page.get_by_label('When idle').select_option('hover')
+                await expect(page.get_by_label('Auto-hide delay (seconds)', exact=True)).to_be_disabled()
+                await page.keyboard.press('Escape')
+                await expect(surface).to_have_attribute('data-mode', 'hidden')
+                await page.evaluate("window.__emit('pointer',{x:360,y:0,reveal:true})")
+                await expect(surface).to_have_attribute('data-mode', 'peek')
+                await page.locator('.island-row').hover(); await page.mouse.move(0, 450)
+                await expect(surface).to_have_attribute('data-mode', 'hidden', timeout=1500)
+                await browser.close()
+                print("PASS: centered capsule, 12h midnight/noon + date rollover, battery, media + literal metadata + passive controls; real bridge/Chromium, four states, app search/pins/reorder, offline/reconnect, reduced motion")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

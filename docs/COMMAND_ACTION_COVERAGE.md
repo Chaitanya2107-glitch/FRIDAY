@@ -39,6 +39,8 @@ Two phrases per action demonstrate recognition. Different target values, directi
 | brain | brain_thing | what do you know about catjang<br>Could you please what do you know about catjang |
 | brain | brain_timeline | what am i doing<br>show my current activity |
 | cognition | action | what action did you just take<br>show your most recent action |
+| cognition | brain_health | brain health<br>cognition health |
+| cognition | working_memory | working memory<br>show your working memory |
 | cognition | development_status | development status<br>what changed in your code<br>are you being upgraded |
 | cognition | layers | brain layers<br>describe your cognitive layers |
 | cognition | notification | what notification did you send<br>Could you please what notification did you send |

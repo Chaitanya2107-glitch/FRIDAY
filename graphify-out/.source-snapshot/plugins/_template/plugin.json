@@ -1,0 +1,5 @@
+{
+  "id": "my_plugin", "name": "My Plugin", "version": "1.0.0", "api_version": 1,
+  "description": "Copy this folder to plugins/my_plugin and edit it.", "author": "Your name",
+  "permissions": ["events"], "enabled_by_default": true
+}

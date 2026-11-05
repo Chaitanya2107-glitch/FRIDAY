@@ -1,0 +1,209 @@
+{
+  "node_count": 11048,
+  "unverified_node_count": 0,
+  "raw_edge_count": 34026,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 3438,
+  "external_reference_edges": 18,
+  "self_loop_edges": 60,
+  "valid_candidate_edges": 30570,
+  "exact_duplicate_edges": 20,
+  "directed_unique_endpoint_pairs": 28554,
+  "directed_same_endpoint_collapsed_edges": 2016,
+  "undirected_unique_endpoint_pairs": 28507,
+  "undirected_same_endpoint_collapsed_edges": 2063,
+  "same_endpoint_group_count": 1944,
+  "relation_variant_groups": 1733,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 165,
+  "context_variant_groups": 119,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 11219,
+  "post_build_edge_count": 31773,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "C:\\Users\\chait\\AppData\\Roaming\\uv\\tools\\graphifyy\\Lib\\site-packages\\graphify\\extract.py",
+    "total_sites": 12,
+    "sites": [
+      {
+        "line": 1349,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1882,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1884,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 2254,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2401,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n.get(\"id\") for n in nodes}"
+      },
+      {
+        "line": 3127,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3296,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 5370,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 5478,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 5557,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6072,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6073,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "island_src_tauri_src_config_project",
+      "target": "island_src_tauri_src_config_rs_string",
+      "edge_count": 5,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "C:\\Users\\chait\\Documents\\PROJECT F.R.I.D.A.Y\\v3\\FRIDAY\\island\\src-tauri\\src\\config.rs"
+      ],
+      "source_locations": [
+        "L72",
+        "L73",
+        "L74",
+        "L76",
+        "L78"
+      ],
+      "contexts": [
+        "field",
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "island_src_tauri_src_config_action",
+      "target": "island_src_tauri_src_config_rs_string",
+      "edge_count": 5,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "C:\\Users\\chait\\Documents\\PROJECT F.R.I.D.A.Y\\v3\\FRIDAY\\island\\src-tauri\\src\\config.rs"
+      ],
+      "source_locations": [
+        "L87",
+        "L89",
+        "L92",
+        "L94",
+        "L97"
+      ],
+      "contexts": [
+        "field",
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "island_src_tauri_src_catalog_match",
+      "target": "island_src_tauri_src_catalog_rs_string",
+      "edge_count": 4,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "C:\\Users\\chait\\Documents\\PROJECT F.R.I.D.A.Y\\v3\\FRIDAY\\island\\src-tauri\\src\\catalog.rs"
+      ],
+      "source_locations": [
+        "L77",
+        "L78",
+        "L79",
+        "L80"
+      ],
+      "contexts": [
+        "field"
+      ]
+    },
+    {
+      "source": "island_src_tauri_src_config_pin",
+      "target": "island_src_tauri_src_config_rs_string",
+      "edge_count": 4,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "C:\\Users\\chait\\Documents\\PROJECT F.R.I.D.A.Y\\v3\\FRIDAY\\island\\src-tauri\\src\\config.rs"
+      ],
+      "source_locations": [
+        "L48",
+        "L49",
+        "L51",
+        "L53"
+      ],
+      "contexts": [
+        "field",
+        "generic_arg"
+      ]
+    },
+    {
+      "source": "island_src_tauri_src_main_launch",
+      "target": "island_src_tauri_src_main_rs_string",
+      "edge_count": 4,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "C:\\Users\\chait\\Documents\\PROJECT F.R.I.D.A.Y\\v3\\FRIDAY\\island\\src-tauri\\src\\main.rs"
+      ],
+      "source_locations": [
+        "L193"
+      ],
+      "contexts": [
+        "generic_arg",
+        "parameter_type"
+      ]
+    }
+  ]
+}

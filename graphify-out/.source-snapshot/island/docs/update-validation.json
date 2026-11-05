@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "created_utc": "2026-10-31T03:39:28.140176+00:00",
+  "policy": {
+    "decision": "allowed",
+    "authority": "User requested window bug fix first and a separate commit, then installed-app launching",
+    "scope": [
+      "feature-local edits",
+      "local builds/tests",
+      "isolated GUI/browser/Calculator checks",
+      "feature-only commits"
+    ],
+    "release_authority": false,
+    "published": false
+  },
+  "ordering": {
+    "window_fix_commit": "689b48e",
+    "native_catalog_commit": "f59fe82"
+  },
+  "base_commit": "f59fe826207d018f6d964ffb11e5f281cdaa97eb",
+  "environment": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "dpi": 120
+  },
+  "artifact": {
+    "path": "island/src-tauri/target/release/friday-island.exe",
+    "sha256": "580ac796d1c65d5dae4abc1b314ddf96411d544cdf371a1824980b89f8bc8d41",
+    "bytes": 3493888
+  },
+  "source_sha256": "80874aa33e6c0a6d22ca1b83d017ee11a476baabf2020cc2ab7918fde3d47e3e",
+  "source_files": {
+    "island/index.html": "dfc50d85e0b66fc88d5f1bb4badb959e039b4dd7e222a36379f61328908201f5",
+    "island/package-lock.json": "381e6ac7eab2757621875f0cf6ede74b381e469624bad6a488707b2e5b63c92e",
+    "island/package.json": "4621127b3b548ed481776688fa99eb7652a735b65b6612b6574ffa3f2fd63e86",
+    "island/src/apps.ts": "9d4df6d263763f79d82850aa964be2409afb1000b0914127c96a3dc9df34ccae",
+    "island/src/connection.ts": "77cdf07f9b913856e780d0b69a5f699a8ab0a970a75d36b9f2640aae7cc4d79f",
+    "island/src/icons.ts": "92380f72d49043b6d52b39f12c0bcf02eb2ffcb5b4d802e7d44290e720dc5084",
+    "island/src/main.ts": "be59eaf8a4071cc5d5b3e36015b23b2fbce86e7447cc9913d3dc83bc9fe39728",
+    "island/src/native.ts": "1ba4d7bb26f922124064f40ea4a8518497b9a037c45bd5b41fb617cc2277c798",
+    "island/src/settings.ts": "e2c90a87cf5fe63f05e88f7d8be87d0aeffda7a3feb4240356f2554216ef446b",
+    "island/src/state.ts": "7310f40f29dc53dbb30762c20fb9aff25a48f6b839fb7d10d23952a9b6d7da17",
+    "island/src/style.css": "6efdfba61bd0eff9662ef1f1e036614537a3d471197427cf57d8963ae2a55d42",
+    "island/src/types.ts": "60afe0c6a0617c7489eb1ba8e35f6da8f8d207e8c5e137e4920741db9a1dab05",
+    "island/src-tauri/build.rs": "bffac94a6e725bac47250e706130405e835c7d9416616a34bf6004520629dd00",
+    "island/src-tauri/capabilities/main.json": "c304666ba05814a5ecfd9ae148e91a2cb9e69780ed8c248448425b59945de8aa",
+    "island/src-tauri/Cargo.lock": "f3093633ffb3ce996787e00041f93f41e9752afcf54eae9f7f9d9073d4e7b98d",
+    "island/src-tauri/Cargo.toml": "020089940df3ab26f50a51339255857e148f6a2f28265067d8284a301af1c2f6",
+    "island/src-tauri/src/apps_commands.rs": "2c915bdc67ad04a8e4bbc1eeb1c4ae16c7c0e8728557202b9be885779bb5260c",
+    "island/src-tauri/src/catalog.rs": "aaf85bcadc8c26cf5f2a1ab342e930a5536cbff75021bbc9237675eab700e05f",
+    "island/src-tauri/src/config.rs": "cddca8aaea8003d3f61a5f3ac7c1296f1f0112a49ce6b647b2840ac41da43d85",
+    "island/src-tauri/src/discovery.rs": "157458c2f255d8a6265d22d5c479dcf59793e85ac1f5f8d18e00d6c998b528f3",
+    "island/src-tauri/src/main.rs": "3aef4cf60689d9b8ced5d29a50db6b0d22e78699ca766a28896d9ac2f7f32ae7",
+    "island/src-tauri/src/picker.rs": "9367f265fbbbff7b17dfc845ed5e7af9e39214156b3b22ae919561cc86caf883",
+    "island/src-tauri/src/shell.rs": "2ae55e0bcfbefca5415ac0d0cd500a9a8d4156801028078673998766f6d4c38c",
+    "island/src-tauri/src/windows.rs": "4f2a3c27b30c510b943b4f7d075de57ad5bdb0c0a485a5d0fcd3e1e6a59dadda",
+    "island/src-tauri/tauri.conf.json": "bbb3d953af1daf622a41fa192277f168c55631da24a3ca0c246fadf9768a1105",
+    "island/tests/connection.test.ts": "fc8fdd71e0388fd7c6fa1dc54df9b34ae646514051a1f43f52be0aa508e5aa2d",
+    "island/tests/state.test.ts": "a7fc4d6908f858ad8a3c8634d02d3b0b1810b1701c791a4811e382d475bc20d2",
+    "island/tsconfig.json": "210677844174ff392577adb00d09bea241df0c8828ca126dfcb3559466d79ecd",
+    "island/vite.config.ts": "b626ba88a0fb96573e40a38d604ce19762b396c959dc10a72e5ee0fe95546747",
+    "services/friday_island_server/__init__.py": "f49510dbc32545ba3164bf7494a566c265b4489d83634384f7cb19b3de12a8b8",
+    "services/friday_island_server/__main__.py": "c1c79b3dd5a24630719104cc017f78a7f90e1ed3119332f24551c97535bee7cf",
+    "services/friday_island_server/config.py": "0998bc42e61c453a62066f3cb36f4c78e02b1bd6c660e3fc353161e137d1ed10",
+    "services/friday_island_server/engine.py": "da4d3bd8f182f332184d06c20e2800fe7e30d464f3ceca5445ea1cf55045cefd",
+    "services/friday_island_server/plugins.py": "88a8cda95d61814a88f67f9086017a35ddeeb4ce355a9c2bc6669ab25a339b28",
+    "services/friday_island_server/requirements.txt": "e7250fcd6b123ec4298ff659ef0e155104aacebbb83fe16a4179b7ce4365ee4b",
+    "services/friday_island_server/server.py": "bb26bf54b4f3ed185f071578b5f2cd42e6a53e82df34de1d64e8b18c1c5028c2",
+    "tests/island/check_apps_native.py": "7ebb1e1d3e3d7244ba63f1672b227aaf4a755381e15708a4f604b87c2c18a680",
+    "tests/island/check_browser.py": "3319699685078554d6d5b3b52f5f7e48d7da3f67c3deb333a2cea60914910bd1",
+    "tests/island/check_native.py": "5f5403f05b72b3d1dba6625d6ea2db78c412e159a4201197d644f33daed59047",
+    "tests/island/check_transparency.py": "9ba6944d85d537e2ca611262beebac3a1bbc4bf086bab4cc39b11bea978712b7",
+    "tests/island/test_bridge.py": "9f35a2a9c3005e87931813dd48d8acccc5e6764d79703755578a6510facee494",
+    "tests/island/write_receipt.py": "a757ea30aa143e020157bc02c94d657fb504257df3770c7b78b76545e1c20418",
+    "tests/island/write_update_receipt.py": "e82aa915ee7cd760173738b05c107854ec39e8858ffcb0442a3b3c41c63d19a8"
+  },
+  "local_immutable_snapshot": "tasks/island-update-verified-source.zip",
+  "snapshot_sha256": "94878079f431f571652fba204696fc1579f4f927ac0499a15c128113bfd60edc",
+  "observed_checks": {
+    "python_tests": 10,
+    "rust_tests": 7,
+    "explicit_live_metadata_test": "passed",
+    "frontend_tests": 5,
+    "chromium_bridge_suite": "passed; native-first suggestions, duplicate Tab IDs, pin/unpin, reorder, priority, offline, rescan, reconnect",
+    "native_apps": {
+      "artifact_sha256": "580ac796d1c65d5dae4abc1b314ddf96411d544cdf371a1824980b89f8bc8d41",
+      "indexed_apps": 313,
+      "scan_errors": [],
+      "non_indexed_target_rejected": true,
+      "suggestion_pin_unpin": true,
+      "unpin_does_not_prevent_launch": true,
+      "successful_launch_recorded": true,
+      "favourites_and_recents_survive_restart": true,
+      "manual_rescan": true,
+      "offline": true
+    },
+    "real_browser_transparency": {
+      "fixture_was_minimized": false,
+      "baseline_pixel": [
+        19,
+        126,
+        145
+      ],
+      "artifact_sha256": "580ac796d1c65d5dae4abc1b314ddf96411d544cdf371a1824980b89f8bc8d41",
+      "dpi": 120,
+      "rest": [
+        773,
+        0,
+        373,
+        69
+      ],
+      "current_pixel": [
+        19,
+        126,
+        145
+      ],
+      "desktop_pixels_unchanged": true,
+      "underlying_browser_is_hit_target": true,
+      "input_screen_point": [
+        960,
+        281
+      ],
+      "received_text": "browser",
+      "real_browser_click_and_typing": true,
+      "peek": [
+        516,
+        0,
+        888,
+        92
+      ],
+      "expanded": [
+        516,
+        0,
+        888,
+        452
+      ],
+      "sneak": [
+        560,
+        490,
+        800,
+        99
+      ]
+    },
+    "native_focus_and_bridge": {
+      "startup_passive": true,
+      "hover_passive": true,
+      "expand_focus": true,
+      "escape_restores_fixture": true,
+      "click_elsewhere_keeps_focus": true,
+      "transparent_regions": true,
+      "sneak_centered": true,
+      "native_command_result": "Next: DBMS \u00b7 10:30"
+    },
+    "typescript_vite_build": "passed",
+    "tauri_release_build": "passed"
+  },
+  "limitations": [
+    "Physical display changes and separate Windows 10 hardware remain manual",
+    "Only Calculator was actually launched; other owner-selected app/project launches remain manual",
+    "Metadata sources define installed apps; unregistered portable apps use the manual picker"
+  ]
+}

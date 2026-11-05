@@ -248,3 +248,22 @@ def test_mood_priority_and_expiry_are_shared_bus_events():
     finally:
         moods.close()
         bus.close()
+
+
+def test_todo_widget_preserves_workspace_tasks_and_updates_plugin_items(host, monkeypatch):
+    from services import plugin_runtime
+    from services.friday_island_server.todo import TodoPlugin
+    from types import SimpleNamespace
+    host.plugins_dir = Path(__file__).resolve().parents[1] / 'plugins'
+    host.scan()
+    monkeypatch.setattr(plugin_runtime, '_manager', host)
+    legacy = SimpleNamespace(snapshot=lambda: {'tasks': [{'id': 90, 'title': 'Workspace task', 'status': 'active',
+                             'steps': [], 'cursor': 0, 'due': None, 'updated': 1}]})
+    plugin = TodoPlugin(legacy)
+    assert asyncio.run(plugin.action('add', value='JSON todo'))['ok']
+    widget = plugin.widget()
+    assert [row['label'] for row in widget['items']] == ['JSON todo', 'Workspace task']
+    assert not asyncio.run(plugin.action('remove', 'plugin-1'))['ok']
+    assert not host.get_service('todo').snapshot()['items'][0]['done']
+    assert asyncio.run(plugin.action('complete', 'plugin-1'))['ok']
+    assert host.get_service('todo').snapshot()['items'][0]['done']

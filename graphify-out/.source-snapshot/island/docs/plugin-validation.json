@@ -1,0 +1,31 @@
+{
+  "validated_on": "2026-10-31",
+  "integration_commit": "5e620aa20b1b1f140b7a52e346007158e93f62e8",
+  "integration_source_sha256": "9c32ae09157c91a976f9510c341f406c88f3f3cd581638c9bf301360b1928e64",
+  "native_source_sha256": "fa7ef157d9563bdf3e89d6e2a957b5db5725f78f12f3f471554f987e3361d252",
+  "executable_sha256": "5bca94d5bca7bf4fbd5994b928dd7924b67a834d29084eda31c603e955c9e6cf",
+  "integration_source_manifest_local": "tasks/island-plugins-native/source.json",
+  "native_source_snapshot_local": "tasks/island-native-release/source.zip",
+  "dpi": 120,
+  "checks": {
+    "python_tests_passed": 18,
+    "frontend_tests_passed": 8,
+    "chromium_real_bridge_and_temporary_tracker": "passed",
+    "native_release_widgets_and_shared_persistence": "passed",
+    "native_timed_class_reminder_and_date_restore": "passed",
+    "native_states_focus_hotkeys_and_regions": "passed",
+    "compositor_pixels_and_underlying_browser_input": "passed",
+    "production_frontend_and_offline_tauri_build": "passed",
+    "normal_bridge_read_only_tracker_widget_check": "passed"
+  },
+  "commands_from_repo": [
+    "venv/Scripts/python.exe -B -m unittest discover -s tests/island -v",
+    "npm --prefix island test",
+    "venv/Scripts/python.exe -B tests/island/check_browser.py",
+    "venv/Scripts/python.exe -B tests/island/check_plugins_native.py",
+    "venv/Scripts/python.exe -B tests/island/check_native.py --release",
+    "venv/Scripts/python.exe -B tests/island/check_transparency.py --release"
+  ],
+  "owner_record_writes_by_tests": false,
+  "remaining_manual": ["Actual owner class window", "Separate Windows 10 hardware", "Live display-scale changes"]
+}

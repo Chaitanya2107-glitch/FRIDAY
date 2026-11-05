@@ -1,0 +1,5 @@
+{
+  "id": "hello", "name": "Hello FRIDAY", "version": "1.0.0", "api_version": 1,
+  "description": "The smallest offline command and event subscriber.", "author": "FRIDAY",
+  "permissions": ["events"], "enabled_by_default": true
+}

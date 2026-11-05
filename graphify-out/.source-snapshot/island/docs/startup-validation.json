@@ -1,0 +1,36 @@
+{
+  "validated_on": "2026-11-02",
+  "native_milestone": "b378c52",
+  "native_source_sha256": "8c25de499a9809f5d3d61b4f572ef1a1700d88a3675e3b7f57b10e9ddace7f14",
+  "executable_sha256": "c7f8686adc3db4f69d491d2f7e8550200c7615c64f4fa680446280710d1f8625",
+  "source_manifest_local": "tasks/island-native-release/source.json",
+  "source_snapshot_local": "tasks/island-native-release/source.zip",
+  "lifecycle_evidence_local": "tasks/island-startup-native/evidence.json",
+  "dpi": 120,
+  "checks": {
+    "rust_tests_passed": 10,
+    "rust_ignored_live_discovery": 1,
+    "python_tests_passed": 19,
+    "frontend_tests_passed": 8,
+    "chromium_settings_explicit_signin_toggle": "passed",
+    "auto_start_and_owned_crash_recovery": "passed",
+    "reload_changes_child_port": "passed",
+    "missing_backend_recovery": "passed",
+    "external_server_reuse_without_stop": "passed",
+    "owned_startup_and_background_duplicate_passive": "passed",
+    "disable_and_hard_exit_stop_descendants_and_listener": "passed",
+    "real_signin_registry_unchanged": true,
+    "native_four_states_focus_hotkeys_and_regions": "passed",
+    "production_frontend_and_offline_tauri_build": "passed",
+    "compositor_pixel_regression": "blocked before Island launch: owned browser not visible on physical desktop"
+  },
+  "commands_from_repo": [
+    "cargo test --manifest-path island/src-tauri/Cargo.toml --offline",
+    "venv/Scripts/python.exe -B -m unittest discover -s tests/island -q",
+    "npm --prefix island test",
+    "venv/Scripts/python.exe -B tests/island/check_browser.py",
+    "venv/Scripts/python.exe -B tests/island/check_startup_native.py",
+    "venv/Scripts/python.exe -B tests/island/check_native.py --release"
+  ],
+  "remaining_manual": ["Real sign-out and sign-in after explicit opt-in", "Windows Startup Apps overrides", "Separate Windows 10 hardware", "Deliberately hung but still-running Python process", "Physical compositor pixel verification"]
+}

@@ -13,6 +13,7 @@ mod friday_commands;
 mod picker;
 mod shell;
 mod startup;
+mod token;
 #[cfg(windows)]
 mod windows;
 

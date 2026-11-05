@@ -1,0 +1,431 @@
+# FRIDAY Island
+
+A quiet, original amber companion for Windows 10/11. Tauri 2 + plain TypeScript,
+Vite and token-based CSS. Island is FRIDAY's primary desktop surface; its
+authenticated WebSocket transport runs inside the full FRIDAY backend.
+
+## Setup and run
+
+Use the repository's **Python 3.12 virtualenv**, Node **22.18+** (24 tested), stable
+Rust with MSVC build tools/Windows SDK, and Microsoft Edge WebView2 Runtime.
+[Tauri's Windows prerequisites](https://v2.tauri.app/start/prerequisites/) describe
+the Rust/Visual Studio setup. On this laptop the required tooling is installed.
+
+From the repository root, install the Python bridge dependencies once:
+
+```powershell
+venv/Scripts/python.exe -m pip install -r services/friday_island_server/requirements.txt
+```
+
+Normal use: run `launch_friday.vbs` at the repository root. It starts the existing
+FRIDAY desktop lifecycle, full backend and Island together. A standalone Island
+launch starts the same controller; repeated launches reuse the session.
+
+For frontend/native development:
+
+```powershell
+cd island
+npm install
+npm run tauri dev
+```
+
+The app also starts without the bridge. `open <installed app>`,
+`proj <configured project>` and `settings` still work through Rust.
+There is no taskbar entry: reach the app by top-center hover or its hotkeys;
+use FRIDAY → Quit FRIDAY to stop the managed session. A second launch summons
+the running instance. `npm run dev` alone is a browser preview with desktop
+controls disabled.
+
+Island owns `Ctrl+Shift+Alt+F` while it is the primary surface. FRIDAY's
+`Ctrl+Shift+F` shortcut also summons Island. The old taskbar button stays hidden;
+the native All controls panel and original robot remain available from Island.
+
+Assistant commands use FRIDAY's normal chat, history, memory, provider, privacy
+and confirmation paths. Existing `next`, `habit` and `todo` shortcuts retain their
+meaning. The FRIDAY tab shows a session conversation, actual listening/thinking/
+speaking state, provider and voice controls, browser/research progress and Stop
+tasks. Typed answers share the laptop conversation with voice. Private turns
+are transient and clear on close/disconnect. Keyboard output is held behind an
+expiring, connection-bound, one-use token and checks the original foreground
+window/process before typing. The UI connects only to `127.0.0.1`.
+
+## Startup and recovery
+
+Settings → Connection controls **Start FRIDAY when Island opens** (on by default)
+and **Launch FRIDAY at Windows sign-in** (off by default). The latter is an explicit
+per-user Windows Run entry for this executable with `--background`; it does not
+require administrator rights. A repeated background launch never expands or focuses
+an already-running island. Turning the toggle off removes only Island's entry.
+Enable sign-in startup from the standalone release app. Development builds require
+Vite and reject registration so they cannot leave a broken sign-in launch.
+
+The supervisor finds FRIDAY beside the executable or at the development repo,
+using `venv/Scripts/python.exe` and the fixed desktop launcher. If the app was
+moved, choose the FRIDAY folder in Connection. No Python is resolved through PATH,
+and no free-text command is executed. The same config path is passed to Python.
+Owned bridge logs are `bridge.log` and `bridge-error.log` next to `config.json`.
+Configuration tokens are not passed on the command line.
+
+If a listener already occupies the port, Island reuses it without starting or
+stopping that process; the normal token handshake decides whether it is FRIDAY.
+Connection status distinguishes this from an Island-managed child. Crashed owned
+children restart with a 2–30 second backoff. FRIDAY's desktop controller owns its
+backend and observes Island's lifetime. Stop FRIDAY leaves Island available;
+Start FRIDAY works through native IPC while the backend is offline. Restart
+FRIDAY uses the existing lifecycle owner. Port edits rebind the integrated
+transport; token rotation revokes old connections. The production desktop never
+places launched user applications in a kill-on-close Job Object. Manually started
+backends retain their separate ownership. Isolated compatibility bridges retain
+their bounded startup and Job Object supervision.
+
+Custom `FRIDAY_ISLAND_CONFIG` runs suppress bridge management and sign-in writes by
+default, keeping test runs isolated. Set `FRIDAY_ISLAND_MANAGE_BRIDGE=1` to explicitly
+test supervision with a custom config (`0` disables it for a normal run too).
+Sign-in writes always remain unavailable for isolated-config runs.
+
+These use Windows' [per-user Run entry](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys)
+and [Job Object cleanup](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+
+The bridge can still be started manually for development:
+
+```powershell
+venv/Scripts/python.exe -m services.friday_island_server --verbose
+```
+
+## Everyday use
+
+Idle modes differ deliberately: **Always visible** keeps the resting capsule;
+**Auto-hide when idle** returns to the capsule after use and hides it only after
+the configured delay; **Hidden until top-edge hover** starts hidden and hides
+again on leaving or closing. Both hidden modes can be revealed at the top edge.
+Auto-hide waits while the pointer is over the island.
+
+- **Rest:** a centered amber orb, local **12-hour time** and weekday on the left,
+  date and battery percentage on the right. Charging has an amber indicator.
+  Hover the top row to reveal Peek; the song strip stays put when approached
+  directly, so its controls are immediately clickable. Only during the **15 minutes
+  before a class** does its reminder replace the date. At class start, expiry or
+  disconnect, the date returns; `next` still answers on demand.
+- **Peek:** one command input, up to eight visible app icons, Projects and Settings.
+  Hover does not activate the window. Clicking the input deliberately activates it.
+- **Expanded:** Projects · Plugins · Settings. Extra pinned apps appear above
+  the project grid. Text fields accept focus when deliberately clicked.
+- **Sneak:** `Ctrl+Shift+S` toggles persistent stealth mode and opens the centered
+  command bar. Esc or switching apps dismisses the bar while keeping the Island
+  hidden. `Ctrl+Shift+F` summons only the bar; hover and notifications cannot reveal
+  the Island. Replies stay inside the bar. Press `Ctrl+Shift+S` again to restore
+  normal Island behavior. The toggle survives restart.
+- **Expand hotkey:** `Ctrl+Shift+Alt+F` cycles Peek → Expanded → Rest. The first
+  deliberate summon focuses the command input. Esc also closes a hover-opened
+  passive panel while another app owns keyboard focus.
+
+Use ↑/↓ for suggestions, Tab to complete and Enter to run. Both skins use one
+input and command engine. Examples: `proj fri`, `open editor`, `next`, `habit`,
+`todo buy charger`, `settings`, or a natural-language question. Exact names win
+over partial matches. Ambiguous project names need more text; app matches are
+ranked by name and recent use. Hiding/unpinning an installed app only changes
+favourites: the app stays searchable and launchable.
+`habit` and `todo` use FRIDAY's existing saved tracker data (details below).
+`note` and other assistant commands now reach FRIDAY's existing command flow.
+This integration reuses existing focus features; it does not add a new timer.
+
+The character is drawn in SVG code, with CSS breathing/blinking and mood changes.
+The global pointer sample updates eyes at most 12.5 times/second; it does not
+capture the screen. Animations stop while hidden/offline and honor Windows reduced
+motion. The native window and WebView are fully transparent. The dark glass,
+CSS backdrop blur, border and shadow belong only to the island element; no
+native acrylic/mica/vibrancy is applied. Native size follows the animated
+element bounds, keeping the top-center anchor (or centered Sneak box).
+
+When a Windows media session is playing or paused, a small **current-song strip**
+shows the title/artist with previous, play/pause and next buttons. It works with
+players and browser tabs that expose Windows system media controls. Unsupported
+buttons are disabled; closing the player hides the strip. No player is launched,
+no media keys are injected, and metadata is never fetched from the internet.
+Media clicks leave keyboard focus in your current app. The strip remains available
+in Peek/Expanded, and disappears with the rest of the island in Sneak.
+
+Time, date, battery and media are native/local and work **without Python**.
+The clock updates on minute boundaries; battery/media refresh about every two
+seconds while the island is visible. These timers pause in Hidden/Sneak, and resume
+on return. Unknown battery readings show a dash; a machine without a battery omits
+the indicator. Windows media requests time out rather than blocking the UI.
+
+## Todos, habits and class reminders
+
+Open **Expanded → Plugins** for compact live cards. Add a todo or daily habit,
+mark a simple task Done, and check in or undo a habit for today. Habits show their
+real streaks and respect existing repeat weekdays/rest days. New habits are daily;
+use FRIDAY's full Habits & To-do desktop for schedules, editing and history.
+The island uses the **same records** in FRIDAY's cognition/workspace database,
+normally `memory/mind/cognition.db`. It never creates demo records in your data.
+
+The same commands work in Peek and Sneak:
+
+```text
+todo buy charger
+todo list
+todo done buy charger
+todo done #12
+habit add Read 20 pages
+habit
+habit check Read 20 pages
+habit undo Read 20 pages
+```
+
+Use the full name or the `#ID` from a list to select an item. Typing `todo done `
+or `habit check ` offers matching records as suggestions. Cards show up to six
+records; list commands show up to 20, and command search covers all active records.
+Open cards refresh every 15 seconds and after a write without clearing drafts or
+moving keyboard focus. Stale writes are rejected and refreshed. Check-ins are owner
+reports; Done cannot bypass unfinished planned steps. Finish those through FRIDAY.
+Pending adds stay locked across tab changes to avoid accidental duplicate saves.
+
+The Python island server is required for these records and timetable data. They
+aren't copied into app config or saved by a fake offline fallback. Local clock,
+battery, media, installed-app launching and configured projects still work offline.
+Class reminders read FRIDAY's real timetable, expire at class start and never show
+far-future classes in Rest. Appearance → Near-class reminders can disable the swap.
+
+Integration uses FRIDAY's existing `services/productivity/` and revision-aware
+`services/mind/workspace.py`. If moving the feature to another clone,
+include that FRIDAY productivity implementation rather than creating another store.
+
+## Installed apps and favourites
+
+Type `open <name>` in Peek or Sneak to fuzzy-search and launch any indexed app.
+Typing a bare name also suggests matching apps; select one with ↑/↓ and Enter,
+or Tab then Enter. A full exact bare app name also works. Suggestions include
+icons and a one-click pin/unpin button. Duplicate names retain the selected app
+ID, including after Tab completion. Native matches do not wait for Python.
+
+Discovery covers current-user/all-users Start Menu shortcuts, 32/64-bit HKCU/HKLM
+App Paths and packaged Windows Store apps through AppsFolder. It runs on startup,
+every five minutes in the background, and via **Settings → Pinned apps → Rescan
+apps**. No app-index data is uploaded. The in-memory catalog rebuilds locally;
+recent launch history stays in the shared config and improves similar matches.
+
+If nothing matches, the UI says **No app found** and offers Rescan apps. All this
+works with the Python bridge stopped. App searches/launches are native in both
+skins; other commands still use FRIDAY. Registered plugin commands retain priority;
+`open Focus` explicitly selects an installed app.
+
+The slash catalog is checked against the connected runtime. Unsupported entries
+are hidden while offline or using the standalone bridge. See the
+[command and integration audit](../docs/FRIDAY_INTEGRATION_AUDIT.md) for handlers,
+prerequisites and the fixes verified across the frontend and backend.
+
+Pins are only favourites. Your first eight visible pins appear in Peek, with
+extras in Expanded. In Settings → Pinned apps, search the installed-app list and
+click its pin icon, or use the pin beside a palette suggestion. Favourites stay
+drag-reorderable and persist across restarts.
+
+**Add app** retains the manual native `.exe`/`.lnk` picker for portable/custom apps.
+Icons are
+extracted into memory, with an original generic glyph if extraction fails.
+Rename, show/hide, drag to reorder, use the up/down buttons, or click remove
+twice to confirm. Hiding a manual favourite does not prevent command-line use;
+removing it removes that manual launch entry. No arbitrary typed path or shell
+command is executed: only an ID from the native catalog or a saved manual
+pin/project may launch. See [catalog architecture](docs/APPS.md).
+
+## Projects
+
+Add a project from Projects or Settings → Projects. Each has a name, absolute
+local folder, accent and ordered open actions. Choose any combination of:
+
+| Action | Configuration |
+|---|---|
+| Explorer | Opens the saved folder |
+| Editor | Absolute editor `.exe` and a JSON array of arguments, usually `["{path}"]` |
+| Terminal | Absolute terminal `.exe` and a JSON array of saved arguments; launches in a new console with the project as working directory |
+| URL | Saved `http://` or `https://` URL without credentials |
+
+`{path}` is replaced with the saved project folder. An editor example:
+`C:\Users\you\AppData\Local\Programs\Microsoft VS Code\Code.exe` with
+`["{path}"]`. A terminal example is
+`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` with
+`["-NoExit", "-Command", "npm run dev"]`. Shell syntax works only if you
+explicitly configure a shell executable and its arguments. Command-line text
+can never provide a process, arguments or a URL. Actions run in order; partial
+failures report how many already opened. Last-opened time updates on success.
+
+## Config reference
+
+One human-readable file: **`%APPDATA%\FRIDAY\island\config.json`**.
+Both processes create the same schema on first run. The token is random and
+private: do not publish this file or its corruption backups.
+
+| Key | Default / meaning |
+|---|---|
+| `version`, `revision` | Schema `1`; revision increments on native saves |
+| `pins` | `[{id,name,app_id?,path,visible}]`; at most 64, IDs unique; indexed favourites use `app_id` and empty `path`, manual favourites use `.exe`/`.lnk` `path` |
+| `recent_apps` | `[{id,last_used,count}]`; up to 100 distinct app records, epoch seconds and use count |
+| `projects` | `[{id,name,path,color,last_opened,actions}]`; at most 64 |
+| `hotkeys.sneak` | `Ctrl+Shift+S` |
+| `hotkeys.expand` | `Ctrl+Shift+Alt+F` |
+| `appearance.glow` | `#FFB347` |
+| `appearance.idle_mode` | `always`, `auto-hide`, or `hover` |
+| `appearance.idle_seconds` | `30`; range 5–3600 |
+| `appearance.snippet` | `true`; enable expiring near-class reminders in the date slot |
+| `startup.manage_bridge` | `true`; start/recover an owned bridge or reuse an existing server |
+| `startup.backend_root` | Empty means automatic detection; otherwise absolute FRIDAY folder |
+| `startup.launch_at_login` | `false`; intent persisted by the explicit Windows sign-in control |
+| `connection.port` | `17321`; range 1024–65535 |
+| `connection.token` | 64 lowercase hex characters, generated on first run |
+
+Paths must be absolute local paths without traversal, UNC or device prefixes.
+IDs allow letters, digits, `_` and `-`; colors use `#RRGGBB`. Config has a 1 MiB
+limit. Validation failure preserves the exact file as `config.corrupt-*.json`
+before writing defaults. Writes use a shared OS lock and atomic replacement.
+Rust also compares the actual bytes read through an IPC-only `source_stamp`,
+so stale Settings saves cannot overwrite hand edits even when revision is unchanged.
+After hand edits choose Settings → Connection → Reload config, or restart the app.
+Restart the bridge after changing its port. A changed token requires reconnecting.
+An unknown/invalid hotkey is saved and shown as a registration error so you can fix it.
+Indexed favourites are references, not arbitrary executable paths: an `app_id`
+must still exist in the current native catalog to launch. Existing manual pins
+and old v1 configs load without migration. Index failures appear as scan warnings;
+apps without Start Menu/App Paths/Store registration can be added manually.
+
+For isolated development, the app accepts `FRIDAY_ISLAND_CONFIG` as an absolute
+config filename; the server accepts `--config <absolute path>`. Point both at
+the same file. Neither override changes the normal config location.
+
+## Build and test
+
+From `island/`:
+
+```powershell
+npm test
+npm run build
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri build -- --no-bundle
+```
+
+The executable is `island/src-tauri/target/release/friday-island.exe`.
+It embeds the frontend and needs no Vite server. Installer packaging remains
+outside v1. No auto-update or telemetry is installed.
+
+From the repository root:
+
+```powershell
+venv/Scripts/python.exe -B -m unittest discover -s tests/island -v
+```
+
+Optional Chromium integration check (uses installed Python Playwright and its
+Chromium; first run `npm run dev` in `island/`):
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_browser.py
+```
+
+This uses a real isolated WebSocket bridge and mocked native calls; it never
+launches configured programs or reads owner memory. The native Windows check
+launches the debug executable with an isolated config and two owned test windows:
+
+```powershell
+cd island
+cargo build --manifest-path src-tauri/Cargo.toml
+cd ..
+venv/Scripts/python.exe -B tests/island/check_native.py
+```
+
+It deliberately exercises desktop focus/hotkeys and restores the cursor afterward.
+It uses temporary F23/F24 bindings to avoid existing FRIDAY shortcuts.
+Add `--release --measure --online` to check the standalone executable with an
+isolated real bridge and sample its connected idle CPU.
+
+The compositor regression uses a real owned browser under the app and actual
+Windows clicks/typing at the laptop's DPI:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_transparency.py --release
+```
+
+The native catalog end-to-end check uses an isolated config and test-only local
+WebView2 debug port. It opens Calculator once, closes only a new Calculator window,
+and verifies offline search/launch, icons, pin/unpin, rescanning and persistence:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_apps_native.py
+```
+
+To check the clock/battery/media capsule against real Windows APIs (close the
+normal Island first), run:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_capsule_native.py
+```
+
+It publishes an owned, local silent test player, verifies track metadata and
+real mouse playback controls without activation, and refuses stale/unknown
+actions. It never controls an existing player or needs the Python bridge.
+The native integration uses Microsoft's
+[Windows media-session API](https://devblogs.microsoft.com/oldnewthing/20231108-00/?p=108980)
+and [system power status](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-system_power_status).
+
+The tracker/reminder release check uses a real authenticated bridge, temporary
+database and native WebView2, with no owner records changed:
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_plugins_native.py
+```
+
+The startup/recovery check launches only a temporary fake bridge and leaves the
+real sign-in registry entry and owner database unchanged (close the normal Island
+first):
+
+```powershell
+venv/Scripts/python.exe -B tests/island/check_startup_native.py
+```
+
+It verifies crash recovery, explicit restart, config reload, missing-folder
+recovery, existing-server reuse, passive duplicate background launches, and that
+both descendants and the listening port disappear when the island is killed.
+
+See [validation evidence](docs/VALIDATION.md) for measured checks and remaining
+manual coverage, and [the protocol](docs/PROTOCOL.md) for connection details.
+
+## Write a plugin
+
+Trusted plugins live in Python, with data in FRIDAY's backend. Implement the
+`Plugin` protocol from `services.friday_island_server.plugins`:
+
+```python
+from services.friday_island_server.plugins import Manifest
+
+class MyPlugin:
+    manifest = Manifest("my_plugin", "My plugin", ("mycommand",), version=1)
+
+    def snippet(self) -> str:
+        return "One calm line"
+
+    def widget(self) -> dict:
+        return {"title": "My plugin", "text": "A small text widget"}
+
+    async def command(self, text: str) -> dict:
+        return {"ok": True, "text": "Done"}
+```
+
+Register an instance with `Registry.register()` in the Python bridge composition.
+The manifest's wire format is `{id,name,commands,version,widget}`; `commands`
+is an array of unique command prefixes and `widget` is a boolean. Set
+`widget=False` for a command-only plugin; its palette commands remain available.
+Registered Python code is trusted; v1 does not load arbitrary files/packages from config.
+Snippet selection uses the first nonempty registered plugin, publishing every
+60 seconds. A plugin may additionally implement `reminder()` returning
+`{text, show_from, expires_at}` in epoch milliseconds for a temporary date-slot
+snippet. Frames without a valid current interval leave the date visible.
+Widgets contain bounded literal text, optional rows/actions and an add input;
+they never contain injected HTML or JavaScript. Implement
+`async action(action, item='', value='', revision=None)` for explicit widget
+mutations, validate the operation/record/revision in Python, and return
+`{ok, text}`. See [PROTOCOL.md](docs/PROTOCOL.md) for the complete wire shape.
+Commands can return text or an action referencing an indexed app, manual pin
+or project ID; Rust revalidates catalog/config membership. An `app_search` query
+is resolved natively and can never supply executable paths or process arguments.
+
+The three shipped plugins are `habit_tracker` and `todo` (shared FRIDAY tracker
+adapters), and `college_schedule` (real next-class adapter with a no-timetable fallback).
+Plugin lists/widgets are generic: the island has no classes/habit/todo UI logic.

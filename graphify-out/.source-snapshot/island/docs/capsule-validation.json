@@ -1,0 +1,29 @@
+{
+  "validated_on": "2026-10-31",
+  "source_sha256": "e1e0331777b5bb55110e144e12742f7f7131bcf93d54b4c7dae43ad34e48064c",
+  "executable_sha256": "df8e0db55fe9c2eba6c47f42bbe5ceeaf17a03a5b14b47d76986bbed0d1bebc1",
+  "source_manifest_local": "tasks/island-native-release/source.json",
+  "source_snapshot_local": "tasks/island-native-release/source.zip",
+  "native_commit": "9860cf8",
+  "dpi": 120,
+  "rest_without_media_physical_pixels": [475, 82],
+  "checks": {
+    "rust": {"passed": 9, "ignored": 1},
+    "frontend_unit": {"passed": 5},
+    "chromium_with_real_bridge_and_mock_native": "passed",
+    "native_windows_battery_and_owned_media_fixture": "passed",
+    "native_states_focus_hotkeys_and_regions": "passed",
+    "compositor_pixels_and_underlying_browser_input": "passed",
+    "production_frontend_and_offline_tauri_build": "passed"
+  },
+  "idle_cpu": {"mode": "offline Rest", "percent_one_core": 0.94, "warmup_seconds": 5, "sample_seconds": 5, "processes": 7},
+  "commands_from_repo": [
+    "cargo test --manifest-path island/src-tauri/Cargo.toml --offline",
+    "npm --prefix island test",
+    "venv/Scripts/python.exe -B tests/island/check_browser.py",
+    "venv/Scripts/python.exe -B tests/island/check_capsule_native.py",
+    "venv/Scripts/python.exe -B tests/island/check_native.py --release --measure",
+    "venv/Scripts/python.exe -B tests/island/check_transparency.py --release"
+  ],
+  "remaining_manual": ["Owner's usual players and charger changes", "Separate Windows 10 hardware", "Live display-scale changes"]
+}

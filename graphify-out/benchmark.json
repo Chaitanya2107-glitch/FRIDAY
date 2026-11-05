@@ -1,0 +1,38 @@
+{
+  "corpus_tokens": 842648,
+  "corpus_words": 631986,
+  "nodes": 11219,
+  "edges": 31773,
+  "avg_query_tokens": 59518,
+  "reduction_ratio": 14.2,
+  "per_question": [
+    {
+      "question": "how does authentication work",
+      "query_tokens": 103078,
+      "reduction": 8.2
+    },
+    {
+      "question": "what is the main entry point",
+      "query_tokens": 37476,
+      "reduction": 22.5
+    },
+    {
+      "question": "how are errors handled",
+      "query_tokens": 48947,
+      "reduction": 17.2
+    },
+    {
+      "question": "what connects the data layer to the api",
+      "query_tokens": 27811,
+      "reduction": 30.3
+    },
+    {
+      "question": "what are the core abstractions",
+      "query_tokens": 80281,
+      "reduction": 10.5
+    }
+  ],
+  "source_snapshot": "2026-11-05T13:06:52.386561+00:00",
+  "baseline_words_source": "captured graphify detection for the immutable 820-file snapshot",
+  "measurement": "estimated token counts; not a measured LLM run"
+}

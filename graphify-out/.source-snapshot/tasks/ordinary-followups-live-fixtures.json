@@ -1,0 +1,15 @@
+{
+  "frozen_before_inference": true,
+  "cases": [
+    {"id": "robotics_named", "subjects": ["robotics exam", "maths exam"], "turns": ["My exam was postponed", "Robotics, November 3"], "subject": "robotics exam", "expected": "2026-11-03"},
+    {"id": "voice_without_comma", "subjects": ["optics viva", "circuits viva"], "turns": ["My viva was postponed", {"text": "Optics November 5", "channel": "voice"}], "subject": "optics viva", "expected": "2026-11-05"},
+    {"id": "two_step_fresh", "subjects": ["design review", "portfolio review"], "turns": ["My review has been rescheduled", "Portfolio", "It will be on December 4."], "subject": "portfolio review", "expected": "2026-12-04"},
+    {"id": "relative_date", "subjects": ["project demonstration"], "turns": ["My project demonstration was moved", "tomorrow"], "subject": "project demonstration", "expected": "2026-10-23"},
+    {"id": "uncertain", "subjects": ["biology exam", "chemistry exam"], "turns": ["My exam was postponed", "Biology, maybe November 3"], "subject": "biology exam", "expected": null},
+    {"id": "unknown_subject", "subjects": ["biology exam", "chemistry exam"], "turns": ["My exam was postponed", "Physics, November 3"], "subject": "biology exam", "expected": null},
+    {"id": "missing_choice", "subjects": ["biology exam", "chemistry exam"], "turns": ["My exam was postponed", "November 3"], "subject": "biology exam", "expected": null},
+    {"id": "stale_target", "subjects": ["robotics exam", "maths exam"], "turns": ["My exam was postponed", {"mutation": "stale"}, "Robotics, November 3"], "subject": "robotics exam", "expected": null},
+    {"id": "forgotten", "subjects": ["robotics exam", "maths exam"], "turns": ["My exam was postponed", {"mutation": "forget"}, "Robotics, November 3"], "subject": "robotics exam", "expected": null},
+    {"id": "cancelled", "subjects": ["robotics exam", "maths exam"], "turns": ["My exam was postponed", "never mind", "Robotics, November 3"], "subject": "robotics exam", "expected": null}
+  ]
+}

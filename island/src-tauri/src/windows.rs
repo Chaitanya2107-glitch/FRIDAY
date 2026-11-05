@@ -258,7 +258,9 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 let mut errors = register(&hotkeys);
                 match parse_dismiss(&hotkeys.dismiss) {
                     Ok(value) => dismiss = value,
-                    Err(error) => errors.push(format!("Dismiss: {error}. Previous key remains active.")),
+                    Err(error) => {
+                        errors.push(format!("Dismiss: {error}. Previous key remains active."))
+                    }
                 }
                 #[cfg(debug_assertions)]
                 eprintln!("Island hotkeys registered: {:?}", errors);
@@ -268,9 +270,17 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
             }
             unsafe {
                 let down = GetAsyncKeyState(dismiss.1 as i32) < 0
-                    && [(MOD_CONTROL, VK_CONTROL), (MOD_SHIFT, VK_SHIFT), (MOD_ALT, VK_MENU)]
-                        .iter().all(|(flag, key)| (GetAsyncKeyState(*key as i32) < 0) == (dismiss.0 & flag != 0))
-                    && ((GetAsyncKeyState(VK_LWIN as i32) < 0 || GetAsyncKeyState(VK_RWIN as i32) < 0)
+                    && [
+                        (MOD_CONTROL, VK_CONTROL),
+                        (MOD_SHIFT, VK_SHIFT),
+                        (MOD_ALT, VK_MENU),
+                    ]
+                    .iter()
+                    .all(|(flag, key)| {
+                        (GetAsyncKeyState(*key as i32) < 0) == (dismiss.0 & flag != 0)
+                    })
+                    && ((GetAsyncKeyState(VK_LWIN as i32) < 0
+                        || GetAsyncKeyState(VK_RWIN as i32) < 0)
                         == (dismiss.0 & MOD_WIN != 0));
                 let open = matches!(
                     app.state::<crate::AppState>()

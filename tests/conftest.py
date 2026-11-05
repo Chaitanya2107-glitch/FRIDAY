@@ -234,6 +234,10 @@ def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     # ...nor her real brain: she starts out knowing nothing, noticing nothing, feeling nothing
     monkeypatch.setattr(knowledge, "db_path", str(tmp_path / "mind" / "brain.db"))
     monkeypatch.setattr(categories, "LEARNED", {"app": {}, "title": {}})
+    # Installed games must not turn a synthetic unknown-app test into a known game.
+    monkeypatch.setattr(categories, 'GAME_FOLDERS', [str(tmp_path / 'Games')])
+    monkeypatch.setattr(categories, 'STEAM_LIBRARIES', str(tmp_path / 'steam-libraries.vdf'))
+    categories.game_programs.cache_clear()
     monkeypatch.setattr(life, "path", tmp_path / "mind" / "life.json")
     monkeypatch.setattr(life, "diary_path", tmp_path / "mind" / "diary.jsonl")
     monkeypatch.setattr(brain, "_cur", None)

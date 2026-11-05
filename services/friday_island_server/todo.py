@@ -20,7 +20,10 @@ class TodoPlugin(TrackerPlugin):
         todos = self.service()
         if todos is None:
             return legacy
-        plugin = todos.widget()
+        plugin = todos.api.manager.invoke(todos.api, todos.widget)
+        if plugin.get('ok') is False:
+            legacy['text'] += ' · Plugin todos unavailable; check list plugins.'
+            return legacy
         plugin['text'] += ' · ' + legacy['text']
         plugin['items'] = (plugin['items'] + legacy['items'])[:limit]
         return plugin
@@ -28,6 +31,8 @@ class TodoPlugin(TrackerPlugin):
     async def action(self, action, item='', value='', revision=None):
         todos = self.service()
         if todos and (action == 'add' or item.startswith('plugin-')):
+            if (action == 'add' and (item or revision is not None)) or (action != 'add' and action != 'complete'):
+                return {'ok': False, 'text': 'Invalid plugin todo action.', 'error': 'invalid_action'}
             try:
                 return await asyncio.to_thread(todos.change, 'add' if action == 'add' else 'done',
                                                value if action == 'add' else item.removeprefix('plugin-'))

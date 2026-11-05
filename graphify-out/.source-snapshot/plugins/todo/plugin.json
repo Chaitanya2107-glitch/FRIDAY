@@ -1,0 +1,5 @@
+{
+  "id": "todo", "name": "Plugin Todos", "version": "1.0.0", "api_version": 1,
+  "description": "Offline JSON todos, separate from existing workspace tasks.", "author": "FRIDAY",
+  "permissions": ["events", "files", "ui"], "enabled_by_default": true
+}

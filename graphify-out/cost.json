@@ -1,0 +1,17 @@
+{
+  "runs": [
+    {
+      "date": "2026-11-05T13:21:27.530073+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 820,
+      "token_usage_available": false,
+      "usage_note": "Zero counters are placeholders; host-agent usage is not exposed by collaboration tools.",
+      "source_snapshot": "2026-11-05T13:06:52.386561+00:00"
+    }
+  ],
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "token_usage_available": false,
+  "usage_note": "Numeric totals exclude unmetered host-agent extraction and must not be read as actual total usage."
+}

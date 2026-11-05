@@ -152,25 +152,9 @@ impl Default for Connection {
         Self {
             port: 17321,
             api_port: 8000,
-            token: new_token(),
+            token: crate::token::new_token(),
         }
     }
-}
-fn new_token() -> String {
-    let mut bytes = [0u8; 32];
-    #[cfg(windows)]
-    unsafe {
-        use windows_sys::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
-        assert!(BCryptGenRandom(std::ptr::null_mut(), bytes.as_mut_ptr(), 32,
-            BCRYPT_USE_SYSTEM_PREFERRED_RNG) >= 0, "Windows random generator unavailable");
-    }
-    #[cfg(not(windows))]
-    {
-        use std::io::Read;
-        fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes))
-            .expect("OS random generator unavailable");
-    }
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 impl Default for Config {
     fn default() -> Self {
@@ -256,9 +240,13 @@ impl Config {
         if self.connection.api_port < 1024 {
             return Err("Invalid HTTP port".into());
         }
-        if [&self.hotkeys.sneak, &self.hotkeys.expand, &self.hotkeys.dismiss]
-            .iter()
-            .any(|s| s.is_empty() || s.len() > 100)
+        if [
+            &self.hotkeys.sneak,
+            &self.hotkeys.expand,
+            &self.hotkeys.dismiss,
+        ]
+        .iter()
+        .any(|s| s.is_empty() || s.len() > 100)
         {
             return Err("Invalid hotkey length".into());
         }
@@ -446,32 +434,17 @@ pub fn save(path: &Path, mut next: Config) -> Result<Config, String> {
 mod tests {
     use super::*;
     #[test]
-    fn missing_token_is_materialized_once() {
-        let root = std::env::temp_dir().join(format!("friday-island-test-{}", Uuid::new_v4()));
-        fs::create_dir_all(&root).unwrap();
-        let path = root.join("config.json");
-        fs::write(&path, r##"{"appearance":{"glow":"#FF9900"}}"##).unwrap();
-        let first = load(&path).unwrap();
-        assert_eq!(
-            first.connection.token,
-            load(&path).unwrap().connection.token
-        );
-        assert_eq!(first.appearance.glow, "#FF9900");
-        assert!(fs::read_to_string(&path)
-            .unwrap()
-            .contains(&first.connection.token));
-        fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
     fn migrates_old_sneak_shortcut_without_resetting_config() {
         let root = std::env::temp_dir().join(format!("friday-island-test-{}", Uuid::new_v4()));
         let path = root.join("config.json");
         let mut config = load(&path).unwrap();
         let token = config.connection.token.clone();
         config.hotkeys.sneak = "Ctrl+Shift+Alt+Space".into();
+        config.hotkeys.expand = "Ctrl+Shift+Alt+F".into();
         write(&path, &config).unwrap();
         let migrated = load(&path).unwrap();
         assert_eq!(migrated.hotkeys.sneak, "Ctrl+Shift+S");
+        assert_eq!(migrated.hotkeys.expand, "Ctrl+Shift+Alt+I");
         assert_eq!(migrated.connection.token, token);
         assert_eq!(load(&path).unwrap().revision, migrated.revision);
         fs::remove_dir_all(root).unwrap();

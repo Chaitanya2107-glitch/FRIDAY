@@ -313,8 +313,10 @@ async def _tick(now: datetime) -> None:
     if not busy:
         await _check_sessions(now)
 
+    readings = await asyncio.to_thread(read_system)
+    from services.event_bus import publish as publish_event
+    publish_event('system.battery_reading', {'percent': readings.battery, 'plugged': readings.plugged_in})
     if nudges_active(now.timestamp()):
-        readings = await asyncio.to_thread(read_system)
         notifications.observe(readings)
         for nudge in _nudger.check(readings, now, bool(load_state().get("eye_breaks"))):
             if busy and not nudge.urgent:

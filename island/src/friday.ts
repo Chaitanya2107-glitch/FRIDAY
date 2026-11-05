@@ -119,6 +119,31 @@ export class FridayPanel {
     this.paintState(); this.paintConversation(); return true;
   }
   accept(prompt: string, reply: CommandResult) { this.conversation.accept(prompt, reply); this.paintConversation(); }
+  pluginEvent(event: Record<string, unknown>) {
+    const payload = event.payload;
+    if (event.topic !== 'ui.card' || typeof event.plugin_id !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(event.plugin_id)
+      || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    const value = payload as Record<string, unknown>;
+    if (typeof value.title !== 'string' || value.title.length > 120 || typeof value.body !== 'string' || value.body.length > 4000) return;
+    const owner = event.plugin_id;
+    const card = el('div', 'friday-notice'); card.setAttribute('role', 'status');
+    card.append(el('strong', '', value.title), el('p', '', value.body));
+    for (const action of (Array.isArray(value.actions) ? value.actions : []).slice(0, 6)) {
+      if (!action || typeof action !== 'object' || typeof action.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(action.id)
+          || typeof action.label !== 'string' || action.label.length > 40) continue;
+      card.append(this.button(action.label, async () => {
+        const result = await this.connection().pluginRequest(`${owner}/actions/${action.id}`, 'POST', action.payload ?? {});
+        this.message(String(result.text ?? 'Done'), result.ok === false);
+        if (result.ok === true) card.remove();
+      }));
+    }
+    card.append(this.button('Dismiss', async () => card.remove())); this.notices.prepend(card);
+    while (this.notices.childElementCount > 3) this.notices.lastElementChild?.remove();
+    const ttl = typeof value.ttl_s === 'number' && Number.isFinite(value.ttl_s) ? Math.max(1, Math.min(3600, value.ttl_s)) : 30;
+    setTimeout(() => card.remove(), ttl * 1000);
+    this.reveal({ id: Number(event.id) || 0, kind: 'notification', text: value.body, title: value.title,
+      at: Number(event.at) || Date.now() / 1000, buttons: [] });
+  }
   private paintConversation() {
     const signature = JSON.stringify([this.conversation.turns, this.conversation.privateReply, this.conversation.awaiting]);
     if (this.painted === signature) return;

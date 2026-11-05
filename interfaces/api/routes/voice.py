@@ -66,6 +66,7 @@ from services.memory.notes import is_note
 from services.mind import humour, talk
 from services.telegram import commands as telegram_commands
 from services.mind import cognition as cognition_service, cognition_commands
+from services.computation.commands import match_command as computation_command
 
 router = APIRouter()
 
@@ -371,9 +372,10 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         humour.hear(transcription)
     note = is_note(command_message)  # "note look up flights" is saved, not searched
     telegram_command = telegram_commands.match_command(command_message)
-    screen_question = None if note or telegram_command or cognition_command else extract_screen_question(transcription)
+    calculation = computation_command(transcription)
+    screen_question = None if note or telegram_command or cognition_command or calculation else extract_screen_question(transcription)
     # Excerpts from the user's files or web results, for the AI to answer from
-    search_context = None if screen_question or note or telegram_command or cognition_command else (
+    search_context = None if screen_question or note or telegram_command or cognition_command or calculation else (
         await build_file_context(transcription, cite=False)
         or await build_search_context(transcription, cite=False)
     )
@@ -405,8 +407,8 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         return VoiceResponse(
             transcription=transcription,
             response=system_result.message,
-            provider=provider_name,
-            model="system_control",
+            provider="local" if calculation else provider_name,
+            model="computation_engine" if calculation else "system_control",
             tokens_used=0,
             action="system",
             action_success=system_result.success,

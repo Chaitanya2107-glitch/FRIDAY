@@ -97,6 +97,8 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and return a configured FastAPI application."""
 
+    from services.friday_island_server.security import protect_access_logs
+    protect_access_logs()
     app = FastAPI(
         title="F.R.I.D.A.Y",
         description="Personal AI Assistant — Local API",
@@ -119,6 +121,25 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def reject_other_websites(request: Request, call_next):
+        from services.friday_island_server.http import is_plugin_path
+        # The Island companion routes apply their own stricter token/Origin checks.
+        if is_plugin_path(request.url.path):
+            origin = request.headers.get('origin')
+            from services.friday_island_server.server import ORIGINS
+            if origin is not None and origin not in ORIGINS:
+                return JSONResponse(status_code=403, content={'error': 'forbidden'})
+            if request.method == 'OPTIONS' and origin in ORIGINS:
+                from services.friday_island_server.http import allowed_host
+                if not allowed_host(request.headers.get('host', '')):
+                    return JSONResponse(status_code=400, content={'error': 'bad_host'})
+                response = JSONResponse(content={})
+            else:
+                response = await call_next(request)
+            if origin in ORIGINS:
+                response.headers.update({'Access-Control-Allow-Origin': origin, 'Vary': 'Origin',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'X-Friday-Token, Content-Type'})
+            return response
         origin = request.headers.get("origin")
         if origin is not None and origin not in allowed_origins:
             logger.warning(f"Blocked {request.method} {request.url.path} from origin {origin}")
@@ -161,6 +182,8 @@ def create_app() -> FastAPI:
     app.include_router(college_routes.router, prefix="/api/v1", tags=["College"])
     from interfaces.api.routes import island
     app.include_router(island.router, prefix="/api/v1", tags=["Island"])
+    from services.friday_island_server.http import create_router
+    app.include_router(create_router(), tags=['Island plugins'])
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["System"])

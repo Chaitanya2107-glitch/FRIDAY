@@ -53,7 +53,7 @@ def main():
     print("  Ready. Press CTRL+C to stop.\n")
 
     # Step 4: Start the server
-    options = dict(host=config.API_HOST, port=config.API_PORT,
+    options = dict(host='127.0.0.1', port=config.API_PORT,
                    reload=config.API_RELOAD, factory=True,
                    log_level="info" if config.DEBUG else "warning")
     if "--desktop-managed" in sys.argv:

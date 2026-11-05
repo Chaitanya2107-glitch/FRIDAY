@@ -60,7 +60,7 @@ def execution_evidence(store):
 def clear_derived(conn):
     """Forget derived private context, invalidating active workers without resetting budgets."""
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    for table in ("executive_reviews", "executive_situations", "executive_decisions", "executive_outcomes", "owner_episodes", "inquiry_jobs", "temporal_situations", "life_reactions", 'action_outcomes', 'memory_threads', 'consolidated_sources', 'dialogue_clarifications', 'screen_observations', 'screen_activity_days'):
+    for table in ("executive_reviews", "executive_situations", "executive_decisions", "executive_outcomes", "owner_episodes", "inquiry_jobs", "temporal_situations", "life_reactions", 'action_outcomes', 'memory_threads', 'consolidated_sources', 'dialogue_clarifications', 'screen_observations', 'screen_activity_days', 'cognitive_health', 'cognitive_health_history'):
         if table in tables:
             conn.execute(f"DELETE FROM {table}")
     if 'workspace_reference_context' in tables:
@@ -211,6 +211,24 @@ class ExecutiveControl:
         logger.debug("Executive review %s claimed; attempt=%s", claimed["id"], claimed["attempts"])
         return claimed
 
+    def wait_reason(self, now):
+        """Explain the existing claim gates without spending a review attempt."""
+        if not self.status(now)['enabled']:
+            return 'executive_disabled'
+        stamp = now.timestamp()
+        with self._db() as conn:
+            attempts = conn.execute('SELECT COUNT(*),MAX(started) FROM executive_attempts WHERE started>?',
+                                    (stamp - 3600,)).fetchone()
+            if attempts[0] >= HOURLY_LIMIT:
+                return 'hourly_limit'
+            if attempts[1] is not None and stamp - attempts[1] < REVIEW_GAP:
+                return 'minimum_gap'
+            if conn.execute("SELECT 1 FROM executive_reviews WHERE state='running' AND expires>?", (stamp,)).fetchone():
+                return 'review_in_progress'
+            if conn.execute("SELECT 1 FROM executive_reviews WHERE state IN ('pending','unavailable') AND not_before>?", (stamp,)).fetchone():
+                return 'retry_backoff'
+        return 'nothing_pending'
+
     @staticmethod
     def _valid(conn, job, stamp):
         return bool(conn.execute("SELECT 1 FROM executive_reviews r JOIN executive_settings s ON s.id=1 "
@@ -250,7 +268,7 @@ class ExecutiveControl:
             await asyncio.to_thread(self.enqueue, situation, now)
             job = await asyncio.to_thread(self.claim, now)
             if not job:
-                return {"status": "idle"}
+                return {"status": "idle", "reason": await asyncio.to_thread(self.wait_reason, now)}
             started = time.monotonic()
 
             def guard(conn):

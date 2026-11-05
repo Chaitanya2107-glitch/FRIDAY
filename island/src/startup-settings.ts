@@ -19,6 +19,12 @@ export function startupSettings(config: Config, save: (next: Config) => Promise<
     const next = structuredClone(config); next.startup = { ...prefs, manage_bridge: manage.checked };
     void save(next);
   };
+  const together = el('input'); together.type = 'checkbox'; together.checked = prefs.start_with_friday === true;
+  field('Start Island together with FRIDAY', together);
+  together.onchange = () => {
+    const next = structuredClone(config); next.startup = { ...prefs, start_with_friday: together.checked };
+    void save(next);
+  };
   action('Choose FRIDAY folder', async () => {
     const picked = await call<{ path: string } | null>('choose_path', { folder: true });
     if (picked) { const next = structuredClone(config); next.startup = { ...prefs, backend_root: picked.path }; await save(next); }

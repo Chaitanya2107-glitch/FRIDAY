@@ -83,7 +83,8 @@ class Project(Model):
 
 class Hotkeys(Model):
     sneak: str = Field(default="Ctrl+Shift+S", min_length=1, max_length=100)
-    expand: str = Field(default="Ctrl+Shift+Alt+F", min_length=1, max_length=100)
+    expand: str = Field(default="Ctrl+Shift+Alt+I", min_length=1, max_length=100)
+    dismiss: str = Field(default='Escape', min_length=1, max_length=100)
 
 
 class Appearance(Model):
@@ -95,6 +96,7 @@ class Appearance(Model):
 
 class Connection(Model):
     port: int = Field(default=17321, ge=1024, le=65535)
+    api_port: int = Field(default=8000, ge=1024, le=65535)
     token: str = Field(default_factory=lambda: secrets.token_hex(32), pattern=r"^[a-f0-9]{64}$")
 
 
@@ -108,6 +110,7 @@ class Startup(Model):
     manage_bridge: bool = True
     backend_root: str = ''
     launch_at_login: bool = False
+    start_with_friday: bool = False
 
     @field_validator('backend_root')
     @classmethod
@@ -202,9 +205,14 @@ def load_config(path: Path | None = None) -> IslandConfig:
                     raise ValueError("Island config exceeds 1 MiB")
                 raw = path.read_text(encoding="utf-8-sig")
                 config = IslandConfig.model_validate_json(raw)
-                migrated = config.hotkeys.sneak == "Ctrl+Shift+Alt+Space"
-                if migrated:
+                migrated = False
+                if config.hotkeys.sneak == "Ctrl+Shift+Alt+Space":
                     config.hotkeys.sneak = Hotkeys().sneak
+                    migrated = True
+                if config.hotkeys.expand == 'Ctrl+Shift+Alt+F':
+                    config.hotkeys.expand = Hotkeys().expand
+                    migrated = True
+                if migrated:
                     config.revision += 1
                 if migrated or "token" not in json.loads(raw).get("connection", {}):
                     atomic_write(path, config)

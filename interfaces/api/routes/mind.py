@@ -38,6 +38,26 @@ async def brain_status():
             'local_review': await asyncio.to_thread(latest)}
 
 
+@router.get('/mind/health')
+async def cognitive_health_status():
+    from services.screen_watch.commands import local_request
+    if not local_request.get():
+        raise HTTPException(status_code=403, detail='Detailed brain health is available at the laptop only.')
+    from services.mind import cognitive_runtime
+    from services.mind.review_metrics import latest
+    return {'attention': await asyncio.to_thread(cognitive_runtime.status),
+            'local_review': await asyncio.to_thread(latest)}
+
+
+@router.get('/mind/working-memory')
+async def get_working_memory():
+    from services.screen_watch.commands import local_request
+    if not local_request.get():
+        raise HTTPException(status_code=403, detail='Detailed working memory is available at the laptop only.')
+    from services.mind.working_memory import working_memory
+    return await asyncio.to_thread(working_memory.snapshot)
+
+
 @router.get('/mind/situation')
 async def get_situation():
     from services.mind.temporal_memory import situation

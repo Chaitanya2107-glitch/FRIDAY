@@ -16,7 +16,7 @@ REMARKS = {
     "greeting": "I'm here, Boss. What are we doing today?",
     "thanks": "Anytime, Boss.",
     "goodbye": "Talk later, Boss.",
-    "help": 'I help you keep track of your day, schedule, reminders, notes and recorded activity, plus phone notifications and music. Try "what am I doing", "read my phone notifications", "play something chill" or "remind me in 10 minutes to stretch".',
+    "help": 'I help you keep track of your day, schedule, reminders, notes and recorded activity, plus phone notifications and music. Try "what am I doing", "read my phone notifications", "play something chill" or "remind me in 10 minutes to stretch". For local math, science and procedural stories, try "engine help".',
     "unknown": 'I haven\'t learned that yet, Boss. You can tell me what it is, or ask again when knowledge lookup is available.',
     "unmatched": 'I don\'t recognise that yet, Boss. I can help with local commands; try "help" for examples.',
     "screen": 'Screen interpretation is unavailable in this mode, Boss. Tell me what you see, or use a local command.',

@@ -9,6 +9,8 @@ from services.mind.cognition import cognition, mark_introspection
 from services.mind.cognition_context import live_state
 
 _QUERIES = {
+    'working_memory': r'working memory|working memory status|show (?:your |my )?working memory|what is in (?:your |my )?working memory',
+    'brain_health': r'brain health|cognition health|cognitive health|brain health status',
     'development_status': (r'development status|(?:your |friday )?(?:code|upgrade) status|'
                            r'what (?:changed|has changed) in your code|'
                            r'are you being (?:upgraded|updated|worked on)|'
@@ -40,6 +42,19 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
     mark_introspection()
     from services.automation.intent import telegram_owner
     owner_inspection = telegram_owner.get()
+    if kind == 'working_memory':
+        if remote and not owner_inspection:
+            return ActionResult(False, 'Working memory is available at the laptop or in your authenticated owner chat.', repeatable=False)
+        from services.mind.working_memory import working_memory
+        return ActionResult(True, working_memory.describe(channel='telegram' if remote else 'chat'),
+                            memory_message='Reviewed source-backed working memory.', repeatable=False)
+    if kind == 'brain_health':
+        if remote and not owner_inspection:
+            return ActionResult(False, 'Brain health is available at the laptop or in your authenticated owner chat.', repeatable=False)
+        from services.mind import cognitive_runtime
+        from services.mind.review_metrics import latest, describe
+        return ActionResult(True, cognitive_runtime.describe() + ' ' + describe(latest()),
+                            memory_message='Reviewed local cognitive health metadata.', repeatable=False)
     if kind == 'development_status':
         from services.mind.development import development
         development.scan()
@@ -60,6 +75,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
                 f"Owner dialogue episodes available: {len(brain_memory.evidence(50))}. "
                 f"Automatic questions today: {status['automatic_questions_today']}/{status['daily_question_ceiling']} ceiling; "
                 f"at least {status['minimum_gap_minutes']} minutes apart. There is no question quota or scheduled interview.")
+        text += ' ' + cognitive_runtime.describe()
         if last:
             text += f" Last inquiry decision: {last['state']}. {last['reason']}"
             purpose = (status.get('last_question') or {}).get('purpose')

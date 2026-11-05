@@ -345,6 +345,8 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
         app_verification.mark_returned(aware.message, remote=remote_request.get())
         return aware
     token = commands_run.set([])
+    from services.plugin_runtime import plugin_result, note_builtin
+    plugin_token = plugin_result.set(None)
     try:
         cognition.record('intent', 'telegram' if remote_request.get() else 'system',
                          'Interpreting an owner request with current local controls.', public=False)
@@ -356,9 +358,12 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
             if brief_answer := await asyncio.to_thread(project_session_context.try_answer, message, remote=remote_request.get()):
                 return brief_answer
         result = await _try_correction(message, provider_name) or await _try_system_action(message, provider_name)
+        if result is not None and result is not plugin_result.get():
+            note_builtin(message)
         corrections.note(message, bool(result and result.success and commands_run.get()))
         return personality.season(result, commands_run.get())
     finally:
+        plugin_result.reset(plugin_token)
         commands_run.reset(token)
 
 
@@ -396,6 +401,10 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         if clipboard_write and clipboard_write['action'] == 'write_clipboard':
             return _execute(clipboard_write)
 
+    from services.computation import commands as computation_commands
+    if computation_command := computation_commands.match_command(message):
+        return await asyncio.to_thread(computation_commands.run, computation_command)
+
     message = words.rephrase_command(message)
     from services.spotify.dj import match_command as match_dj
     if dj_command := match_dj(message):
@@ -407,6 +416,9 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
     plan = _local_multi_plan(message)
     if plan is not None:
         if not plan:
+            from services.plugin_runtime import try_command as try_plugin_command
+            if plugin_result := await try_plugin_command(message):
+                return plugin_result
             if config.AI_ASSIST_ONLY and config.AI_LANGUAGE_ENABLED and not _language_proposal.get():
                 return await _understand_command(message, provider_name)
             return ActionResult(False, 'I could not recognise every step, Boss. Try each command separately.')
@@ -721,6 +733,9 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         return _remember(message, await asyncio.to_thread(_execute, media_match), media_match)
 
     if words.is_multi_step(text):
+        from services.plugin_runtime import try_command as try_plugin_command
+        if plugin_result := await try_plugin_command(message):
+            return plugin_result
         if config.AI_ASSIST_ONLY:
             if config.AI_LANGUAGE_ENABLED and not _language_proposal.get():
                 return await _understand_command(message, provider_name)
@@ -750,6 +765,10 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
     if _allow_typo:
         if candidate := _correct_local_typo(message):
             return await _try_system_action(candidate, provider_name, _allow_typo=False)
+
+    from services.plugin_runtime import try_command as try_plugin_command
+    if plugin_result := await try_plugin_command(message):
+        return plugin_result
 
     # Natural language need not begin with a known command verb.
     if config.AI_ASSIST_ONLY and config.AI_LANGUAGE_ENABLED and not _language_proposal.get():

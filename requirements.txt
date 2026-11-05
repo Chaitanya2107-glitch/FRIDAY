@@ -14,6 +14,7 @@ pydantic>=2.0.0         # Data validation (FastAPI uses this internally)
 
 # ── Environment / config ──────────────────────────────────────────────────────
 python-dotenv>=1.0.0    # Loads .env files into os.environ
+sympy>=1.14,<2          # Offline exact math, calculus, matrices and atom balancing
 
 # ── AI Providers ──────────────────────────────────────────────────────────────
 # OpenRouter uses the openai SDK (it's OpenAI-compatible) — required

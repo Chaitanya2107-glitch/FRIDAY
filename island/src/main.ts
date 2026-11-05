@@ -7,6 +7,7 @@ import { Connection } from './connection';
 import { Apps } from './apps';
 import { Capsule } from './capsule';
 import { ReplySurface } from './reply-surface';
+import { matchesDismiss } from './hotkeys';
 import { isFileReference, resolveSlash, slashSuggestions } from './slash-commands';
 import { PluginWidgets } from './widgets';
 import { call, native, on, previewConfig } from './native';
@@ -113,7 +114,8 @@ function mood(value?: string, duration = 0) {
   clearTimeout(moodTimer);
   const state = friday.state?.body;
   surface.dataset.mood = state?.listening ? 'listening' : state?.speaking ? 'speaking' : state?.thinking ? 'thinking'
-    : value ?? (!online ? 'offline' : mode === 'hidden' || mode === 'sneak' || Date.now() - lastActivity > 60000 ? 'sleepy' : 'idle');
+    : value ?? (pluginMood && pluginMood.until > Date.now() ? pluginMood.value : undefined)
+    ?? (!online ? 'offline' : mode === 'hidden' || mode === 'sneak' || Date.now() - lastActivity > 60000 ? 'sleepy' : 'idle');
   if (duration) moodTimer = setTimeout(() => mood(), duration);
 }
 let lastLayout = '';
@@ -205,7 +207,7 @@ window.addEventListener('blur', () => {
   if (mode === 'peek' || mode === 'sneak') void dispatch('escape');
   else if (mode === 'rest') replies.resolvePrivate();
 });
-window.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); if (!event.repeat) void dispatch('escape'); } });
+window.addEventListener('keydown', event => { if (matchesDismiss(event, config.hotkeys.dismiss)) { event.preventDefault(); if (!event.repeat) void dispatch('escape'); } });
 
 function applyConfig() {
   document.documentElement.style.setProperty('--accent', config.appearance.glow);
@@ -421,6 +423,19 @@ function connect() {
   friday.connected(false);
   online = false; integrated = false; manifests = []; snippet = ''; schedule = ''; reminder = null; updateLive();
   connection = new Connection(config.connection, frame => {
+    if (frame.type === 'bus_event' && frame.event && typeof frame.event === 'object') {
+      const event = frame.event as Record<string, unknown>;
+      if (event.topic === 'todo.changed') void widgets.refresh();
+      if (event.topic === 'mood.changed' && event.payload && typeof event.payload === 'object') {
+        const payload = event.payload as Record<string, unknown>;
+        if (typeof payload.mood === 'string' && /^[a-z_]{1,32}$/.test(payload.mood) && typeof payload.expires_at === 'number') {
+          pluginMood = { value: payload.mood, until: payload.expires_at * 1000 };
+          mood();
+        }
+      }
+      friday.pluginEvent(event);
+      return;
+    }
     if (frame.type === 'status') {
       const previous = integrated; integrated = frame.integrated === true;
       if (integrated && !previous) { tab = 'friday'; if (mode === 'expanded') renderPanel(); }
@@ -447,16 +462,20 @@ function connect() {
   });
   if (native) connection.start();
 }
+let pluginMood: { value: string; until: number } | undefined;
 async function boot() {
   try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
   catch (error) { message(String(error), true); }
   applyConfig(); await setMode(mode); connect();
+  if (nativeStatus.hotkey_errors.length) message(`Hotkey registration failed: ${nativeStatus.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
   capsule.setMode(mode);
   await apps.start(() => { icons.clear(); renderPins(); if (mode === 'expanded' && tab === 'settings' && settings.section === 'apps') settings.render(); });
   applyLimits();
   document.documentElement.classList.toggle('reduce-motion', nativeStatus.reduce_motion);
   await on<string>('hotkey', event => { if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape'); });
   await on<NativeStatus>('native-status', status => {
+    if (status.hotkey_errors.length && JSON.stringify(status.hotkey_errors) !== JSON.stringify(nativeStatus.hotkey_errors))
+      message(`Hotkey registration failed: ${status.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
     nativeStatus = status; applyLimits(); document.documentElement.classList.toggle('reduce-motion', status.reduce_motion);
     if (mode === 'expanded' && tab === 'settings' && settings.section === 'hotkeys') settings.render();
   });

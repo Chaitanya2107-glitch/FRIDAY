@@ -81,4 +81,10 @@ class Engine:
                     "action": {"kind": "project", "id": best.id}}
         if head in self.registry.commands and (head != 'next' or not tail.strip()):
             return await self.registry.commands[head].command(text)
+        from services.plugin_runtime import current_manager
+        if manager := current_manager():
+            import asyncio
+            plugin_result = await asyncio.to_thread(manager.command, text)
+            if plugin_result is not None:
+                return plugin_result
         return {"text": await self.assistant(text), "ok": True}

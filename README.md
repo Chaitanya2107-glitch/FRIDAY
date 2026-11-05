@@ -1,5 +1,10 @@
 # F.R.I.D.A.Y
 
+Native Control Center: double-click `interfaces/control_center/launch.vbs`, or run
+`venv/Scripts/pythonw.exe -B -m interfaces.control_center`. Browse capabilities,
+usage and command examples offline; use command chat, live status and existing
+native tools when FRIDAY is running. See [the guide](docs/CONTROL_CENTER.md).
+
 Development awareness (2026-11-03): FRIDAY now notices saves to its own source and
 shares factual upgrade context across chat and voice. Ask `development status`
 or `are you being upgraded`. Restart once to enable the monitor.

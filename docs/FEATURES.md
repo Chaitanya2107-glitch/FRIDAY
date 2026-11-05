@@ -5,6 +5,14 @@ command bar or said by voice unless it says otherwise. How it's built: `docs/cur
 
 Different wording for the same task: [command synonyms and sentence examples](COMMAND_LANGUAGE.md).
 
+Inspect attention gates and durable review timing with "brain health". Inspect
+explicit selected tasks, commitments and original reports with "working memory
+status". See [brain foundations and their limits](BRAIN_FOUNDATIONS.md).
+
+Local math, science and procedural stories work without an LLM. Try "engine help",
+"differentiate x^3 + sin(x) wrt x", "chemistry balance Fe + O2 -> Fe2O3", or
+"story fantasy seed=42 hero=Mira". See [commands, examples and limits](COMPUTATION_ENGINE.md).
+
 FRIDAY notices edits to its own source during development. Ask "development
 status", "what changed in your code" or "are you being upgraded" for observed
 changes and restart guidance. Chat and voice share coarse development context.

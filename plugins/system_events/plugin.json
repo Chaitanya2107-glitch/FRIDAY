@@ -1,0 +1,5 @@
+{
+  "id": "system_events", "name": "System Events", "version": "1.0.0", "api_version": 1,
+  "description": "Battery transitions with 25 percent recovery hysteresis.", "author": "FRIDAY",
+  "permissions": ["events"], "requires": ["psutil"], "enabled_by_default": true
+}

@@ -44,6 +44,7 @@ from services.automation.intent import remote_request
 from services.automation.command_words import rephrase_command
 from services.telegram import commands as telegram_commands
 from services.mind import cognition as cognition_service, cognition_commands
+from services.computation.commands import match_command as computation_command
 
 
 router = APIRouter()
@@ -196,9 +197,10 @@ async def chat(request: ChatRequest):
         humour.hear(request.message)
     note = is_note(command_message)  # "note look up flights" is saved, not searched
     telegram_command = telegram_commands.match_command(command_message)
-    screen_question = None if note or telegram_command or cognition_command else extract_screen_question(request.message)
+    calculation = computation_command(request.message)
+    screen_question = None if note or telegram_command or cognition_command or calculation else extract_screen_question(request.message)
     # Excerpts from the user's files or web results, for the AI to answer from
-    search_context = None if screen_question or note or telegram_command or cognition_command else (
+    search_context = None if screen_question or note or telegram_command or cognition_command or calculation else (
         await build_file_context(request.message) or await build_search_context(request.message)
     )
     if screen_question or search_context:
@@ -231,8 +233,8 @@ async def chat(request: ChatRequest):
             _speak_in_background(message, cache=system_result.memory_message is None and system_result.repeatable)
         return ChatResponse(
             response=message,
-            provider=provider_name,
-            model="system_control",
+            provider="local" if calculation else provider_name,
+            model="computation_engine" if calculation else "system_control",
             tokens_used=0,
             action_success=success,
             awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get()),

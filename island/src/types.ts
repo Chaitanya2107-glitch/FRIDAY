@@ -9,10 +9,10 @@ export interface Config {
   source_stamp?: string;
   version: 1; revision: number; pins: Pin[]; projects: Project[];
   recent_apps: { id: string; last_used: number; count: number }[];
-  hotkeys: { sneak: string; expand: string };
+  hotkeys: { sneak: string; expand: string; dismiss?: string };
   appearance: { glow: string; idle_mode: 'always' | 'auto-hide' | 'hover'; idle_seconds: number; snippet: boolean };
-  connection: { port: number; token: string };
-  startup?: { manage_bridge: boolean; backend_root: string; launch_at_login: boolean };
+  connection: { port: number; token: string; api_port?: number };
+  startup?: { manage_bridge: boolean; backend_root: string; launch_at_login: boolean; start_with_friday?: boolean };
 }
 export interface StartupStatus { phase: string; error: string; owned_pid: number | null; attempts: number; isolated: boolean; login_enabled: boolean }
 export interface Suggestion { text: string; detail?: string; app?: AppMatch; rescan?: boolean; fill?: boolean }

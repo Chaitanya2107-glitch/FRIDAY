@@ -93,8 +93,8 @@ export class Settings {
       this.renderList('projects');
       this.root.append(textButton('Add project', () => this.addProject()));
     } else if (this.section === 'hotkeys') {
-      for (const [key, title] of [['sneak', 'Sneak mode'], ['expand', 'Peek / expand']] as const) {
-        const node = input(config.hotkeys[key]);
+      for (const [key, title] of [['sneak', 'Sneak mode'], ['expand', 'Peek / expand'], ['dismiss', 'Dismiss (Escape or a modified key)']] as const) {
+        const node = input(config.hotkeys[key] ?? 'Escape');
         node.onchange = () => void this.change(c => { c.hotkeys[key] = node.value; });
         this.root.append(field(title, node));
       }
@@ -103,6 +103,7 @@ export class Settings {
     } else {
       const port = input(String(config.connection.port), 'number'); port.min = '1024'; port.max = '65535';
       port.onchange = () => void this.change(c => { c.connection.port = Number(port.value); });
+      this.root.append(el('p', 'muted', `HTTP / events use FRIDAY’s advertised API port (${config.connection.api_port ?? 8000}).`));
       this.root.append(el('div', 'connection-label', this.host.online() ? '● FRIDAY connected' : '○ FRIDAY offline'), field('Backend port', port, '127.0.0.1 only. An owned bridge restarts when this changes.'));
       this.root.append(el('p', 'muted', native ? 'Apps, projects and settings work without the backend. Config lives in %APPDATA%\\FRIDAY\\island\\config.json.' : 'Browser preview. Launch with npm run tauri dev for desktop controls.'));
       this.root.append(startupSettings(config, next => this.persist(next), async () => { await this.host.reload(); this.render(); }, this.host.message, this.host.restart));

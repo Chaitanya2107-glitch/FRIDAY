@@ -4,6 +4,25 @@ Authorized by the owner on 2026-10-20. Keep this file as the continuation point
 for later sessions. Update progress and verification here; do not treat planned
 capabilities as implemented.
 
+## Brain foundations - health and working context, 2026-11-05
+
+The owner authorized starting the next brain upgrades. This increment fixes false
+attention-task liveness after startup failure, preserves local review diagnostics
+outside observation retention, and exposes gate/budget reasons through `brain
+health`, `brain status` and a local-only health API. It does not bypass quiet,
+microphone, gaming, request, source-version or inference-budget boundaries.
+
+`working memory status` and a local-only read API combine explicit selected work,
+versioned commitment context and original owner reports. Selected context is
+revalidated for conversation; changes/forgetting withhold an obsolete prepared
+answer. This remains source-backed scoped continuity. General topic inference
+and broader useful paraphrase coverage are still future work.
+
+See [usage, verification and limitations](BRAIN_FOUNDATIONS.md), the implementation
+contract in `specs/2026-11-05-brain-foundations.md`, and source-bound evidence under
+`tasks/brain-foundations`. Later numeric reasoning, life, curiosity and outcome
+upgrades remain authorized priorities; this entry does not mark them complete.
+
 ## Current commitment topics - first read-only increment implemented
 
 The owner's next-build choice was broader chat/voice follow-ups. One explicitly

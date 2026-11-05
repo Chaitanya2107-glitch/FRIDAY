@@ -291,6 +291,13 @@ class ActivityLog:
             logger.debug("Optional activity label unavailable")
         if (app, title, project) == (self.app, self.title, self.project):
             return
+        if app != self.app:
+            from services.event_bus import publish as publish_event
+            publish_event('activity.app_changed', {'app': app, 'previous_app': self.app})
+            if app is None and self.app is not None:
+                publish_event('activity.idle_started', {'previous_app': self.app})
+            elif app is not None and self.app is None:
+                publish_event('activity.idle_ended', {'app': app})
         self.flush(now)
         from services.learning import origin
         if app != self.app:

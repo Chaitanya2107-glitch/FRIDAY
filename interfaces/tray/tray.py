@@ -202,6 +202,7 @@ class FridayTray:
             )),
             Item("Quick actions", Menu(self._quick_action_items)),
             Item("Routines", Menu(self._routine_menu_items), enabled=online),
+            Item("Control Center & Guide…", self.open_control_center),
             Item("Customize FRIDAY…", self.open_customization),
             Item("College Schedules…", self.open_college_schedules),
             Item("Habits & To-do…", self.open_productivity),
@@ -240,6 +241,10 @@ class FridayTray:
 
     def open_customization(self):
         from interfaces.settings.launcher import launch
+        _in_background(launch)
+
+    def open_control_center(self):
+        from interfaces.control_center.launcher import launch
         _in_background(launch)
 
     def open_productivity(self):

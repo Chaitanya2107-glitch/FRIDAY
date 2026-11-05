@@ -12,8 +12,8 @@ export async function on<T>(event: string, handler: (value: T) => void) {
 }
 export const previewConfig = (): Config => ({
   version: 1, revision: 0, pins: [], projects: [], recent_apps: [],
-  hotkeys: { sneak: 'Ctrl+Shift+S', expand: 'Ctrl+Shift+Alt+F' },
+  hotkeys: { sneak: 'Ctrl+Shift+S', expand: 'Ctrl+Shift+Alt+I', dismiss: 'Escape' },
   appearance: { glow: '#FFB347', idle_mode: 'always', idle_seconds: 30, snippet: true },
-  connection: { port: 17321, token: '' },
-  startup: { manage_bridge: true, backend_root: '', launch_at_login: false },
+  connection: { port: 17321, api_port: 8000, token: '' },
+  startup: { manage_bridge: true, backend_root: '', launch_at_login: false, start_with_friday: false },
 });

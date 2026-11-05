@@ -112,12 +112,13 @@ class CollegePlugin(StubPlugin):
 class Registry:
     def __init__(self, plugins: list[Plugin] | None = None):
         from .productivity import TrackerPlugin
+        from .todo import TodoPlugin
         self.plugins: dict[str, Plugin] = {}
         self.commands: dict[str, Plugin] = {}
         for plugin in plugins if plugins is not None else [
             CollegePlugin(),
             TrackerPlugin('habit'),
-            TrackerPlugin('todo'),
+            TodoPlugin(),
         ]:
             self.register(plugin)
 

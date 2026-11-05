@@ -3,6 +3,10 @@
 HELP = """🤖 FRIDAY — Command guide
 Send any example below with your own names and values. You can also chat normally or send a voice note.
 
+Local math, science and procedural stories (no LLM): engine help
+Try: calculate 1/3 + 1/6, chemistry balance H2 + O2 -> H2O,
+or story fantasy seed=42 hero=Mira.
+
 📱 Telegram shortcuts
 • /h, /help, /start — show this guide
 • /status — battery, active app and away status

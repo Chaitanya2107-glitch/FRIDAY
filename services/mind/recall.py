@@ -1,5 +1,6 @@
 """Bounded original-source recall with an offline-only paraphrase fallback."""
 from collections import Counter
+from contextlib import nullcontext
 import json
 import math
 import re
@@ -35,9 +36,9 @@ def _canonical(row):
     return {**{key: row[key] for key in FIELDS}, 'text': row['text'][:1200], 'question': row['question'][:500]}
 
 
-def _pool(memory, channel):
+def _pool(memory, channel, *, connection=None):
     from services.mind.cognition import _turn
-    with memory._db() as db:
+    with (memory._db() if connection is None else nullcontext(connection)) as db:
         if not db.in_transaction:
             db.execute('BEGIN')
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}

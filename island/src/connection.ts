@@ -1,6 +1,7 @@
 import type { Config, CommandResult, ExecutionTarget, PluginAction, Suggestion, Widget } from './types';
 import { readWidget } from './widgets.ts';
 import { readReply } from './conversation.ts';
+import { PluginEvents } from './plugin-events.ts';
 
 interface Frame { v: number; type: string; id?: string; [key: string]: unknown }
 export class Connection {
@@ -9,6 +10,7 @@ export class Connection {
   private attempts = 0;
   private generation = 0;
   private stopped = false;
+  private events?: PluginEvents;
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   online = false;
   private config: Config['connection'];
@@ -37,6 +39,12 @@ export class Connection {
         this.status(true);
       }
       if (!this.online) return;
+      if (frame.type === 'status' && typeof frame.plugin_api_port === 'number' && !this.events) {
+        this.config.api_port = frame.plugin_api_port;
+        this.events = new PluginEvents(frame.plugin_api_port, this.config.token,
+          event => { if (generation === this.generation && this.online) this.receive({ v: 1, type: 'bus_event', event }); });
+        this.events.start();
+      }
       const pending = frame.id && this.pending.get(frame.id);
       if (pending) {
         clearTimeout(pending.timer);
@@ -51,6 +59,7 @@ export class Connection {
       clearTimeout(handshake);
       if (generation !== this.generation) return;
       this.online = false;
+      this.events?.stop(); this.events = undefined;
       this.status(false);
       for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('FRIDAY disconnected. The command was not retried.')); }
       this.pending.clear();
@@ -62,6 +71,7 @@ export class Connection {
     ++this.generation;
     clearTimeout(this.retry);
     this.online = false;
+    this.events?.stop(); this.events = undefined;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Connection settings changed. The command was not retried.')); }
     this.pending.clear();
     this.ws?.close();
@@ -88,5 +98,13 @@ export class Connection {
     if (frame.type !== 'command_result' || typeof frame.ok !== 'boolean' || typeof frame.text !== 'string' || frame.text.length > 4000)
       throw new Error('Invalid action response. Refresh to verify whether it was saved.');
     return { ok: frame.ok, text: frame.text };
+  }
+  async pluginRequest(path: string, method = 'GET', body?: Record<string, unknown>) {
+    const response = await fetch(`http://127.0.0.1:${this.config.api_port ?? 8000}/api/plugins/${path}`, {
+      method, headers: { 'X-Friday-Token': this.config.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}), credentials: 'omit',
+    });
+    if (!response.ok) throw new Error(`Plugin request failed (${response.status})`);
+    return response.json() as Promise<Record<string, unknown>>;
   }
 }

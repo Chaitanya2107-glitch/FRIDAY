@@ -213,6 +213,14 @@ pub fn parse_hotkey(text: &str) -> Result<(u32, u32), String> {
     Ok((modifiers, key.ok_or("Missing hotkey")?))
 }
 
+pub fn parse_dismiss(value: &str) -> Result<(u32, u32), String> {
+    if value.eq_ignore_ascii_case("escape") {
+        Ok((0, VK_ESCAPE as u32))
+    } else {
+        parse_hotkey(value)
+    }
+}
+
 pub fn register(hotkeys: &Hotkeys) -> Vec<String> {
     let mut errors = vec![];
     unsafe {
@@ -241,12 +249,17 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
         let mut last_geometry = String::new();
         let mut count = 0u32;
         let mut escape_down = false;
+        let mut dismiss = (0, VK_ESCAPE as u32);
         loop {
             let Some(window) = app.get_webview_window("main") else {
                 break;
             };
             if let Ok(hotkeys) = receiver.try_recv() {
-                let errors = register(&hotkeys);
+                let mut errors = register(&hotkeys);
+                match parse_dismiss(&hotkeys.dismiss) {
+                    Ok(value) => dismiss = value,
+                    Err(error) => errors.push(format!("Dismiss: {error}. Previous key remains active.")),
+                }
                 #[cfg(debug_assertions)]
                 eprintln!("Island hotkeys registered: {:?}", errors);
                 let state = app.state::<crate::AppState>();
@@ -254,7 +267,11 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 let _ = app.emit("native-status", state.runtime.lock().unwrap().clone());
             }
             unsafe {
-                let down = GetAsyncKeyState(VK_ESCAPE as i32) < 0;
+                let down = GetAsyncKeyState(dismiss.1 as i32) < 0
+                    && [(MOD_CONTROL, VK_CONTROL), (MOD_SHIFT, VK_SHIFT), (MOD_ALT, VK_MENU)]
+                        .iter().all(|(flag, key)| (GetAsyncKeyState(*key as i32) < 0) == (dismiss.0 & flag != 0))
+                    && ((GetAsyncKeyState(VK_LWIN as i32) < 0 || GetAsyncKeyState(VK_RWIN as i32) < 0)
+                        == (dismiss.0 & MOD_WIN != 0));
                 let open = matches!(
                     app.state::<crate::AppState>()
                         .runtime

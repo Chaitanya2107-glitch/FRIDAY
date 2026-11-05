@@ -53,6 +53,7 @@ class Bridge:
         self.engine = engine or Engine(self.registry)
         self.clients: set[ServerConnection] = set()
         self.runtime = runtime
+        self.http_port = None
 
     @staticmethod
     async def send(ws: ServerConnection, kind: str, id: str | None = None, **data):
@@ -115,6 +116,12 @@ class Bridge:
             logger.warning('Island command failed (%s)', type(error).__name__)
             await self.send(ws, 'error', request.id, code='handler_failed', text='FRIDAY could not complete that command. It was not retried.')
 
+    def api_port(self):
+        if self.runtime:
+            from core.config import config
+            return config.API_PORT
+        return self.http_port
+
     async def handle(self, ws: ServerConnection):
         if ws.remote_address[0] != "127.0.0.1" or len(self.clients) >= 8:
             await ws.close(1008, "Loopback only or connection limit")
@@ -138,7 +145,7 @@ class Bridge:
             if self.runtime:
                 from .events import listen
                 listen(ws, True)
-            await self.send(ws, "status", online=True, integrated=self.runtime is not None)
+            await self.send(ws, "status", online=True, integrated=self.runtime is not None, plugin_api_port=self.api_port())
             await self.send(ws, "plugin_list", plugins=self.registry.manifests())
             ticker = asyncio.create_task(self.updates(ws, token))
             arrivals: deque[float] = deque()
@@ -204,7 +211,7 @@ class Bridge:
                             "title": plugin.manifest.name, "text": ""}
                         await self.send(ws, "plugin_widget", request.id, plugin=request.plugin, widget=widget)
                     elif request.type == "status":
-                        await self.send(ws, "status", request.id, online=True, integrated=self.runtime is not None)
+                        await self.send(ws, "status", request.id, online=True, integrated=self.runtime is not None, plugin_api_port=self.api_port())
                     else:
                         raise ValueError("Already authenticated")
                 except (ValidationError, ValueError):
@@ -232,14 +239,49 @@ class Bridge:
             self.clients.discard(ws)
 
     async def run(self):
+        from services import plugin_runtime
+        manager = await asyncio.to_thread(plugin_runtime.start, asyncio.get_running_loop())
         config = await asyncio.to_thread(load_config, self.path)
-        async with serve(self.handle, "127.0.0.1", config.connection.port, origins=ORIGINS,
-                         max_size=16384, max_queue=16, compression=None):
-            logger.info("Island bridge listening on 127.0.0.1:%d", config.connection.port)
-            await asyncio.Future()
+        from .http import companion_app
+        import uvicorn
+        self.http_port = config.connection.api_port
+        http = uvicorn.Server(uvicorn.Config(companion_app(manager, self.path), host='127.0.0.1',
+                              port=self.http_port, access_log=False, log_level='warning'))
+        http_task = None
+        try:
+            async with serve(self.handle, "127.0.0.1", config.connection.port, origins=ORIGINS,
+                             process_request=check_host, max_size=16384, max_queue=16, compression=None):
+                logger.info("Island bridge listening on 127.0.0.1:%d", config.connection.port)
+                http_task = asyncio.create_task(http.serve())
+                await asyncio.shield(http_task)
+        finally:
+            http.should_exit = True
+            if http_task:
+                try:
+                    await asyncio.wait_for(http_task, 3)
+                except (TimeoutError, asyncio.CancelledError):
+                    http_task.cancel()
+            await asyncio.to_thread(plugin_runtime.stop)
+
+
+async def check_host(connection, request):
+    from .http import allowed_host
+    hosts = request.headers.get_all('Host')
+    if len(hosts) != 1 or not allowed_host(hosts[0]):
+        from http import HTTPStatus
+        return connection.respond(HTTPStatus.BAD_REQUEST, 'Invalid localhost Host header\n')
 
 
 async def run_integrated_bridge():
+    from services import plugin_runtime
+    await asyncio.to_thread(plugin_runtime.start, asyncio.get_running_loop())
+    try:
+        await _run_integrated_bridge()
+    finally:
+        await asyncio.to_thread(plugin_runtime.stop)
+
+
+async def _run_integrated_bridge():
     from .runtime import FridayRuntime
     bridge = Bridge(runtime=FridayRuntime())
     migrated = False
@@ -247,7 +289,7 @@ async def run_integrated_bridge():
         try:
             config = await asyncio.to_thread(load_config)
             async with serve(bridge.handle, '127.0.0.1', config.connection.port, origins=ORIGINS,
-                             max_size=16384, max_queue=16, compression=None):
+                             process_request=check_host, max_size=16384, max_queue=16, compression=None):
                 if not migrated and config.projects:
                     from .projects import import_profiles
                     try:

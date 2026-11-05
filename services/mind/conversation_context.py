@@ -37,7 +37,8 @@ def observe(text, *, remote=False):
                     # A recognized question with unavailable context must reach the
                     # guarded handler, never recency guessing in search/model chat.
                     topic_turn = True
-            if not topic_turn:
+            from services.mind.cognition_commands import match_command as cognition_command
+            if not topic_turn and cognition_command(text) != 'working_memory':
                 try:
                     topics.clear()
                 except (OSError, ValueError, sqlite3.Error):

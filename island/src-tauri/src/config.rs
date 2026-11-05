@@ -31,6 +31,7 @@ pub struct Startup {
     pub manage_bridge: bool,
     pub backend_root: String,
     pub launch_at_login: bool,
+    pub start_with_friday: bool,
 }
 impl Default for Startup {
     fn default() -> Self {
@@ -38,6 +39,7 @@ impl Default for Startup {
             manage_bridge: true,
             backend_root: String::new(),
             launch_at_login: false,
+            start_with_friday: false,
         }
     }
 }
@@ -100,6 +102,7 @@ pub enum Action {
 pub struct Hotkeys {
     pub sneak: String,
     pub expand: String,
+    pub dismiss: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -114,6 +117,7 @@ pub struct Appearance {
 pub struct Connection {
     pub port: u16,
     pub token: String,
+    pub api_port: u16,
 }
 fn yes() -> bool {
     true
@@ -128,7 +132,8 @@ impl Default for Hotkeys {
     fn default() -> Self {
         Self {
             sneak: "Ctrl+Shift+S".into(),
-            expand: "Ctrl+Shift+Alt+F".into(),
+            expand: "Ctrl+Shift+Alt+I".into(),
+            dismiss: "Escape".into(),
         }
     }
 }
@@ -146,9 +151,26 @@ impl Default for Connection {
     fn default() -> Self {
         Self {
             port: 17321,
-            token: format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple()),
+            api_port: 8000,
+            token: new_token(),
         }
     }
+}
+fn new_token() -> String {
+    let mut bytes = [0u8; 32];
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
+        assert!(BCryptGenRandom(std::ptr::null_mut(), bytes.as_mut_ptr(), 32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG) >= 0, "Windows random generator unavailable");
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::Read;
+        fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes))
+            .expect("OS random generator unavailable");
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 impl Default for Config {
     fn default() -> Self {
@@ -231,7 +253,10 @@ impl Config {
         {
             return Err("Invalid appearance settings".into());
         }
-        if [&self.hotkeys.sneak, &self.hotkeys.expand]
+        if self.connection.api_port < 1024 {
+            return Err("Invalid HTTP port".into());
+        }
+        if [&self.hotkeys.sneak, &self.hotkeys.expand, &self.hotkeys.dismiss]
             .iter()
             .any(|s| s.is_empty() || s.len() > 100)
         {
@@ -376,8 +401,16 @@ pub fn load(path: &Path) -> Result<Config, String> {
     let _lock = lock(path)?;
     if path.exists() {
         if let Ok(mut config) = read(path, true) {
+            let mut migrated = false;
             if config.hotkeys.sneak == "Ctrl+Shift+Alt+Space" {
                 config.hotkeys.sneak = Hotkeys::default().sneak;
+                migrated = true;
+            }
+            if config.hotkeys.expand == "Ctrl+Shift+Alt+F" {
+                config.hotkeys.expand = Hotkeys::default().expand;
+                migrated = true;
+            }
+            if migrated {
                 config.revision += 1;
                 write(path, &config)?;
                 return read(path, false);

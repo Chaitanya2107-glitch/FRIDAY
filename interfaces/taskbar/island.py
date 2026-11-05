@@ -30,6 +30,8 @@ class IslandDesktop:
                                    if arg.startswith('--island-owner=')), None)
         self.executable = EXECUTABLE
         self.created = None
+        if not self._attached_pid:
+            self.enabled = self.enabled and load_config().startup.start_with_friday
         if self._attached_pid:
             try:
                 process = psutil.Process(self._attached_pid)

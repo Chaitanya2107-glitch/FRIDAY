@@ -34,22 +34,39 @@ class ReviewTrace:
         self.phase, self.state, self.reason = phase, 'cancelled', 'cancelled'
         self.calls, self.rejections, self.accepted = [], 0, {}
         self.startup, self.lease_budget_ms, self.inference_budget_ms = {}, None, 25000
+        from services.mind.cognitive_health import CognitiveHealth
+        self.health = CognitiveHealth(store)
+        try:
+            self.epoch = self.health.epoch()
+        except Exception:
+            self.epoch = None
         try:
             self.event = self.store.record('local_review', 'brain', json.dumps({
                 'phase': phase, 'reason': 'in_progress', 'elapsed_ms': 0, 'calls': []}),
                 status='running', public=False)
         except Exception:
             self.event = None
+        self.persist('running', 'in_progress')
 
-    def record(self):
-        if self.event is None: return
-        try:
-            text = json.dumps({
-                'phase': self.phase, 'reason': self.reason,
+    def payload(self):
+        return {'phase': self.phase, 'reason': self.reason,
                 'elapsed_ms': round((time.monotonic() - self.started) * 1000, 2),
                 'startup': self.startup, 'lease_budget_ms': self.lease_budget_ms,
                 'inference_budget_ms': self.inference_budget_ms,
-                'rejections': self.rejections, 'accepted': self.accepted, 'calls': self.calls[:6]})
+                'rejections': self.rejections, 'accepted': self.accepted, 'calls': self.calls[:6]}
+
+    def persist(self, state, reason):
+        if self.epoch is not None:
+            try:
+                self.health.record('review', state, reason, self.payload(), expected_epoch=self.epoch)
+            except Exception:
+                logger.debug('Durable local review diagnostics unavailable')
+
+    def record(self):
+        self.persist(self.state, self.reason)
+        if self.event is None: return
+        try:
+            text = json.dumps(self.payload())
             with self.store._lock, self.store._connect() as db:
                 db.execute("UPDATE events SET text=?,status=?,shortened=? WHERE id=? AND kind='local_review' AND runtime=?",
                            (text[:config.COGNITION_EVENT_CHARS], self.state, int(len(text) > config.COGNITION_EVENT_CHARS),
@@ -95,6 +112,10 @@ async def complete(*args, phase, stage=None, **kwargs):
 
 def latest(store=None):
     store = store or cognition
+    from services.mind.cognitive_health import CognitiveHealth
+    durable = CognitiveHealth(store).latest('review')
+    if durable is not None:
+        return durable
     for event in reversed(store.recent(config.COGNITION_MAX_EVENTS)):
         if event['kind'] == 'local_review' and not event['shortened']:
             try:

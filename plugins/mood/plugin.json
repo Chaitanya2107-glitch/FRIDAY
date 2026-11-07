@@ -1,0 +1,5 @@
+{
+  "id": "mood", "name": "Mochi Mood", "version": "1.0.0", "api_version": 1,
+  "description": "Mochi reacts quietly to local events, focus sessions and editable mood rules.",
+  "author": "FRIDAY", "permissions": ["events", "files", "ui"], "enabled_by_default": true
+}

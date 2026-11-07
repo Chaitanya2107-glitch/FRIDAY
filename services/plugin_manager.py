@@ -35,6 +35,7 @@ class PluginState:
     error: str = ''
     warnings: set[str] = field(default_factory=set)
     failures: deque = field(default_factory=deque)
+    ready: bool = False
 
 
 def result(ok: bool, text: str, error: str | None = None, **extra) -> dict:
@@ -55,6 +56,8 @@ class PluginManager:
         self.services: dict[str, tuple[str, object]] = {}
         self.settings = Settings(self.data_root / 'plugin-state.json')
         self.lock = threading.RLock()
+        self._services_lock = threading.RLock()
+        self._failure_lock = threading.RLock()
         self.stopped = threading.Event()
         self.thread: threading.Thread | None = None
 
@@ -66,6 +69,9 @@ class PluginManager:
                 continue
             if not path.resolve().is_relative_to(folder.resolve()):
                 raise ValueError('Plugin files must remain inside the plugin folder')
+            # The mood engine reloads data atomically without resetting active sessions.
+            if folder.name == 'mood' and path == folder / 'mood_rules.json':
+                continue
             digest.update(path.relative_to(folder).as_posix().encode())
             digest.update(path.read_bytes())
         return digest.hexdigest()
@@ -141,6 +147,7 @@ class PluginManager:
                 raise ValueError('Entry must define register(api)')
             state.api = PluginAPI(self, plugin_id, self.data_root / 'plugins' / plugin_id)
             module.register(state.api)
+            state.ready = True
             self._check_collisions(state)
             state.error = ''
             logger.info('Loaded plugin %s %s', plugin_id, state.manifest.version)
@@ -155,10 +162,12 @@ class PluginManager:
 
     def _unload(self, state: PluginState):
         api, module = state.api, state.module
+        state.ready = False
         state.api, state.module = None, None
+        with self._services_lock:
+            self.services = {name: value for name, value in self.services.items() if value[0] != state.manifest.id}
         if api:
             api.stop()
-        self.services = {name: value for name, value in self.services.items() if value[0] != state.manifest.id}
         if module:
             try:
                 unload = getattr(module, 'unload', None)
@@ -169,9 +178,10 @@ class PluginManager:
             plugin_imports.forget(module.__name__)
 
     def failed(self, plugin_id: str):
-        with self.lock:
+        # A lifecycle join must not block a worker trying to report its failure.
+        with self._failure_lock:
             state = self.states.get(plugin_id)
-            if state is None or not state.enabled:
+            if self.stopped.is_set() or state is None or not state.enabled:
                 return
             now = time.monotonic()
             state.failures.append(now)
@@ -238,7 +248,8 @@ class PluginManager:
                 json.dumps(value, allow_nan=False)
             except Exception:
                 logger.exception('Invalid plugin result [plugin=%s]', api.plugin_id)
-                self.failed(api.plugin_id)
+                if not api.stop_event.is_set():
+                    self.failed(api.plugin_id)
                 raise
             return value
         except Exception:
@@ -283,9 +294,10 @@ class PluginManager:
             if not state:
                 return result(False, f'Unknown plugin: {plugin_id}', 'not_found')
             self._unload(state)
-            self.settings.set(plugin_id, enabled)
-            state.enabled, state.error = enabled, ''
-            state.failures.clear()
+            with self._failure_lock:
+                self.settings.set(plugin_id, enabled)
+                state.enabled, state.error = enabled, ''
+                state.failures.clear()
             if enabled:
                 self._load(state)
             return result(not bool(state.error), state.error or f'Plugin {plugin_id} {"enabled" if enabled else "disabled"}.',
@@ -308,13 +320,17 @@ class PluginManager:
                 raise RuntimeError('Plugin generation was unloaded')
             if name in self.services and self.services[name][0] != plugin_id:
                 raise ValueError(f'Service already provided: {name}')
-            self.services[name] = plugin_id, obj
+            with self._services_lock:
+                self.services[name] = plugin_id, obj
 
     def get_service(self, name):
-        with self.lock:
+        # Lifecycle cleanup can wait for a plugin's own lock. Readers must not
+        # acquire that lifecycle lock while calling from inside a plugin.
+        with self._services_lock:
             owner = self.services.get(name)
             state = self.states.get(owner[0]) if owner else None
-            return owner[1] if state and state.enabled and state.api and not state.api.stop_event.is_set() else None
+            api = state.api if state else None
+            return owner[1] if state and state.ready and state.enabled and api and not api.stop_event.is_set() else None
 
     def route(self, plugin_id, path, request):
         with self.lock:

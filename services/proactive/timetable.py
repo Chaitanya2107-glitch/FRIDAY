@@ -224,6 +224,9 @@ def due_warnings(now: datetime) -> list[str]:
 
             warnings.append(f"{c['subject']} starts in {minutes} minute{'s' if minutes != 1 else ''}{room}."
                             + for_subject(c["subject"], now))
+            from services.event_bus import publish
+            publish('schedule.class_soon', {'subject': c['subject'], 'minutes': minutes,
+                    'starts_at': start.isoformat(), 'room': saved_room or '', 'text': warnings[-1]})
     return warnings
 
 

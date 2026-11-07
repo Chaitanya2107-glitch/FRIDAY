@@ -121,6 +121,10 @@ def create_router(manager_provider=current_manager, config_provider=load_config)
                     except TimeoutError:
                         yield ': keepalive\n\n'
                         continue
+                    if event['topic'] == 'ui.card':
+                        from services.quiet_mode import suppresses
+                        if suppresses(event['payload'].get('urgency', 'normal')):
+                            continue
                     yield f"id: {event['id']}\nevent: {event['topic']}\ndata: {json.dumps(event, ensure_ascii=False, allow_nan=False)}\n\n"
             finally:
                 await asyncio.to_thread(manager.bus.unsubscribe, subscription)

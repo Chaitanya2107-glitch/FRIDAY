@@ -1,0 +1,11 @@
+{
+  "id": "focus",
+  "name": "Focus and Pomodoro",
+  "version": "1.0.0",
+  "api_version": 1,
+  "description": "Offline focus timers, Pomodoro rounds and restart-safe local statistics.",
+  "author": "FRIDAY",
+  "permissions": ["events", "files", "ui"],
+  "requires": [],
+  "enabled_by_default": true
+}

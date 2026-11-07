@@ -1,0 +1,11 @@
+{
+  "id": "semantic_search",
+  "name": "Offline Semantic Search",
+  "version": "1.0.0",
+  "api_version": 1,
+  "description": "Private offline hybrid search of explicitly selected notes and documents. Downloads model weights once on first use.",
+  "author": "FRIDAY",
+  "permissions": ["events", "files", "ui", "clipboard", "system_control", "network"],
+  "requires": ["numpy"],
+  "enabled_by_default": true
+}

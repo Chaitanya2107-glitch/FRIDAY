@@ -16,8 +16,10 @@ def test_meaningful_events_wake_local_executive_without_a_question_timer(monkeyp
     from services.mind.executive import executive
     monkeypatch.setattr(config, 'REASONING_ENABLED', True)
     calls = []
+    reviewed = asyncio.Event()
     async def review(*args, **kwargs):
         calls.append(kwargs)
+        reviewed.set()
         return {'status': 'completed'}
     monkeypatch.setattr(executive, 'review', review)
     monkeypatch.setattr(cognitive_runtime, 'available', lambda: True)
@@ -25,9 +27,11 @@ def test_meaningful_events_wake_local_executive_without_a_question_timer(monkeyp
         task = asyncio.create_task(cognitive_runtime.run())
         await asyncio.sleep(.01)
         cognition.record('action', 'system', 'set_volume', public=True)
-        await asyncio.sleep(.03)
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        try:
+            await asyncio.wait_for(reviewed.wait(), 2)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
     asyncio.run(run())
     assert calls and len(calls) <= 2
 

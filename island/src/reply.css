@@ -23,3 +23,4 @@
 .capsule-reply-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .capsule-reply-actions:empty { display: none; }
 .capsule-reply-actions button { margin-top: 10px; border-radius: 8px; padding: 5px 10px; color: var(--accent); background: var(--surface-hover); }
+.clipboard-swatch { display: inline-block; width: 24px; height: 24px; flex-shrink: 0; border: 1px solid currentColor; border-radius: 5px; vertical-align: middle; }

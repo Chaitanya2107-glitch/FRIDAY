@@ -2,6 +2,8 @@ import './reply.css';
 import { icon } from './icons';
 import { element as el } from './state';
 import { replyDuration, type CapsuleReply } from './reply-state';
+import { pluginCard } from './plugin-card';
+import { searchCardBody } from './search-card';
 import type { CommandResult, FridayState, Mode, PillSnippet } from './types';
 
 /** Live replies share the resting capsule; history stays in the FRIDAY tab. */
@@ -19,11 +21,14 @@ export class ReplySurface {
   private shown = false;
   private hovering = false;
   private seen = new Set<string>();
+  private searchGeneration = 0;
 
   constructor(private surface: HTMLElement, private host: {
     mode: () => Mode; sneak: () => boolean; available: () => boolean;
     reveal: () => Promise<void>; restore: () => Promise<void>; changed: () => void;
     action: (token: string) => Promise<CommandResult>;
+    pluginAction: (owner: string, id: string, payload: Record<string, unknown>) => Promise<CommandResult>;
+    pluginGet: (path: string) => Promise<Record<string, unknown>>;
   }) {
     this.content.append(this.title, this.text, this.pending, this.actions);
     this.text.setAttribute('role', 'status'); this.text.setAttribute('aria-live', 'polite');
@@ -54,14 +59,43 @@ export class ReplySurface {
   offer(reply: CapsuleReply, priority = false) {
     if (this.host.sneak() || !reply.text.trim()) return;
     const item = { ...reply, text: reply.text.slice(0, 32000) };
+    if (reply.pluginId) this.queue = this.queue.filter(row => row.pluginId !== reply.pluginId);
     if (priority) this.queue = [item, ...this.queue.filter((row, index) => row.kind === 'reminder' || (index > 0 && !row.pending))].slice(0, 8);
     else if (this.queue.length < 8) this.queue.push(item);
     else return;
     if (priority || this.queue.length === 1) { this.pause(); this.shown = false; this.paint(); }
     this.reveal();
+    if (item.ttlMs !== undefined) setTimeout(() => {
+      if (!this.queue.includes(item)) return;
+      this.pause(); this.queue = this.queue.filter(row => row !== item); this.shown = false; this.paint(); this.reveal();
+    }, item.ttlMs);
+  }
+
+  pluginEvent(event: Record<string, unknown>) {
+    if (!['smart_clipboard', 'semantic_search', 'scenes'].includes(String(event.plugin_id))) return false;
+    const card = pluginCard(event);
+    if (!card || this.host.mode() === 'expanded') return false;
+    const reply: CapsuleReply = { text: card.text, title: card.title, kind: 'reminder', pluginId: card.owner,
+      private: card.owner === 'semantic_search' || card.owner === 'scenes',
+      awaiting: card.owner === 'scenes' && card.actions.length > 0,
+      ttlMs: card.ttlMs, swatch: card.swatch,
+      pluginActions: card.actions.map(action => ({ label: action.label,
+        run: () => this.host.pluginAction(card.owner, action.id, action.payload) })) };
+    this.offer(reply, true);
+    if (card.owner === 'semantic_search') {
+      const generation = ++this.searchGeneration;
+      void searchCardBody(card.owner, event.payload as Record<string, unknown>, path => this.host.pluginGet(path)).then(text => {
+        if (text !== undefined && generation === this.searchGeneration && this.queue.some(row => row.pluginId === card.owner))
+          this.offer({ ...reply, text }, true);
+      }).catch(() => { /* Filename-only chips remain available after plugin reload. */ });
+    }
+    return true;
   }
 
   result(reply: CommandResult) {
+    if (reply.awaiting_reply && this.queue.some(item => item.pluginId === 'scenes' && item.awaiting)) {
+      this.reveal(); return; // Keep the visible Yes/No card ahead of its duplicate chat text.
+    }
     this.queue = this.queue.filter(item => !item.awaiting);
     this.offer({ text: reply.text, kind: reply.awaiting_reply ? 'question' : reply.automation_job || reply.action_success === true ? 'work' : 'reply',
       private: reply.private, bad: !reply.ok, awaiting: reply.awaiting_reply }, true);
@@ -135,6 +169,24 @@ export class ReplySurface {
     this.node.classList.toggle('bad', !!reply?.bad);
     this.surface.classList.toggle('reply-long', !!reply && replyDuration(reply) !== 5000);
     this.actions.replaceChildren();
+    if (reply?.swatch) {
+      const swatch = el('span', 'clipboard-swatch'); swatch.style.backgroundColor = reply.swatch;
+      swatch.setAttribute('role', 'img'); swatch.setAttribute('aria-label', `Color ${reply.swatch}`);
+      this.actions.append(swatch);
+    }
+    for (const action of reply?.pluginActions ?? []) {
+      const button = el('button', '', action.label); button.onpointerdown = event => event.preventDefault();
+      button.onclick = () => {
+        button.disabled = true;
+        void action.run().then(result => {
+          if (result.ok) {
+            if (this.queue[0] === reply) this.dismiss();
+            else this.queue = this.queue.filter(row => row !== reply);
+          } else { button.disabled = false; this.offer({ kind: 'reply', text: result.text, bad: true }); }
+        }).catch(() => { button.disabled = false; });
+      };
+      this.actions.append(button);
+    }
     for (const pair of Array.isArray(reply?.buttons) ? reply.buttons.slice(0, 6) : []) {
       if (!Array.isArray(pair) || typeof pair[0] !== 'string' || typeof pair[1] !== 'string' || !pair[1].startsWith('friday://')) continue;
       const button = el('button', '', pair[0]);

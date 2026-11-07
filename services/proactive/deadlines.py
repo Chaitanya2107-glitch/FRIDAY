@@ -257,6 +257,9 @@ def _due_alerts(now: datetime) -> list[str]:
             d["alerted"] += reached
             changed = True
             alerts.append(f"{d['what']} is due {when(due, now)} ({_left(due, now)}).")
+            from services.event_bus import publish
+            publish('schedule.due_soon', {'item_id': str(d['id']), 'title': d['what'],
+                                          'due_at': d['due'], 'text': alerts[-1]})
     if changed:
         _save(deadlines)
     return alerts

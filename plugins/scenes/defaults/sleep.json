@@ -1,0 +1,9 @@
+{
+  "name": "sleep", "aliases": ["sleep mode", "bedtime mode"], "description": "Dim the built-in display and quiet FRIDAY. The computer stays awake.",
+  "restore": true, "confirm_first_run": true, "distractions": [], "triggers": [],
+  "actions": [
+    {"type": "set_brightness", "percent": 20}, {"type": "set_volume", "percent": 15},
+    {"type": "quiet_mode", "on": true}, {"type": "set_mood", "mood": "sleepy"},
+    {"type": "say", "text": "{tomorrow_summary}"}
+  ]
+}

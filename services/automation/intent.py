@@ -173,7 +173,8 @@ def cancel_pending_confirmation() -> None:
 
 def is_awaiting_confirmation() -> bool:
     """True while this conversation is waiting for the user's yes/no."""
-    return remote_request.get() in _pending
+    from services.scene_runtime import pending
+    return remote_request.get() in _pending or (not remote_request.get() and pending())
 
 
 async def _handle_pending_reply(message: str, provider_name: str) -> ActionResult | None:
@@ -332,6 +333,20 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     Returns an ActionResult if it was a system command, None otherwise.
     The reply may get one of FRIDAY's quips (personality.py) — once, not for each step of a routine.
     """
+    from services.scene_runtime import try_command as try_scene_command
+    if commands_run.get() is None:
+        from services.scene_runtime import begin_turn
+        begin_turn()
+    if local_scene := await try_scene_command(message, remote=remote_request.get()):
+        return local_scene
+    from services.plugin_runtime import try_private_search
+    if local_search := await try_private_search(message, remote=remote_request.get()):
+        return local_search
+    from services import activity_plugin
+    if commands_run.get() is None:
+        activity_plugin.begin_turn()
+    if local_activity := await activity_plugin.try_command(message, remote=remote_request.get()):
+        return local_activity
     if commands_run.get() is not None:  # a routine / mode step inside a request: seasoned at the top
         return await _try_system_action(message, provider_name)
     from services.phone import commands as phone_commands
@@ -382,6 +397,15 @@ async def _try_correction(message: str, provider_name: str) -> ActionResult | No
 
 
 async def _try_system_action(message: str, provider_name: str, *, _allow_typo: bool = True) -> ActionResult | None:
+    from services.scene_runtime import try_command as try_scene_command
+    if local_scene := await try_scene_command(message, remote=remote_request.get()):
+        return local_scene
+    from services import activity_plugin
+    if local_activity := await activity_plugin.try_command(message, remote=remote_request.get()):
+        return local_activity
+    from services.plugin_runtime import try_private_search
+    if local_search := await try_private_search(message, remote=remote_request.get()):
+        return local_search
     pending_reply = await _handle_pending_reply(message, provider_name)
     if pending_reply is not None:
         return pending_reply
@@ -400,6 +424,12 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         clipboard_write = match_device_command(message)
         if clipboard_write and clipboard_write['action'] == 'write_clipboard':
             return _execute(clipboard_write)
+
+    from services.plugin_runtime import is_smart_clipboard_command, try_command as try_plugin_command
+    if is_smart_clipboard_command(message):
+        if remote_request.get():
+            return ActionResult(False, 'Clipboard actions are available only on this PC.')
+        return await try_plugin_command(message)
 
     from services.computation import commands as computation_commands
     if computation_command := computation_commands.match_command(message):

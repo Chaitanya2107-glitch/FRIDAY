@@ -306,6 +306,32 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     """Steps 2–5 for a transcribed voice command."""
     provider_name = request.provider or config.ACTIVE_PROVIDER
 
+    from services.plugin_runtime import try_private_search
+    result = await try_private_search(transcription, remote=remote_request.get())
+    if result is not None:
+        cognition_service.reply(result.message, safe_text='Local search handled privately.')
+        return VoiceResponse(transcription=transcription, response=result.message, provider='local', private=True,
+                             model='semantic_search', tokens_used=0, action='system', action_success=result.success)
+
+    from services import activity_plugin
+    from services import scene_runtime
+    scene_runtime.begin_turn()
+    local_scene = await scene_runtime.try_command(transcription, remote=remote_request.get())
+    if local_scene is not None:
+        cognition_service.reply(local_scene.message, safe_text=scene_runtime.PRIVATE_MEMORY)
+        if request.speak and local_scene.speech:
+            _speak_in_background(local_scene.speech, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=local_scene.message, provider='local', private=True,
+                             model='focus_scenes', tokens_used=0, action='system', action_success=local_scene.success,
+                             awaiting_reply=scene_runtime.pending())
+    activity_plugin.begin_turn()
+    result = await activity_plugin.try_command(transcription, remote=remote_request.get())
+    if result is not None:
+        cognition_service.reply(result.message, safe_text=activity_plugin.PRIVATE_MEMORY)
+        if request.speak and result.speech:
+            _speak_in_background(result.speech, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=result.message, provider='local', private=True,
+                             model='activity', tokens_used=0, action='system', action_success=result.success)
     from services.phone import commands as phone_commands
     if phone_commands.private_turn(transcription):
         result = await phone_commands.handle(transcription, provider_name)
@@ -386,6 +412,19 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     if not (screen_question or search_context):
         system_result = await try_system_action(transcription, provider_name)
 
+    if system_result is not None and scene_runtime.private_turn():
+        cognition_service.reply(system_result.message, safe_text=scene_runtime.PRIVATE_MEMORY)
+        if request.speak:
+            _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=system_result.message, provider='local', private=True,
+                             model='focus_scenes', tokens_used=0, action='system', action_success=system_result.success,
+                             awaiting_reply=scene_runtime.pending())
+    if system_result is not None and activity_plugin.private_turn():
+        cognition_service.reply(system_result.message, safe_text=activity_plugin.PRIVATE_MEMORY)
+        if request.speak:
+            _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=system_result.message, provider='local', private=True,
+                             model='activity', tokens_used=0, action='system', action_success=system_result.success)
     if system_result is not None:
         app_verification.mark_returned(system_result.message, remote=remote_request.get())
         if (config.AI_ASSIST_ONLY and system_result.success and not is_awaiting_confirmation()

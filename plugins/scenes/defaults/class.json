@@ -1,0 +1,8 @@
+{
+  "name": "class", "aliases": ["class mode"], "description": "Quiet FRIDAY and open College Schedules.",
+  "restore": true, "confirm_first_run": true, "distractions": [], "triggers": [],
+  "actions": [
+    {"type": "quiet_mode", "on": true}, {"type": "mute", "on": true},
+    {"type": "open_app", "name": "college schedules"}
+  ]
+}

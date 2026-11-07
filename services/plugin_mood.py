@@ -1,50 +1,31 @@
-"""Resolve plugin mood requests once in the backend; all displays see the same state."""
+"""Phase 0 compatibility adapter. The mood plugin owns arbitration at runtime."""
 import logging
+from pathlib import Path
 import threading
-import time
+from types import SimpleNamespace
 
-logger = logging.getLogger(__name__)
+from plugins.mood.engine import MoodEngine
 
 
 class MoodController:
     def __init__(self, bus):
-        self.bus, self.lock = bus, threading.RLock()
-        self.current = {'mood': 'idle', 'priority': 0, 'expires_at': 0, 'message': '', 'plugin_id': 'friday'}
-        self.timer = None
-        self.closed = False
-        self.subscription = bus.subscribe('mood.set', self._receive, plugin_id='friday-mood')
+        self.bus = bus
+        api = SimpleNamespace(settings={}, log=logging.getLogger(__name__), publish=bus.publish)
+        self.engine = MoodEngine(api, Path(__file__).resolve().parents[1] / 'plugins/mood/mood_rules.json')
+        self.subscription = bus.subscribe('mood.set', self.engine.receive, plugin_id='friday-mood')
+        self.stop_event = threading.Event()
+        def run():
+            while not self.stop_event.wait(.05):
+                self.engine.tick()
+        self.thread = threading.Thread(target=run, name='mood-compat', daemon=True)
+        self.thread.start()
 
-    def _receive(self, event):
-        data = event['payload']
-        duration, priority, mood = data.get('duration_s', 5), data.get('priority', 0), data.get('mood')
-        if (not isinstance(mood, str) or not 1 <= len(mood) <= 32 or type(priority) is not int
-                or type(duration) not in {int, float} or not 0 < duration <= 3600):
-            logger.warning('Invalid mood request [plugin=%s]', event['plugin_id'])
-            return
-        with self.lock:
-            if self.closed or (self.current['expires_at'] > time.time() and priority < self.current['priority']):
-                return
-            if self.timer:
-                self.timer.cancel()
-            previous = self.current['mood']
-            self.current = dict(mood=mood, priority=priority, expires_at=time.time() + duration,
-                                message=str(data.get('message', ''))[:4000], plugin_id=event['plugin_id'])
-            self.bus.publish('mood.changed', dict(self.current, previous=previous))
-            self.timer = threading.Timer(duration, self._expire)
-            self.timer.daemon = True
-            self.timer.start()
-
-    def _expire(self):
-        with self.lock:
-            if self.closed or self.current['expires_at'] > time.time():
-                return
-            previous = self.current['mood']
-            self.current = dict(mood='idle', priority=0, expires_at=0, message='', plugin_id='friday')
-            self.bus.publish('mood.changed', dict(self.current, previous=previous))
+    @property
+    def current(self):
+        value = self.engine.snapshot()
+        return dict(value, expires_at=value['until'] or 0)
 
     def close(self):
-        with self.lock:
-            self.closed = True
-            if self.timer:
-                self.timer.cancel()
+        self.stop_event.set()
         self.bus.unsubscribe(self.subscription)
+        self.thread.join(.5)

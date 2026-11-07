@@ -1,0 +1,8 @@
+{
+  "name": "game", "aliases": ["game mode", "gaming mode"], "description": "A high-performance power plan and quiet FRIDAY notifications.",
+  "restore": true, "confirm_first_run": true, "distractions": [], "triggers": [],
+  "actions": [
+    {"type": "set_power_plan", "plan": "high_performance"}, {"type": "quiet_mode", "on": true},
+    {"type": "set_mood", "mood": "happy"}
+  ]
+}

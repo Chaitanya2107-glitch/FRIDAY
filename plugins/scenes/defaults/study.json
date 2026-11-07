@@ -1,0 +1,11 @@
+{
+  "name": "study", "aliases": ["study mode", "start studying"],
+  "description": "Quiet study with a focus timer and a gentler entertainment limit.",
+  "restore": true, "confirm_first_run": true, "distractions": [], "triggers": [],
+  "actions": [
+    {"type": "quiet_mode", "on": true}, {"type": "set_volume", "percent": 30},
+    {"type": "start_focus", "minutes": 25},
+    {"type": "set_activity_threshold", "category": "entertainment", "minutes": 10},
+    {"type": "set_mood", "mood": "focused"}, {"type": "play_music", "playlist_or_url": "{study_music}"}
+  ]
+}

@@ -1,5 +1,12 @@
 # FRIDAY plugins, API version 1
 
+`hud` adds the transparent desktop HUD, boot sequence, and cached protected
+system-statistics route. See [HUD.md](HUD.md) for settings, commands and verification.
+
+`semantic_search` adds private offline document search, opt-in indexed folders,
+and a `semantic_search` service. See [SEMANTIC_SEARCH.md](SEMANTIC_SEARCH.md) for
+installation, commands, settings, privacy behavior and tests.
+
 Plugins are **trusted Python code running inside FRIDAY, with no sandbox**.
 Only install code you trust. Permissions describe intended access; they do not
 prevent a plugin from importing Python modules, reading files, using the network,
@@ -134,7 +141,7 @@ discovery/registration order; prefer distinct patterns instead of relying on it.
 | `api.stop_event` | `threading.Event` set on unload; jobs should wait on/check it. |
 | `api.notify(title, body, urgency='normal')` | Existing Windows notification helper, with Telegram mirroring off. |
 | `api.speak(text)` | Schedule existing offline Piper/SAPI output; no-op without an active speech loop. |
-| `api.set_mood(mood, duration_s=5, priority=0, message='')` | Publish `mood.set`; backend arbitration emits `mood.changed`. |
+| `api.set_mood(mood, duration_s=5, priority=0, message='', *, sticky=False)` | Publish `mood.set`; the mood plugin emits `mood.changed`. |
 | `api.show_card(title, body, actions=(), ttl_s=30)` | Publish a literal-text Island card. |
 | `api.on_action(action_id, handler)` | Handler receives the chosen action's JSON payload and returns a command result. |
 | `api.provide(name, obj)` | Offer a runtime service; another plugin cannot replace its name. |
@@ -143,10 +150,11 @@ discovery/registration order; prefer distinct patterns instead of relying on it.
 
 Notification `urgency` is advisory in v1: the existing Windows transport has no
 urgency parameter. Failures are logged. No notification is mirrored to a phone.
-Mood requests last 0–3600 seconds (positive), integer priority; lower priorities
-cannot displace an active higher priority. Equal priority uses the latest request.
-Expiry emits idle. Island's live listening/speaking/thinking state takes display
-precedence. Existing expressions include `idle`, `happy`, `sleepy`, and `error`.
+Temporary mood requests last up to 3600 seconds (positive), with integer priority;
+lower priorities cannot displace a higher priority. Equal priority uses the latest
+request. Expiry returns to the active sticky mood, then idle. Island's live
+listening/speaking/thinking state takes display precedence. See [MOOD.md](MOOD.md)
+for all eleven moods, editable rules, calm/developer settings and test commands.
 
 ### Settings and files
 
@@ -302,6 +310,15 @@ Windows sign-in control uses only the current user's Run key and needs no admin.
 Enable it from a standalone release build; development builds need Vite.
 
 ## Offline testing
+
+`smart_clipboard` provides Windows clipboard actions without a model, downloads,
+or persistent clipboard data. It respects privacy flags and password managers,
+retains one item in RAM, and sends only an 80-character UI preview with opaque
+action tokens. Say `clipboard on`, `clipboard off`, `what's on my clipboard`,
+`solve clipboard`, `convert clipboard`, or `clean clipboard link`; the default
+actions shortcut is `Ctrl+Shift+Alt+V`. See
+[its README](../plugins/smart_clipboard/README.md) for settings, extension APIs,
+privacy limits, optional packages and fake-provider tests.
 
 ```powershell
 venv/Scripts/python.exe -B -m pytest tests/test_event_bus.py tests/test_plugin_system.py tests/test_plugin_bridge.py

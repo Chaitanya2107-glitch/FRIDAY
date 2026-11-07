@@ -84,6 +84,12 @@ class EventBus:
             self._sequence += 1
             event = dict(id=self._sequence, topic=topic, payload=deepcopy(payload),
                          plugin_id=plugin_id, at=time.time())
+            if topic == 'ui.card':
+                from services.quiet_mode import suppresses
+                if suppresses(payload.get('urgency', 'normal')):
+                    event['suppressed'] = True
+                    self._events.append(event)
+                    return deepcopy(event)
             self._events.append(event)
             for subscription in self._subscriptions:
                 if fnmatchcase(topic, subscription.pattern):
@@ -108,6 +114,14 @@ class EventBus:
         validate_topic(pattern, pattern=True)
         with self._lock:
             return deepcopy([event for event in self._events if fnmatchcase(event['topic'], pattern)])
+
+    def forget(self, plugin_id: str):
+        """Erase a plugin's debug history and events not yet delivered to subscribers."""
+        with self._lock:
+            self._events = deque((event for event in self._events if event['plugin_id'] != plugin_id), maxlen=200)
+            for subscription in self._subscriptions:
+                with subscription.queue.mutex:
+                    subscription.queue.queue = deque(event for event in subscription.queue.queue if event['plugin_id'] != plugin_id)
 
     def close(self):
         with self._lock:

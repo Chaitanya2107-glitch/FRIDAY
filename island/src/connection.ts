@@ -99,10 +99,10 @@ export class Connection {
       throw new Error('Invalid action response. Refresh to verify whether it was saved.');
     return { ok: frame.ok, text: frame.text };
   }
-  async pluginRequest(path: string, method = 'GET', body?: Record<string, unknown>) {
+  async pluginRequest(path: string, method = 'GET', body?: Record<string, unknown>, signal?: AbortSignal) {
     const response = await fetch(`http://127.0.0.1:${this.config.api_port ?? 8000}/api/plugins/${path}`, {
-      method, headers: { 'X-Friday-Token': this.config.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}), credentials: 'omit',
+      method, signal, headers: { 'X-Friday-Token': this.config.token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}), credentials: 'omit', cache: 'no-store',
     });
     if (!response.ok) throw new Error(`Plugin request failed (${response.status})`);
     return response.json() as Promise<Record<string, unknown>>;

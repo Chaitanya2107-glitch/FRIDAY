@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 use uuid::Uuid;
+pub use crate::hud::BootSettings as Island;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -24,6 +25,8 @@ pub struct Config {
     pub appearance: Appearance,
     pub connection: Connection,
     pub startup: Startup,
+    pub island: Island,
+    pub user_name: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -103,6 +106,7 @@ pub struct Hotkeys {
     pub sneak: String,
     pub expand: String,
     pub dismiss: String,
+    pub hud: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,6 +138,7 @@ impl Default for Hotkeys {
             sneak: "Ctrl+Shift+S".into(),
             expand: "Ctrl+Shift+Alt+I".into(),
             dismiss: "Escape".into(),
+            hud: "Ctrl+Shift+Alt+H".into(),
         }
     }
 }
@@ -169,6 +174,8 @@ impl Default for Config {
             appearance: Appearance::default(),
             connection: Connection::default(),
             startup: Startup::default(),
+            island: Island::default(),
+            user_name: String::new(),
         }
     }
 }
@@ -217,6 +224,9 @@ fn ids<'a>(items: impl Iterator<Item = (&'a str, &'a str)>) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
+        if self.user_name.chars().count() > 80 || self.user_name.chars().any(|c| c.is_control()) || self.island.last_boot_epoch.len() > 128 {
+            return Err("Invalid Island user name or boot marker".into());
+        }
         if !self.startup.backend_root.is_empty() && !safe_path(&self.startup.backend_root) {
             return Err("Use an absolute FRIDAY folder without traversal".into());
         }
@@ -244,6 +254,7 @@ impl Config {
             &self.hotkeys.sneak,
             &self.hotkeys.expand,
             &self.hotkeys.dismiss,
+            &self.hotkeys.hud,
         ]
         .iter()
         .any(|s| s.is_empty() || s.len() > 100)

@@ -1,0 +1,12 @@
+{
+  "id": "smart_clipboard",
+  "name": "Smart Clipboard",
+  "version": "1.0.0",
+  "api_version": 1,
+  "description": "Offline clipboard actions with one item in memory and privacy-aware Windows polling.",
+  "author": "FRIDAY",
+  "entry": "main.py",
+  "permissions": ["clipboard", "events", "ui", "system_control"],
+  "requires": [],
+  "enabled_by_default": true
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "rules": [
+    {"event": "battery.low", "mood": "worried", "duration_s": 8, "priority": 3, "message": "Battery at {percent}%"},
+    {"event": "battery.critical", "mood": "alarmed", "duration_s": 15, "priority": 5},
+    {"event": "battery.plugged", "mood": "happy", "duration_s": 4, "priority": 2},
+    {"event": "schedule.class_soon", "mood": "alert", "duration_s": 10, "priority": 4, "message": "{subject} in {minutes} min"},
+    {"event": "schedule.due_soon", "mood": "alert", "duration_s": 6, "priority": 3},
+    {"event": "focus.started", "mood": "focused", "priority": 4, "sticky": true, "until": ["focus.done", "focus.paused"]},
+    {"event": "focus.done", "mood": "celebrating", "duration_s": 6, "priority": 3},
+    {"event": "scene.started", "mood": "focused", "priority": 4, "sticky": true, "match": {"name": ["study", "exam"]}, "until": ["scene.ended"]},
+    {"event": "scene.started", "mood": "happy", "priority": 2, "sticky": true, "match": {"name": ["game"]}, "until": ["scene.ended"]},
+    {"event": "scene.started", "mood": "sleepy", "priority": 2, "sticky": true, "match": {"name": ["sleep"]}, "until": ["scene.ended"]},
+    {"event": "activity.nudge", "mood": "worried", "duration_s": 6, "priority": 2, "message": "Maybe a break?"},
+    {"event": "activity.idle_started", "mood": "dozing", "priority": 1, "sticky": true, "min_idle_s": 600, "until": ["activity.idle_ended"]},
+    {"event": "activity.idle_ended", "mood": "waving", "duration_s": 3, "priority": 1},
+    {"event": "clipboard.action_available", "mood": "curious", "duration_s": 3, "priority": 2},
+    {"event": "index.done", "mood": "happy", "duration_s": 3, "priority": 1}
+  ],
+  "late_night": {"mood": "sleepy", "duration_s": 5, "priority": 1, "message": "It's late.", "start_hour": 1, "end_hour": 6, "cooldown_s": 1800}
+}

@@ -103,6 +103,9 @@ class _LastInput(ctypes.Structure):
 
 def foreground_window() -> tuple[str | None, str | None]:
     """('chrome', 'Inbox - Gmail'); (None, None) for FRIDAY's own windows, password managers, the lock screen or no window."""
+    from services import activity_plugin
+    if activity_plugin.privacy_active():
+        return None, None  # The plugin is the authoritative, private foreground source.
     user32 = ctypes.windll.user32
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
@@ -606,11 +609,19 @@ async def watch_activity(log: "ActivityLog") -> None:
     from services.mind import brain  # she watches every move (imported late: it builds on this module)
 
     logger.info("Activity tracker started")
+    suspended = False
     try:
         for tick in itertools.count():
             try:
-                await asyncio.to_thread(log.sample, tick)
-                await asyncio.to_thread(brain.sense, log)
+                from services import activity_plugin
+                if activity_plugin.privacy_active():
+                    if not suspended:
+                        activity_plugin.suspend_legacy(log)
+                    suspended = True
+                else:
+                    suspended = False
+                    await asyncio.to_thread(log.sample, tick)
+                    await asyncio.to_thread(brain.sense, log)
             except Exception as e:
                 logger.error(f"Activity tracker error: {e}", exc_info=True)
             await asyncio.sleep(POLL_SECONDS)

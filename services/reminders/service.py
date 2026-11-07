@@ -182,8 +182,12 @@ def _toast_app_id() -> str:
 
 def show_toast(title: str, body: str, buttons: list[tuple[str, str]] | None = None, transient: bool = False,
                *, cognition_public: bool = False, mirror_telegram: bool = True,
-               cognition_text: str | None = None) -> bool:
+               cognition_text: str | None = None, urgency: str = 'normal') -> bool:
     """Record the exact local notification and whether Windows accepted it."""
+    from services.quiet_mode import suppresses
+    from services.mind.training import urgent_delivery
+    if suppresses('critical' if urgent_delivery.get() else urgency):
+        return False
     from services.mind.cognition import cognition
 
     recorded = f"{title}\n{body}" if cognition_text is None else cognition_text
@@ -256,11 +260,18 @@ def _reminder_body(reminder: Reminder) -> str:
 
 async def _deliver_claim(service, claim):
     from services.mind import reminder_review
+    from services.mind.training import urgent_delivery
+    from services.quiet_mode import enabled
     from services.proactive import buttons, watcher
     from services.telegram import client as telegram
     from services import body_state
 
     reminder = claim.reminder
+    if enabled() and not urgent_delivery.get():
+        held = reminder_review.Review('defer', 'FRIDAY quiet mode is active.', retry_after_seconds=60)
+        service._decision(claim, held)
+        service._hold(claim, held)
+        return
     review = await reminder_review.review(reminder, datetime.now())
     if not service._active(claim):
         return

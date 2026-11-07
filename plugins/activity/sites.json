@@ -1,0 +1,11 @@
+{
+  "browsers": ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe"],
+  "sites": {
+    "YouTube": ["YouTube"], "Instagram": ["Instagram"], "Reddit": ["Reddit"],
+    "GitHub": ["GitHub"], "Netflix": ["Netflix"], "WhatsApp Web": ["WhatsApp"],
+    "ChatGPT": ["ChatGPT"], "Gmail": ["Gmail"], "Twitch": ["Twitch"],
+    "Stack Overflow": ["Stack Overflow"], "GitLab": ["GitLab"], "Facebook": ["Facebook"],
+    "Outlook": ["Outlook"], "Claude": ["Claude"], "Google Classroom": ["Google Classroom"],
+    "Coursera": ["Coursera"]
+  }
+}

@@ -2,10 +2,11 @@ import { call, native } from './native';
 import { element as el } from './state';
 import { icon } from './icons';
 import { startupSettings } from './startup-settings';
+import { hudSettings } from './hud-settings';
 import type { Config, NativeStatus, OpenAction, Pin, Project } from './types';
 import type { Apps } from './apps';
 
-type Section = 'appearance' | 'apps' | 'projects' | 'hotkeys' | 'connection';
+type Section = 'appearance' | 'apps' | 'projects' | 'hotkeys' | 'connection' | 'hud';
 interface Host {
   config: () => Config;
   save: (next: Config) => Promise<void>;
@@ -15,6 +16,7 @@ interface Host {
   message: (text: string, bad?: boolean) => void;
   apps: Apps;
   restart?: () => Promise<unknown>;
+  pluginRequest: (path: string, method?: string, body?: Record<string, unknown>) => Promise<Record<string, unknown>>;
 }
 export function button(label: string, glyph: string, action: () => unknown, className = 'icon-button'): HTMLButtonElement {
   const node = el('button', className);
@@ -63,7 +65,7 @@ export class Settings {
     this.root.replaceChildren();
     if (this.editor) { this.renderProjectEditor(this.editor); return; }
     const nav = el('div', 'settings-nav');
-    for (const [key, label] of [['appearance', 'Look'], ['apps', 'Pinned apps'], ['projects', 'Projects'], ['hotkeys', 'Hotkeys'], ['connection', 'Connection']] as const) {
+    for (const [key, label] of [['appearance', 'Look'], ['apps', 'Pinned apps'], ['projects', 'Projects'], ['hud', 'HUD'], ['hotkeys', 'Hotkeys'], ['connection', 'Connection']] as const) {
       const node = el('button', this.section === key ? 'selected' : '', label);
       node.onclick = () => { this.section = key; this.render(); };
       nav.append(node);
@@ -80,9 +82,18 @@ export class Settings {
       seconds.onchange = () => void this.change(c => { c.appearance.idle_seconds = Number(seconds.value); });
       const snippet = input('', 'checkbox'); snippet.checked = config.appearance.snippet;
       snippet.onchange = () => void this.change(c => { c.appearance.snippet = snippet.checked; });
+      const reduced = input('', 'checkbox'); reduced.checked = config.island?.reduced_motion ?? false;
+      reduced.onchange = () => void this.change(c => { c.island = { boot_animation: true, ...c.island, reduced_motion: reduced.checked }; });
       const sample = el('div', 'theme-sample'); sample.append(el('span', 'sample-dot'), el('div', '', 'A little light. A little space.'));
-      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Auto-hide delay (seconds)', seconds), field('Near-class reminders', snippet));
+      this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Auto-hide delay (seconds)', seconds), field('Near-class reminders', snippet), field('Reduced motion', reduced, 'Static Mochi poses. Windows motion preferences also apply.'));
+      const boot = input('', 'checkbox'); boot.checked = config.island?.boot_animation !== false;
+      boot.onchange = () => void this.change(c => { c.island = { ...c.island, boot_animation: boot.checked }; });
+      const name = input(config.user_name ?? ''); name.maxLength = 80;
+      name.onchange = () => void this.change(c => { c.user_name = name.value.trim(); });
+      this.root.append(field('Startup animation', boot), field('Your name (optional greeting)', name));
       this.root.append(el('p', 'muted', this.host.status().reduce_motion ? 'Windows reduced motion is on.' : 'Animations follow Windows motion preferences.'));
+    } else if (this.section === 'hud') {
+      void hudSettings(this.root, this.host.pluginRequest);
     } else if (this.section === 'apps') {
       this.root.append(el('p', 'muted', 'Your first eight visible apps appear in Peek. Drag to reorder.'));
       this.favourites = el('div', 'favourites-list'); this.root.append(this.favourites);
@@ -93,7 +104,7 @@ export class Settings {
       this.renderList('projects');
       this.root.append(textButton('Add project', () => this.addProject()));
     } else if (this.section === 'hotkeys') {
-      for (const [key, title] of [['sneak', 'Sneak mode'], ['expand', 'Peek / expand'], ['dismiss', 'Dismiss (Escape or a modified key)']] as const) {
+      for (const [key, title] of [['sneak', 'Sneak mode'], ['expand', 'Peek / expand'], ['hud', 'Toggle HUD'], ['dismiss', 'Dismiss (Escape or a modified key)']] as const) {
         const node = input(config.hotkeys[key] ?? 'Escape');
         node.onchange = () => void this.change(c => { c.hotkeys[key] = node.value; });
         this.root.append(field(title, node));

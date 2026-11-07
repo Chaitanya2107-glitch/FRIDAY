@@ -82,6 +82,7 @@ class Project(Model):
 
 
 class Hotkeys(Model):
+    hud: str = Field(default='Ctrl+Shift+Alt+H', min_length=1, max_length=100)
     sneak: str = Field(default="Ctrl+Shift+S", min_length=1, max_length=100)
     expand: str = Field(default="Ctrl+Shift+Alt+I", min_length=1, max_length=100)
     dismiss: str = Field(default='Escape', min_length=1, max_length=100)
@@ -118,7 +119,15 @@ class Startup(Model):
         return absolute_path(value) if value else value
 
 
+class Island(Model):
+    boot_animation: bool = True
+    reduced_motion: bool = False
+    last_boot_epoch: str = Field(default='', max_length=128)
+
+
 class IslandConfig(Model):
+    island: Island = Field(default_factory=Island)
+    user_name: str = Field(default='', max_length=80, pattern=r'^[^\x00-\x1f\x7f]*$')
     version: Literal[1] = 1
     revision: int = Field(default=0, ge=0)
     pins: list[Pin] = Field(default_factory=list, max_length=64)

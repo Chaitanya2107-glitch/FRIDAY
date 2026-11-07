@@ -16,3 +16,9 @@
 .surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .capsule-schedule { display: none; }
 .surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .capsule-media { width: 288px; }
 .surface[data-mode='peek'][data-active='true'], .surface[data-mode='expanded'] { width: 640px; }
+.scene-chip { max-width: 112px; flex-shrink: 0; padding: 2px 7px; border: 1px solid #6e9ad14d; border-radius: 999px;
+  background: #1d3046; color: #c3dcff; font: 500 10px/15px system-ui; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.scene-chip[hidden], .surface:is([data-mode='hidden'], [data-mode='sneak']) .scene-chip { display: none; }
+.scene-chip:focus-visible { outline: 2px solid #9dc5ff; outline-offset: 2px; }
+.surface[data-scene='true']:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .island-row { height: 54px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .scene-chip { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }

@@ -6,7 +6,11 @@ import { sharedProjects } from './project-links';
 import { Connection } from './connection';
 import { Apps } from './apps';
 import { Capsule } from './capsule';
+import { HudController } from './hud-controller';
+import { BootAnimation } from './boot';
+import { MochiDisplay } from './mochi-display';
 import { ReplySurface } from './reply-surface';
+import { SceneState } from './scene-state';
 import { matchesDismiss } from './hotkeys';
 import { isFileReference, resolveSlash, slashSuggestions } from './slash-commands';
 import { PluginWidgets } from './widgets';
@@ -27,6 +31,10 @@ const orb = character();
 orb.onpointerdown = event => { if (event.button === 0) event.preventDefault(); };
 const capsule = new Capsule(message);
 const live = el('span', 'live-line', 'FRIDAY offline');
+const sceneState = new SceneState();
+let sceneCardVersion = 0;
+const sceneChip = el('button', 'scene-chip'); sceneChip.hidden = true;
+sceneChip.onclick = () => openTab('friday'); sceneChip.title = 'Show the active scene';
 const command = el('input', 'command');
 command.placeholder = 'A thought, a command…'; command.autocomplete = 'off'; command.spellcheck = false; command.maxLength = 4000;
 command.setAttribute('aria-label', 'FRIDAY command'); command.setAttribute('role', 'combobox');
@@ -37,7 +45,7 @@ const fridayButton = button('FRIDAY', 'app', () => openTab('friday'));
 const settingsButton = button('Settings', 'settings', () => openTab('settings'));
 const closeButton = button('Close · Esc', 'close', () => dispatch('escape'));
 const tools = el('div', 'tools'); tools.append(pins, fridayButton, projectsButton, settingsButton, closeButton);
-row.append(capsule.left, orb, capsule.right, live, command, tools);
+row.append(capsule.left, orb, capsule.right, live, sceneChip, command, tools);
 const results = el('div', 'suggestions'); results.id = 'suggestions'; results.setAttribute('role', 'listbox');
 const body = el('div', 'expanded-body');
 const sneakReply = el('div', 'sneak-reply'); sneakReply.hidden = true; sneakReply.setAttribute('role', 'status');
@@ -79,12 +87,18 @@ const replies = new ReplySurface(surface, {
   reveal: () => setMode('rest'), restore: () => busy ? Promise.resolve() : setMode(config.appearance.idle_mode === 'hover' ? 'hidden' : 'rest'),
   changed: () => animateRegions(),
   action: async value => { const result = await connection.request('runtime_action', { action: 'notification', value }); return { ok: result.ok === true, text: String(result.text ?? '') }; },
+  pluginAction: async (owner, id, payload) => {
+    const result = await connection.pluginRequest(`${owner}/actions/${id}`, 'POST', payload);
+    return { ok: result.ok === true, text: String(result.text ?? '') };
+  },
+  pluginGet: path => connection.pluginRequest(path),
 });
 row.append(replies.node);
 const apps = new Apps(next => { config = next; applyConfig(); settings.refreshFavourites(); }, message);
 const settings = new Settings(panels, {
   config: () => config, status: () => nativeStatus, online: () => online, message,
   apps,
+  pluginRequest: (path, method, body) => connection.pluginRequest(path, method, body),
   restart: () => integrated && online ? connection.request('runtime_action', { action: 'restart' }) : call('start_friday'),
   reload: async () => { config = await call<Config>('reload_config'); applyConfig(); connect(); },
   save: async next => {
@@ -96,6 +110,13 @@ const settings = new Settings(panels, {
 });
 const widgets = new PluginWidgets(panels, () => connection, result => { message(result.text, !result.ok); if (result.ok) mood('happy', 850); });
 const friday = new FridayPanel(() => connection, text => run(text), message, event => replies.event(event), () => setMode('rest'));
+const hud = new HudController(() => connection, message, () => config.island?.reduced_motion === true);
+const mochi = new MochiDisplay(surface, orb, {
+  config: () => config, status: () => nativeStatus, mode: () => mode,
+  available: () => !sneakEnabled && !active && !busy && !command.value && !replies.visible && (mode === 'rest' || mode === 'peek'),
+  peek: () => setMode('peek'), restore: () => setMode('rest'), refresh: () => mood(), layout: animateRegions,
+});
+const startupAnimation = new BootAnimation(surface, () => config, () => mochi.reduced, next => { config = next; });
 
 function message(text: string, bad = false) {
   if (mode === 'sneak') { sneakReply.textContent = text; sneakReply.hidden = false; sneakReply.classList.toggle('bad', bad); }
@@ -113,9 +134,9 @@ function message(text: string, bad = false) {
 function mood(value?: string, duration = 0) {
   clearTimeout(moodTimer);
   const state = friday.state?.body;
-  surface.dataset.mood = state?.listening ? 'listening' : state?.speaking ? 'speaking' : state?.thinking ? 'thinking'
-    : value ?? (pluginMood && pluginMood.until > Date.now() ? pluginMood.value : undefined)
-    ?? (!online ? 'offline' : mode === 'hidden' || mode === 'sneak' || Date.now() - lastActivity > 60000 ? 'sleepy' : 'idle');
+  if (state?.listening || state?.speaking || state?.thinking) {
+    mochi.character.setMood(state.listening ? 'listening' : state.speaking ? 'speaking' : 'thinking'); mochi.comfort();
+  } else mochi.update(value ?? (online ? 'idle' : 'offline'));
   if (duration) moodTimer = setTimeout(() => mood(), duration);
 }
 let lastLayout = '';
@@ -210,6 +231,7 @@ window.addEventListener('blur', () => {
 window.addEventListener('keydown', event => { if (matchesDismiss(event, config.hotkeys.dismiss)) { event.preventDefault(); if (!event.repeat) void dispatch('escape'); } });
 
 function applyConfig() {
+  mochi.comfort();
   document.documentElement.style.setProperty('--accent', config.appearance.glow);
   document.documentElement.style.setProperty('--orb-edge', `color-mix(in srgb, ${config.appearance.glow}, #b65018 45%)`);
   root.classList.toggle('character-only', !config.appearance.snippet);
@@ -422,25 +444,46 @@ function connect() {
   connection?.stop();
   friday.connected(false);
   online = false; integrated = false; manifests = []; snippet = ''; schedule = ''; reminder = null; updateLive();
+  sceneState.reset(); paintScene();
+  sceneCardVersion++;
   connection = new Connection(config.connection, frame => {
     if (frame.type === 'bus_event' && frame.event && typeof frame.event === 'object') {
       const event = frame.event as Record<string, unknown>;
+      hud.event(event);
       if (event.topic === 'todo.changed') void widgets.refresh();
-      if (event.topic === 'mood.changed' && event.payload && typeof event.payload === 'object') {
-        const payload = event.payload as Record<string, unknown>;
-        if (typeof payload.mood === 'string' && /^[a-z_]{1,32}$/.test(payload.mood) && typeof payload.expires_at === 'number') {
-          pluginMood = { value: payload.mood, until: payload.expires_at * 1000 };
-          mood();
-        }
+      mochi.receive(event);
+      if (sceneState.event(event)) {
+        paintScene();
+        if (event.topic === 'scene.started' || event.topic === 'scene.ended') sceneCardVersion++;
       }
-      friday.pluginEvent(event);
+      if (event.topic === 'ui.card' && event.plugin_id === 'scenes') {
+        sceneCardVersion++;
+        friday.pluginEvent(event); replies.pluginEvent(event);
+        if (mode === 'expanded' && tab !== 'friday') openTab('friday');
+      } else if (!replies.pluginEvent(event)) friday.pluginEvent(event);
       return;
     }
     if (frame.type === 'status') {
+      const revision = sceneState.revision;
+      const cardVersion = sceneCardVersion;
+      void connection.pluginRequest('scenes/status').then(state => {
+        if (sceneState.revision === revision) { sceneState.status(state); paintScene(); }
+        if (sceneCardVersion === cardVersion && state.card && typeof state.card === 'object') {
+          const event = { topic: 'ui.card', plugin_id: 'scenes', payload: state.card };
+          friday.pluginEvent(event); replies.pluginEvent(event);
+          if (mode === 'expanded' && tab !== 'friday') openTab('friday');
+        }
+      }).catch(() => { /* Scenes is an optional offline plugin. */ });
+      void connection.pluginRequest('mood/state').then(payload => {
+        if (!mochi.hasState) mochi.receive({ topic: 'mood.changed', payload });
+      }).catch(() => {});
+      void hud.refresh();
+      if (native && frame.integrated !== true) void call('boot_done');
       const previous = integrated; integrated = frame.integrated === true;
       if (integrated && !previous) { tab = 'friday'; if (mode === 'expanded') renderPanel(); }
     }
-    if (friday.receive(frame)) { mood(); return; }
+    startupAnimation.receive(frame);
+    if (friday.receive(frame)) { hud.scene(friday.state?.system.mode.name ?? ''); mood(); return; }
     if (frame.type === 'pill_snippet_update' && typeof frame.text === 'string') {
       schedule = typeof frame.schedule === 'string' ? frame.schedule.slice(0, 100) : '';
       widgets.updateCollege(frame.college_text);
@@ -453,6 +496,8 @@ function connect() {
     if (['status', 'plugin_list'].includes(frame.type) && command.value.trimStart().startsWith('/')) command.oninput?.(new Event('input'));
   }, connected => {
     online = connected;
+    if (!connected) { mochi.reset(); sceneState.reset(); paintScene(); sceneCardVersion++; }
+    hud.online(connected);
     friday.connected(connected);
     settings.connectionChanged();
     if (!connected) { manifests = []; snippet = ''; schedule = ''; reminder = null; sneakReply.textContent = ''; sneakReply.hidden = true; replies.clear(); }
@@ -462,26 +507,34 @@ function connect() {
   });
   if (native) connection.start();
 }
-let pluginMood: { value: string; until: number } | undefined;
+function paintScene() {
+  surface.dataset.scene = sceneState.name ? 'true' : 'false';
+  sceneChip.textContent = sceneState.name ? `${sceneState.name} mode` : '';
+  sceneChip.hidden = !sceneState.name;
+  sceneChip.setAttribute('aria-label', sceneState.name ? `Active scene: ${sceneState.name}. Show controls.` : 'No active scene');
+  queueMicrotask(syncRegions);
+}
 async function boot() {
   try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
   catch (error) { message(String(error), true); }
+  await hud.start(); await startupAnimation.start();
   applyConfig(); await setMode(mode); connect();
   if (nativeStatus.hotkey_errors.length) message(`Hotkey registration failed: ${nativeStatus.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
   capsule.setMode(mode);
   await apps.start(() => { icons.clear(); renderPins(); if (mode === 'expanded' && tab === 'settings' && settings.section === 'apps') settings.render(); });
   applyLimits();
-  document.documentElement.classList.toggle('reduce-motion', nativeStatus.reduce_motion);
+  mochi.comfort();
   await on<string>('hotkey', event => { if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape'); });
   await on<NativeStatus>('native-status', status => {
     if (status.hotkey_errors.length && JSON.stringify(status.hotkey_errors) !== JSON.stringify(nativeStatus.hotkey_errors))
       message(`Hotkey registration failed: ${status.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
-    nativeStatus = status; applyLimits(); document.documentElement.classList.toggle('reduce-motion', status.reduce_motion);
+    nativeStatus = status; applyLimits(); mochi.comfort();
     if (mode === 'expanded' && tab === 'settings' && settings.section === 'hotkeys') settings.render();
   });
   await on<{ x: number; y: number; reveal: boolean }>('pointer', point => {
     if (sneakEnabled) return;
     if (point.reveal && mode === 'hidden') void dispatch('hover');
+    if (!mochi.character.motionAllowed) return;
     if (mode === 'hidden' || mode === 'sneak') return;
     const bounds = orb.getBoundingClientRect();
     orb.style.setProperty('--eye-x', `${Math.max(-3, Math.min(3, (point.x - bounds.x - bounds.width / 2) / 90))}px`);

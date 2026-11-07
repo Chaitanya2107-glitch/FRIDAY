@@ -3,6 +3,7 @@ import { element as el } from './state';
 import type { Connection } from './connection';
 import type { CommandResult, FridayState } from './types';
 import { call } from './native';
+import { searchCardBody } from './search-card';
 
 export class FridayPanel {
   readonly conversation = new Conversation();
@@ -127,7 +128,19 @@ export class FridayPanel {
     if (typeof value.title !== 'string' || value.title.length > 120 || typeof value.body !== 'string' || value.body.length > 4000) return;
     const owner = event.plugin_id;
     const card = el('div', 'friday-notice'); card.setAttribute('role', 'status');
-    card.append(el('strong', '', value.title), el('p', '', value.body));
+    if (owner === 'smart_clipboard' || owner === 'scenes') for (const previous of this.notices.querySelectorAll(`[data-plugin="${owner}"]`)) previous.remove();
+    card.dataset.plugin = owner;
+    const body = el('p', '', value.body);
+    card.append(el('strong', '', value.title), body);
+    void searchCardBody(owner, value, path => this.connection().pluginRequest(path)).then(text => {
+      if (text !== undefined && card.isConnected) body.textContent = text;
+    }).catch(() => { /* The safe filename card remains usable if the plugin was reloaded. */ });
+    const color = owner === 'smart_clipboard' && value.title === 'Clipboard · Color'
+      ? value.body.match(/^#[a-fA-F0-9]{6}(?:[a-fA-F0-9]{2})?(?=\s|$)/)?.[0] : undefined;
+    if (color) {
+      const swatch = el('span', 'clipboard-swatch'); swatch.style.backgroundColor = color;
+      swatch.setAttribute('role', 'img'); swatch.setAttribute('aria-label', `Color ${color}`); card.append(swatch);
+    }
     for (const action of (Array.isArray(value.actions) ? value.actions : []).slice(0, 6)) {
       if (!action || typeof action !== 'object' || typeof action.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(action.id)
           || typeof action.label !== 'string' || action.label.length > 40) continue;
@@ -141,7 +154,7 @@ export class FridayPanel {
     while (this.notices.childElementCount > 3) this.notices.lastElementChild?.remove();
     const ttl = typeof value.ttl_s === 'number' && Number.isFinite(value.ttl_s) ? Math.max(1, Math.min(3600, value.ttl_s)) : 30;
     setTimeout(() => card.remove(), ttl * 1000);
-    this.reveal({ id: Number(event.id) || 0, kind: 'notification', text: value.body, title: value.title,
+    if (owner !== 'smart_clipboard' && owner !== 'scenes') this.reveal({ id: Number(event.id) || 0, kind: 'notification', text: value.body, title: value.title,
       at: Number(event.at) || Date.now() / 1000, buttons: [] });
   }
   private paintConversation() {

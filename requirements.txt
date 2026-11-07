@@ -51,7 +51,9 @@ winrt-Windows.Foundation>=3.2.1
 winrt-Windows.Media.Control>=3.2.1
 
 # ── File search ───────────────────────────────────────────────────────────────
-sentence-transformers>=3.0.0  # local embedding model for meaning-based search (uses torch above)
+fastembed>=0.7.4,<0.10  # semantic_search plugin: offline ONNX embeddings, no torch import
+numpy>=1.26,<3         # cosine search and float32 SQLite vectors
+sentence-transformers>=3.0.0  # legacy file search and optional plugin fallback (uses torch above)
 pypdf>=5.0.0            # text from PDFs
 python-docx>=1.1.0      # text from Word files
 python-pptx>=1.0.0      # text from PowerPoint files

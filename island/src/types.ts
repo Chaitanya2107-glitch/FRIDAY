@@ -9,7 +9,9 @@ export interface Config {
   source_stamp?: string;
   version: 1; revision: number; pins: Pin[]; projects: Project[];
   recent_apps: { id: string; last_used: number; count: number }[];
-  hotkeys: { sneak: string; expand: string; dismiss?: string };
+  hotkeys: { sneak: string; expand: string; dismiss?: string; hud?: string };
+  island?: { boot_animation: boolean; last_boot_epoch?: string; reduced_motion?: boolean };
+  user_name?: string;
   appearance: { glow: string; idle_mode: 'always' | 'auto-hide' | 'hover'; idle_seconds: number; snippet: boolean };
   connection: { port: number; token: string; api_port?: number };
   startup?: { manage_bridge: boolean; backend_root: string; launch_at_login: boolean; start_with_friday?: boolean };
@@ -40,7 +42,7 @@ export interface Widget {
   input?: { label: string; placeholder: string; action: string; max_length: number };
 }
 export interface PillSnippet { text: string; show_from: number; expires_at: number }
-export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean }
+export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean; fullscreen_front?: boolean; desktop_locked?: boolean }
 export interface BatteryStatus { percent: number | null; charging: boolean; plugged_in: boolean | null }
 export interface MediaSession {
   source: string; title: string; artist: string; playing: boolean;

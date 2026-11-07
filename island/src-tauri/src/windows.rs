@@ -226,8 +226,9 @@ pub fn register(hotkeys: &Hotkeys) -> Vec<String> {
     unsafe {
         UnregisterHotKey(null_mut(), 1);
         UnregisterHotKey(null_mut(), 2);
+        UnregisterHotKey(null_mut(), 3);
     }
-    for (id, name, value) in [(1, "Sneak", &hotkeys.sneak), (2, "Expand", &hotkeys.expand)] {
+    for (id, name, value) in [(1, "Sneak", &hotkeys.sneak), (2, "Expand", &hotkeys.expand), (3, "HUD", &hotkeys.hud)] {
         match parse_hotkey(value) {
             Ok((modifiers, key)) => unsafe {
                 if RegisterHotKey(null_mut(), id, modifiers, key) == 0 {
@@ -302,11 +303,7 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                         eprintln!("Island hotkey: {}", message.wParam);
                         let _ = app.emit(
                             "hotkey",
-                            if message.wParam == 1 {
-                                "sneak"
-                            } else {
-                                "expand"
-                            },
+                            match message.wParam { 1 => "sneak", 2 => "expand", 3 => "hud", _ => continue },
                         );
                     }
                 }
@@ -334,6 +331,7 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 }
             }
             if count.is_multiple_of(12) {
+                crate::hud::tick(&app);
                 let state = app.state::<crate::AppState>();
                 let runtime = state.runtime.lock().unwrap().clone();
                 let sneak = runtime.mode == "sneak";
@@ -359,19 +357,24 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                     }
                 }
                 let reduced = reduce_motion();
+                let (locked, fullscreen) = crate::hud::visibility();
                 let state = app.state::<crate::AppState>();
                 let mut status = state.runtime.lock().unwrap();
-                if status.reduce_motion != reduced {
+                if status.reduce_motion != reduced || status.fullscreen_front != fullscreen || status.desktop_locked != locked {
                     status.reduce_motion = reduced;
+                    status.fullscreen_front = fullscreen;
+                    status.desktop_locked = locked;
                     let _ = app.emit("native-status", status.clone());
                 }
             }
+            crate::hud::boot_input(&app);
             count = count.wrapping_add(1);
             std::thread::sleep(std::time::Duration::from_millis(80));
         }
         unsafe {
             UnregisterHotKey(null_mut(), 1);
             UnregisterHotKey(null_mut(), 2);
+            UnregisterHotKey(null_mut(), 3);
         }
     });
 }

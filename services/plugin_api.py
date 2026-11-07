@@ -54,7 +54,8 @@ class PluginAPI:
             return callback(*args)
         except Exception:
             self.log.exception('Plugin callback failed [plugin=%s]', self.plugin_id)
-            self.manager.failed(self.plugin_id)
+            if not self.stop_event.is_set():
+                self.manager.failed(self.plugin_id)
             raise
 
     def subscribe(self, pattern: str, callback: Callable):
@@ -113,8 +114,8 @@ class PluginAPI:
         self._active()
         self.manager.speak(str(text))
 
-    def set_mood(self, mood: str, duration_s: float = 5, priority: int = 0, message: str = ''):
-        return self.publish('mood.set', dict(mood=mood, duration_s=duration_s, priority=priority, message=message))
+    def set_mood(self, mood: str, duration_s: float = 5, priority: int = 0, message: str = '', *, sticky: bool = False):
+        return self.publish('mood.set', dict(mood=mood, duration_s=duration_s, priority=priority, message=message, sticky=sticky))
 
     def show_card(self, title: str, body: str, actions=(), ttl_s: float = 30):
         return self.publish('ui.card', dict(title=title, body=body, actions=list(actions), ttl_s=ttl_s))

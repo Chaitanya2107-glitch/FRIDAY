@@ -27,6 +27,7 @@ import time
 from core.config import config
 from core.logger import logger
 from services import settings_store
+from services.event_bus import publish
 from services.automation.command_words import split_steps
 from services.automation.routines import _base_verb
 from services.automation.system_control import AutomationError
@@ -156,8 +157,14 @@ def begin(name: str, volume_now: int | None, subject: str = "") -> tuple[dict, l
     if subject:
         from services.proactive.timetable import subject_named  # avoid an import cycle
         subject = subject_named(subject)
+    since = time.time()
+    previous = active()
     _set_active({"name": name, "opened": opened, "volume": volume_now, "quiet": mode["quiet"], "subject": subject,
-                 "since": time.time()})
+                 "since": since})
+    if previous:
+        publish('scene.ended', {'scene_id': f"mode:{previous['since']}", 'name': previous['name'], 'reason': 'switched'})
+    publish('scene.started', {'scene_id': f'mode:{since}', 'name': 'game' if name == 'gaming' else name,
+                              'since': since, 'quiet_mode': mode['quiet']})
     logger.info(f"Mode on: {name}" + (f" for {subject}" if subject else ""))
     return mode, mode["steps"]
 
@@ -169,6 +176,7 @@ def finish() -> dict | None:
     _set_active(None)
     if state:
         logger.info(f"Mode off: {state['name']}")
+        publish('scene.ended', {'scene_id': f"mode:{state['since']}", 'name': state['name'], 'reason': 'ended'})
     return state
 
 

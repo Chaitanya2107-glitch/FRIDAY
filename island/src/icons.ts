@@ -33,13 +33,19 @@ export function character(): HTMLElement {
   const orb = document.createElement('div');
   orb.className = 'character';
   orb.setAttribute('role', 'img');
-  orb.setAttribute('aria-label', 'FRIDAY, an amber orb');
+  orb.setAttribute('aria-label', 'Mochi, an amber orb');
   orb.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true">
     <defs><radialGradient id="orb-light" cx="38%" cy="28%" r="78%"><stop stop-color="var(--orb-highlight)"/><stop offset=".5" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--orb-edge)"/></radialGradient></defs>
     <g class="orb-body"><path d="M8 36C6 20 15 9 30 8c16-2 28 9 27 25-1 16-11 23-25 23C18 57 9 51 8 36Z" fill="url(#orb-light)"/>
     <ellipse cx="23" cy="17" rx="8" ry="3" transform="rotate(-20 23 17)" fill="white" opacity=".24"/>
     <g class="eyes"><ellipse cx="25" cy="32" rx="2.4" ry="3.4"/><ellipse cx="41" cy="32" rx="2.4" ry="3.4"/></g>
     <ellipse cx="19" cy="38" rx="3.5" ry="1.5" fill="var(--orb-cheek)" opacity=".3"/><ellipse cx="47" cy="38" rx="3.5" ry="1.5" fill="var(--orb-cheek)" opacity=".3"/>
-    </g></svg>`;
+    <path class="mochi-smile" d="M29 40q4 5 8 0"/><path class="mochi-worry" d="M30 42q3-3 6 0"/>
+    <ellipse class="mochi-yawn" cx="33" cy="41" rx="2.5" ry="3.2" fill="var(--orb-eye)"/>
+    <path class="mochi-sweat" d="M50 19q-6 7-1 8 5 0 1-8Z" fill="#b8dfe8"/>
+    <path class="mochi-hand" d="M49 43q-1-6 2-9 3-2 4 2l1 5q0 4-7 2Z"/>
+    </g><text class="mochi-z" x="50" y="15">z</text>
+    <g class="mochi-sparkles"><path d="m8 10 1.3 3.5L13 15l-3.7 1.3L8 20l-1.3-3.7L3 15l3.7-1.5Z"/>
+    <path d="m55 7 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z"/><path d="m57 44 .8 2.2L60 47l-2.2.8L57 50l-.8-2.2L54 47l2.2-.8Z"/></g></svg>`;
   return orb;
 }

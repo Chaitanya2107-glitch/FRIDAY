@@ -1,0 +1,27 @@
+{
+  "processes": {
+    "code.exe": "coding", "cursor.exe": "coding", "windsurf.exe": "coding",
+    "pycharm64.exe": "coding", "idea64.exe": "coding", "devenv.exe": "coding",
+    "windowsterminal.exe": "coding", "powershell.exe": "coding", "cmd.exe": "coding",
+    "chrome.exe": "other", "msedge.exe": "other", "firefox.exe": "other", "brave.exe": "other",
+    "steam.exe": "games", "epicgameslauncher.exe": "games", "riotclientservices.exe": "games",
+    "valorant.exe": "games", "minecraft.exe": "games", "xboxpcapp.exe": "games",
+    "spotify.exe": "entertainment", "vlc.exe": "entertainment", "netflix.exe": "entertainment",
+    "discord.exe": "communication", "slack.exe": "communication", "telegram.exe": "communication",
+    "whatsapp.exe": "communication", "ms-teams.exe": "communication", "outlook.exe": "communication",
+    "winword.exe": "study", "onenote.exe": "study", "acrobat.exe": "study",
+    "explorer.exe": "system", "taskmgr.exe": "system", "systemsettings.exe": "system"
+  },
+  "sites": {
+    "YouTube": "entertainment", "Netflix": "entertainment", "Twitch": "entertainment",
+    "Instagram": "social", "Reddit": "social", "Facebook": "social",
+    "GitHub": "coding", "Stack Overflow": "coding", "GitLab": "coding",
+    "WhatsApp Web": "communication", "Gmail": "communication", "Outlook": "communication",
+    "ChatGPT": "other", "Claude": "other", "Google Classroom": "study", "Coursera": "study"
+  },
+  "names": {
+    "code.exe": "Visual Studio Code", "pycharm64.exe": "PyCharm", "idea64.exe": "IntelliJ IDEA",
+    "chrome.exe": "Google Chrome", "msedge.exe": "Microsoft Edge", "firefox.exe": "Firefox",
+    "windowsterminal.exe": "Windows Terminal", "taskmgr.exe": "Task Manager", "explorer.exe": "File Explorer"
+  }
+}

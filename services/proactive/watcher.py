@@ -98,7 +98,8 @@ def is_busy() -> bool:
     from services.automation import modes  # avoid an import cycle at startup
     from services.screen_watch.service import watch
 
-    return modes.is_quiet_mode() or fullscreen_or_gaming() or watch.focused()
+    from services.quiet_mode import enabled
+    return modes.is_quiet_mode() or enabled() or fullscreen_or_gaming() or watch.focused()
 
 
 def fullscreen_or_gaming() -> bool:

@@ -1,0 +1,36 @@
+/* Moving poses are sampled by Mochi at <=30 fps; idle has no frame loop. */
+.character { animation: none !important; }
+.character svg, .character .eyes { animation: none !important; will-change: auto; }
+.character .orb-body { transform-origin: 32px 43px; transform: translateY(var(--mochi-y, 0px)) rotate(calc(var(--pose-tilt, 0deg) + var(--mochi-tilt, 0deg))) scale(var(--mochi-sx, 1), var(--mochi-sy, 1)); }
+.character .eyes { transform: translate(var(--mochi-look, var(--eye-x, 0px)), var(--eye-y, 0px)); }
+.character[data-blink='true'] .eyes { scale: 1 .1; }
+.mochi-smile, .mochi-worry, .mochi-sweat, .mochi-z, .mochi-sparkles, .mochi-hand, .mochi-yawn { display: none; }
+.mochi-smile, .mochi-worry { fill: none; stroke: var(--orb-eye); stroke-width: 1.5; stroke-linecap: round; }
+.mochi-z { fill: var(--accent); font: 10px 'Segoe UI', sans-serif; transform: translateY(var(--mochi-z, 0px)); }
+.mochi-sparkles { fill: #ffe9b5; opacity: calc(.45 + var(--mochi-spark, .5) * .55); }
+.mochi-hand { fill: var(--accent); stroke: var(--orb-edge); stroke-width: .6; transform-origin: 49px 44px; transform: rotate(calc(-25deg + var(--mochi-hand, 0deg))); }
+.surface[data-mood='happy'] .mochi-smile, .surface[data-mood='celebrating'] .mochi-smile { display: inline; }
+.surface[data-mood='worried'] .character { opacity: .8; filter: drop-shadow(0 0 4px #ffb34750); }
+.surface[data-mood='worried'] .mochi-sweat, .surface:is([data-mood='worried'], [data-mood='alarmed']) .mochi-worry { display: inline; }
+.surface[data-mood='alarmed'] .character { filter: drop-shadow(0 0 calc(7px * var(--mochi-pulse, 1)) #ffb347a0); }
+.surface[data-mood='alarmed'] .eyes { scale: 1 1.12; }
+.surface[data-mood='sleepy'] .character { opacity: .65; }
+.surface[data-mood='sleepy'] .eyes { transform: translate(var(--eye-x, 0px), var(--eye-y, 0px)); scale: 1 .55; }
+.surface[data-mood='sleepy'] .mochi-z { display: inline; }
+.surface[data-mood='dozing'] .character { opacity: .62; }
+.surface[data-mood='dozing'] .eyes { scale: 1 .12; }
+.surface[data-mood='focused'] .character { filter: drop-shadow(0 0 6px #ffb34770); }
+.surface[data-mood='focused'] .eyes { scale: 1 .55; }
+.surface[data-mood='alert'] .orb-body { translate: 0 -1px; }
+.surface[data-mood='alert'] .eyes { scale: 1 1.13; }
+.surface[data-mood='celebrating'] .mochi-sparkles { display: inline; }
+.surface[data-mood='curious'] .orb-body { --pose-tilt: 8deg; }
+.surface[data-mood='curious'] .eyes { translate: 1px 0; }
+.surface[data-mood='waving'] .mochi-hand { display: inline; }
+.character[data-behavior='stretch'] .eyes { scale: 1 .7; }
+.character[data-behavior='yawn'] .eyes { scale: 1 .15; }
+.character[data-behavior='yawn'] .mochi-yawn { display: inline; }
+.surface[data-motion-paused='true'] .character *, .reduce-motion .character * { animation: none !important; transition: none !important; }
+.mood-bubble { display: none; margin: 0 10px 7px; padding: 5px 9px; border: 1px solid #ffb34730; border-radius: 9px;
+  color: #f1d7ae; background: #ffb3470b; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; text-align: center; }
+.surface[data-mode='peek'] .mood-bubble:not([hidden]) { display: block; }

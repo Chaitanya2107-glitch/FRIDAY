@@ -5,6 +5,7 @@ mod bridge_process;
 mod catalog;
 mod config;
 mod desktop;
+mod hud;
 #[cfg(windows)]
 mod discovery;
 #[cfg(windows)]
@@ -32,6 +33,8 @@ pub struct RuntimeStatus {
     max_width: f64,
     max_height: f64,
     reduce_motion: bool,
+    fullscreen_front: bool,
+    desktop_locked: bool,
     #[serde(skip)]
     previous_window: usize,
     #[serde(skip)]
@@ -263,6 +266,15 @@ fn main() {
             get_config,
             save_config,
             runtime_status,
+            hud::hud_apply,
+            hud::hud_geometry,
+            hud::hud_monitors,
+            hud::hud_drag,
+            hud::hud_data,
+            hud::hud_ready,
+            hud::hud_finish,
+            hud::boot_claim,
+            hud::boot_done,
             startup::startup_status,
             startup::restart_bridge,
             startup::start_friday,
@@ -299,6 +311,12 @@ fn main() {
                 return Err("FRIDAY_ISLAND_CONFIG must be absolute".into());
             }
             let config = config::load(&path)?;
+            app.manage(hud::Hud::default());
+            if let Some(hud) = app.get_webview_window("hud") {
+                #[cfg(windows)] hud::install_policy(&hud)?;
+                hud.set_ignore_cursor_events(true)?;
+                #[cfg(windows)] windows::passive(&hud, true)?;
+            }
             let (sender, receiver) = mpsc::channel();
             let mut runtime = RuntimeStatus {
                 mode: "rest".into(),
@@ -319,6 +337,7 @@ fn main() {
                 windows::geometry(&window, runtime.width, runtime.height, false)?;
                 (runtime.max_width, runtime.max_height) = windows::limits(&window)?;
                 runtime.reduce_motion = windows::reduce_motion();
+                (runtime.desktop_locked, runtime.fullscreen_front) = hud::visibility();
             }
             app.manage(startup::Supervisor::start(config.clone(), path.clone()));
             app.manage(AppState {

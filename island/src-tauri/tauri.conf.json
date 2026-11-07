@@ -18,6 +18,13 @@
       "resizable": false, "maximizable": false, "minimizable": false,
       "alwaysOnTop": true, "skipTaskbar": true, "focus": false, "focusable": false,
       "dragDropEnabled": false
+    }, {
+      "label": "hud", "title": "FRIDAY HUD", "url": "hud.html",
+      "width": 480, "height": 720, "visible": false,
+      "backgroundColor": "#00000000", "decorations": false,
+      "transparent": true, "shadow": false, "resizable": false,
+      "maximizable": false, "minimizable": false, "skipTaskbar": true,
+      "focus": false, "focusable": false, "dragDropEnabled": false
     }],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://127.0.0.1:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",

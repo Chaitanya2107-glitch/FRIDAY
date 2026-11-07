@@ -292,8 +292,16 @@ def test_native_controller_route_authentication_and_no_arbitrary_actions(island_
 @run_async
 async def test_integrated_transport_rebinds_and_reports_readiness(island_config, monkeypatch):
     import socket
+    from services.friday_island_server import server as bridge_server
     from services.friday_island_server.server import run_integrated_bridge, transport_state
     path, config = island_config
+    real_serve = bridge_server.serve
+    occupied_port, occupied = None, True
+    def serve(handler, host, port, **options):
+        if port == occupied_port and occupied:
+            raise OSError('Injected occupied localhost port')
+        return real_serve(handler, host, port, **options)
+    monkeypatch.setattr(bridge_server, 'serve', serve)
     def free_port():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); return sock.getsockname()[1]
@@ -302,9 +310,7 @@ async def test_integrated_transport_rebinds_and_reports_readiness(island_config,
     config.connection.port = free_port()
     path.write_text(config.model_dump_json(), encoding='utf-8')
     task = asyncio.create_task(run_integrated_bridge())
-    reserved = None
     async def until(predicate):
-        # Real Windows socket release can lag while the native build is running.
         async with asyncio.timeout(30):
             while not predicate():
                 await asyncio.sleep(.05)
@@ -315,18 +321,14 @@ async def test_integrated_transport_rebinds_and_reports_readiness(island_config,
             await ws.send(json.dumps({'v': 1, 'type': 'handshake', 'id': 'hello', 'token': config.connection.token}))
             while (frame := json.loads(await ws.recv()))['type'] != 'status': pass
             assert frame['integrated']
-        reserved = socket.socket()
-        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
-            reserved.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        reserved.bind(('127.0.0.1', 0))
-        reserved.listen()
-        config.connection.port = reserved.getsockname()[1]
+        # Inject failure without depending on Windows' exclusive-socket release delay.
+        # Both successful listeners and the handshake still use real localhost sockets.
+        occupied_port = config.connection.port = free_port()
         path.write_text(config.model_dump_json(), encoding='utf-8')
         await until(lambda: not transport_state['ready'] and transport_state['error'] == 'OSError')
-        reserved.close()
+        occupied = False
         await until(lambda: transport_state['ready'] and transport_state['port'] == config.connection.port)
         assert transport_state['ready'] and transport_state['port'] == config.connection.port
     finally:
-        if reserved: reserved.close()
         task.cancel(); await asyncio.gather(task, return_exceptions=True)
     assert not transport_state['ready']

@@ -1,0 +1,11 @@
+{
+  "id": "activity",
+  "name": "Local Activity",
+  "version": "1.0.0",
+  "api_version": 1,
+  "description": "Private offline Windows activity awareness with canonical labels only.",
+  "author": "FRIDAY",
+  "permissions": ["events", "files", "system_control", "ui"],
+  "requires": ["psutil"],
+  "enabled_by_default": true
+}

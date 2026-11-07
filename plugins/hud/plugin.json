@@ -1,0 +1,12 @@
+{
+  "id": "hud",
+  "name": "FRIDAY HUD",
+  "version": "1.0.0",
+  "api_version": 1,
+  "description": "Quiet amber desktop instruments. System figures stay off the event bus.",
+  "author": "FRIDAY",
+  "entry": "main.py",
+  "permissions": ["events", "ui"],
+  "requires": ["psutil"],
+  "enabled_by_default": true
+}

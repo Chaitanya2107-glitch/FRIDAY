@@ -32,7 +32,12 @@ def make_plugin(root, plugin_id='demo', code=None, **manifest):
 
 
 @pytest.fixture
-def host(tmp_path):
+def host(tmp_path, monkeypatch):
+    from services.plugin_api import PluginAPI
+    every, background = PluginAPI.every, PluginAPI.run_background
+    # Bundled-plugin lifecycle tests never read the real clipboard/register keys.
+    monkeypatch.setattr(PluginAPI, 'every', lambda api, *args: None if api.plugin_id == 'smart_clipboard' else every(api, *args))
+    monkeypatch.setattr(PluginAPI, 'run_background', lambda api, *args: None if api.plugin_id == 'smart_clipboard' else background(api, *args))
     bus = EventBus()
     manager = PluginManager(tmp_path / 'code', tmp_path / 'data', bus=bus, poll_seconds=.05)
     yield manager
@@ -187,7 +192,8 @@ def register(api):
 def test_bundled_plugins_and_json_todo_persistence(host):
     host.plugins_dir = Path(__file__).resolve().parents[1] / 'plugins'
     host.scan()
-    assert {row['id'] for row in host.list_plugins()} == {'hello', 'todo', 'system_events'}
+    expected = {p.parent.name for p in host.plugins_dir.glob('*/plugin.json') if not p.parent.name.startswith('_')}
+    assert {row['id'] for row in host.list_plugins()} == expected
     assert all(row['status'] == 'loaded' for row in host.list_plugins())
     assert host.command('hello friday')['ok']
     assert host.command('todo add Buy bread and butter')['ok']

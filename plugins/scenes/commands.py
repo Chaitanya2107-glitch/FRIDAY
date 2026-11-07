@@ -47,6 +47,7 @@ class Commands:
 
     def handle(self, text):
         with self.engine.lock:
+            self.engine.ensure_active()
             try:
                 kind, match = self.parse(text)
                 engine = self.engine

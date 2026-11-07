@@ -18,7 +18,8 @@ Implementation decisions:
 - `plugins/mood` owns the sole runtime arbiter. The old controller is a small
   compatibility adapter to that same implementation.
 - One ordered wildcard subscription avoids cross-subscriber races. A managed
-  one-second tick handles expiry, idle thresholds, focus and atomic rules reload.
+  cancellable worker wakes at the next deadline (at most 400 ms for reload/idle
+  checks). The existing focus plugin owns its own session timer.
 - Focus/study/exam priority is 4; game/sleep/dozing priority is 1 or 2. Quiet
   scenes suppress reactions below 4, including the quiet scene's own low mood.
 - Sticky contexts retain their owners and latest order, so ending one scene

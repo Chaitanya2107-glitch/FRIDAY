@@ -105,6 +105,12 @@ async def chat(request: ChatRequest):
     Send a message, get a response. Memory is handled automatically.
     """
     logger.info(f"Chat request received — provider override: {request.provider or 'none'}")
+    from services.briefing_runtime import try_command as try_briefing
+    local_brief = await try_briefing(request.message, remote=remote_request.get())
+    if local_brief is not None:
+        cognition_service.reply(local_brief.message, safe_text=local_brief.memory_message)
+        return ChatResponse(response=local_brief.message, provider='local', model='briefings', tokens_used=0,
+                            private=True, action_success=local_brief.success)
     from services.plugin_runtime import try_private_search
     result = await try_private_search(request.message, remote=remote_request.get())
     if result is not None:

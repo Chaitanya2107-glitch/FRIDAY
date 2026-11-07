@@ -39,9 +39,10 @@ Fields with `?` are optional. `null` is permitted only where shown.
 | `battery.unplugged` | `{percent: number, plugged: false}` | Cable transitioned to unplugged. |
 | `scene.started` | `{scene_id: string, name: string, since: number, quiet_mode?: boolean}` | A scene/mode provider started a scene. Quiet scenes suppress mood priorities below 4. |
 | `scene.ended` | `{scene_id: string, name: string, reason?: string}` | That scene ended. |
-| `focus.started` | `{session_id: string, duration_s: number, task?: string}` | Explicit focus session started. |
-| `focus.paused` | `{session_id: string, remaining_s: number}` | Explicit focus session paused. |
-| `focus.done` | `{session_id: string, elapsed_s: number, reason: string}` | Focus session ended; reason distinguishes completed/cancelled. |
+| `scene.state` | `{scene_id: string|null, name: string|null, since: number|null, phase: "idle"|"applying"|"active"|"undoing"}` | Official scenes snapshot on load/every five seconds; repairs owners missed during reload. |
+| `focus.started` | `{session_id: string, minutes: number, label: string, duration_s: number, task: string, phase: string, round: integer, owner: string, resumed?: boolean}` | Explicit focus/break phase started or resumed. |
+| `focus.paused` | `{session_id: string, minutes: number, label: string, duration_s: number, remaining_s: number, phase: string, round: integer, owner: string}` | Focus or break phase paused. |
+| `focus.done` | `{session_id: string, minutes: number, label: string, completed: boolean, elapsed_s: number, reason: "completed"|"stopped", phase: string, round: integer, owner: string}` | Timer phase ended; breaks do not count as focused time. |
 | `schedule.class_soon` | `{subject: string, starts_at: string, minutes?: number, room?: string, text: string}` | Scheduled class warning; starts_at is a local ISO-8601 datetime. |
 | `schedule.due_soon` | `{item_id: string, title: string, due_at: string, text: string}` | Due-item warning; due_at is an ISO-8601 datetime. |
 | `mood.set` | `{mood: string, duration_s: number, priority: integer, message?: string, sticky?: boolean}` | Request a mood; the mood plugin arbitrates. |
@@ -75,11 +76,22 @@ plugin installed, the legacy monitor retains its older `{app, previous_app}` /
 `{previous_app}` / `{app}` transition payloads. Check the envelope's `plugin_id`
 when supporting older FRIDAY installations.
 
-The focus plugin publishes focus transitions; legacy modes publish scene starts
+The focus plugin publishes focus transitions; scenes and legacy modes publish scene starts
 and ends; timetable/deadline warnings publish schedule events. Smart clipboard
 publishes action availability, and semantic search publishes index completion.
 The remaining names are shared contracts for additional providers; they should
 publish these shapes instead of introducing competing names.
+
+Focus `minutes` is the planned phase duration; `elapsed_s` records elapsed work
+for a stopped phase. `phase` is `focus`, `short_break` or `long_break`; rounds
+start at one. Stats count active focus segments, excluding pauses/breaks and
+clipping at local midnight/Monday. The scenes plugin uses `scenes:` owner IDs;
+activity snapshot reconciliation prunes only that namespace.
+
+During scene quiet mode ordinary `ui.card` events remain in debug history with
+`suppressed: true` but are not delivered. SSE also filters cards queued before
+quiet activation. Optional payload `urgency: "critical"` bypasses quiet for
+explicit confirmation/recovery; ordinary trigger suggestions do not bypass it.
 
 ## Battery and internal monitor event
 

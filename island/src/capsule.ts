@@ -84,7 +84,7 @@ export class Capsule {
     catch { this.render({ battery: null, media: null }); }
     finally {
       this.reading = false;
-      if (this.visible) this.statusTimer = setTimeout(() => void this.refresh(), 2000);
+      if (this.visible) this.statusTimer = setTimeout(() => void this.refresh(), this.mode === 'rest' ? 5000 : 2000);
     }
   }
 

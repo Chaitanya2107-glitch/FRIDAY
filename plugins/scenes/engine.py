@@ -58,6 +58,11 @@ class Scenes:
     def _save(self):
         settings_store.save(self.path, dict(version=1, active=self.active))
 
+    def ensure_active(self):
+        self.api._active()
+        if self.closed:
+            raise RuntimeError('This scene generation was unloaded.')
+
     def status(self):
         with self.lock:
             return dict(active=self.active['name'] if self.active else None,
@@ -86,6 +91,7 @@ class Scenes:
         return self.catalog.preview(scene)
 
     def _card(self, title, body, kind, **details):
+        self.ensure_active()
         from services.automation.intent import cancel_pending_confirmation
         cancel_pending_confirmation()  # A scene's Yes must never approve an older system action.
         nonce = uuid4().hex
@@ -115,6 +121,7 @@ class Scenes:
 
     def request(self, name):
         with self.lock:
+            self.ensure_active()
             if self.needs_recovery:
                 return self.offer_recovery()
             try:
@@ -134,6 +141,7 @@ class Scenes:
 
     def answer(self, choice, nonce=None):
         with self.lock:
+            self.ensure_active()
             pending = self.pending
             if not self.awaiting() or nonce is not None and nonce != pending['nonce']:
                 return result('That scene confirmation expired. Ask for the scene again.', ok=False, error='expired_confirmation')
@@ -169,6 +177,7 @@ class Scenes:
         return self.answer(payload.get('choice'), payload['nonce'])
 
     def _start(self, scene):
+        self.ensure_active()
         actions = self.catalog.actions(scene)
         for action in actions:
             self.registry.validate(action)  # Validate all actions before ending a previous scene.
@@ -219,6 +228,7 @@ class Scenes:
 
     def end(self, reason='command', restore=None):
         with self.lock:
+            self.ensure_active()
             self.pending = None
             self.sync_commands()
             if not self.active:
@@ -279,7 +289,7 @@ class Scenes:
                         if scene and scene['hash'] == self.active['hash']:
                             for action in reversed(scene['actions']):
                                 if action['type'] == 'set_mood':
-                                    self.api.set_mood(action['mood'], 120, priority=2)
+                                    self.api.set_mood(action['mood'], 120, priority=4)
                                     break
                         break
                 self._last_mood = self.now()

@@ -157,10 +157,10 @@ def classes_on(day: str) -> list[dict]:
     return [c for c in load() if c["day"] == day]
 
 
-def classes_for_date(day: date) -> list[dict]:
+def classes_for_date(day: date, *, known=None) -> list[dict]:
     from services.memory import schedule
     from services.proactive import class_sessions
-    known = schedule.facts()
+    known = schedule.facts() if known is None else known
     return class_sessions.effective(day, [c for c in classes_on(DAYS[day.weekday()])
                                          if schedule.allowed(day, c["subject"], known)])
 

@@ -23,3 +23,9 @@ export function pluginCard(event: Record<string, unknown>): PluginCard | null {
     ? value.body.match(/^#[a-fA-F0-9]{6}(?:[a-fA-F0-9]{2})?(?=\s|$)/)?.[0] : undefined;
   return { owner: event.plugin_id, title: value.title, text: value.body, actions, ttlMs: ttl * 1000, swatch };
 }
+
+/** Briefings belong in the existing expanded FRIDAY view. */
+export function briefingCard(event: Record<string, unknown>): PluginCard | null {
+  const card = pluginCard(event);
+  return card?.owner === 'briefings' && card.text.split(/\r?\n/).length <= 6 ? card : null;
+}

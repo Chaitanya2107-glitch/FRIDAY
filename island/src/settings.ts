@@ -83,6 +83,7 @@ export class Settings {
       const snippet = input('', 'checkbox'); snippet.checked = config.appearance.snippet;
       snippet.onchange = () => void this.change(c => { c.appearance.snippet = snippet.checked; });
       const reduced = input('', 'checkbox'); reduced.checked = config.island?.reduced_motion ?? false;
+      reduced.setAttribute('aria-label', 'Reduced motion');
       reduced.onchange = () => void this.change(c => { c.island = { boot_animation: true, ...c.island, reduced_motion: reduced.checked }; });
       const sample = el('div', 'theme-sample'); sample.append(el('span', 'sample-dot'), el('div', '', 'A little light. A little space.'));
       this.root.append(sample, field('Character glow', glow), field('When idle', idle), field('Auto-hide delay (seconds)', seconds), field('Near-class reminders', snippet), field('Reduced motion', reduced, 'Static Mochi poses. Windows motion preferences also apply.'));

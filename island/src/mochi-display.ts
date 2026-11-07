@@ -52,6 +52,7 @@ export class MochiDisplay {
     clearTimeout(this.expiry);
     if (state.until !== null) this.expiry = setTimeout(() => this.host.refresh(), Math.max(0, state.until - Date.now()));
     this.host.refresh();
+    if (this.surface.dataset.mood === state.mood) this.character.replay();
     if (state.message) this.showMessage(state.message);
   }
   private showMessage(text: string) {

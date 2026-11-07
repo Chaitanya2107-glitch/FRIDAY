@@ -122,14 +122,22 @@ export class FridayPanel {
   accept(prompt: string, reply: CommandResult) { this.conversation.accept(prompt, reply); this.paintConversation(); }
   pluginEvent(event: Record<string, unknown>) {
     const payload = event.payload;
+    if (event.topic === 'briefing.dismissed' && event.plugin_id === 'briefings' && payload && typeof payload === 'object') {
+      const id = (payload as Record<string, unknown>).card_id;
+      for (const card of this.notices.querySelectorAll<HTMLElement>('[data-plugin="briefings"]')) {
+        if (typeof id === 'string' && card.dataset.cardId === id) card.remove();
+      }
+      return;
+    }
     if (event.topic !== 'ui.card' || typeof event.plugin_id !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(event.plugin_id)
       || !payload || typeof payload !== 'object' || Array.isArray(payload)) return;
     const value = payload as Record<string, unknown>;
     if (typeof value.title !== 'string' || value.title.length > 120 || typeof value.body !== 'string' || value.body.length > 4000) return;
     const owner = event.plugin_id;
     const card = el('div', 'friday-notice'); card.setAttribute('role', 'status');
-    if (owner === 'smart_clipboard' || owner === 'scenes') for (const previous of this.notices.querySelectorAll(`[data-plugin="${owner}"]`)) previous.remove();
+    if (owner === 'smart_clipboard' || owner === 'scenes' || owner === 'briefings') for (const previous of this.notices.querySelectorAll(`[data-plugin="${owner}"]`)) previous.remove();
     card.dataset.plugin = owner;
+    if (owner === 'briefings' && typeof value.card_id === 'string') card.dataset.cardId = value.card_id;
     const body = el('p', '', value.body);
     card.append(el('strong', '', value.title), body);
     void searchCardBody(owner, value, path => this.connection().pluginRequest(path)).then(text => {
@@ -154,7 +162,7 @@ export class FridayPanel {
     while (this.notices.childElementCount > 3) this.notices.lastElementChild?.remove();
     const ttl = typeof value.ttl_s === 'number' && Number.isFinite(value.ttl_s) ? Math.max(1, Math.min(3600, value.ttl_s)) : 30;
     setTimeout(() => card.remove(), ttl * 1000);
-    if (owner !== 'smart_clipboard' && owner !== 'scenes') this.reveal({ id: Number(event.id) || 0, kind: 'notification', text: value.body, title: value.title,
+    if (owner !== 'smart_clipboard' && owner !== 'scenes' && owner !== 'briefings') this.reveal({ id: Number(event.id) || 0, kind: 'notification', text: value.body, title: value.title,
       at: Number(event.at) || Date.now() / 1000, buttons: [] });
   }
   private paintConversation() {

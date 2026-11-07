@@ -55,13 +55,15 @@ def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     monkeypatch.setattr(activity_plugin, 'installed', lambda: False)  # Legacy tests opt into a fake activity service explicitly.
     from services import scene_runtime
     monkeypatch.setattr(scene_runtime, 'installed', lambda name: False)
+    from services import briefing_runtime
+    monkeypatch.setattr(briefing_runtime, 'installed', lambda name='briefings': False)
     from services.plugin_api import PluginAPI
     from services import plugin_manager, plugin_storage
     monkeypatch.setattr(plugin_manager, 'user_data_dir', lambda: tmp_path / 'plugin-user')
     monkeypatch.setattr(plugin_storage, 'user_data_dir', lambda: tmp_path / 'plugin-user')
     background = PluginAPI.run_background
     def offline_activity_jobs(api, fn):
-        if api.plugin_id in {'activity', 'smart_clipboard', 'semantic_search', 'focus', 'scenes'}:
+        if api.plugin_id in {'activity', 'smart_clipboard', 'semantic_search', 'focus', 'scenes', 'briefings'}:
             if not hasattr(api, '_test_jobs'):
                 api._test_jobs = []
             api._test_jobs.append(fn)  # Activity tests drive fake samples/notifications explicitly.
@@ -69,7 +71,7 @@ def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
         return background(api, fn)
     monkeypatch.setattr(PluginAPI, 'run_background', offline_activity_jobs)
     periodic = PluginAPI.every
-    monkeypatch.setattr(PluginAPI, 'every', lambda api, seconds, fn: None if api.plugin_id in {'smart_clipboard', 'focus', 'scenes'}
+    monkeypatch.setattr(PluginAPI, 'every', lambda api, seconds, fn: None if api.plugin_id in {'smart_clipboard', 'focus', 'scenes', 'briefings', 'schedule_alerts'}
                         else periodic(api, seconds, fn))
     monkeypatch.setattr(development, 'development', development.DevelopmentAwareness(
         tmp_path / 'friday-source', tmp_path / 'development.json'))

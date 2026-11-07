@@ -153,3 +153,13 @@ def test_preview_distractions_alias_edit_and_create_never_touch_desktop_settings
     assert host.engine.handle_command('create scene reading')['ok']
     assert host.engine.catalog.get('reading')['name'] == 'reading'
     assert host.desktop.calls[0].startswith('path:') and len(host.desktop.calls) == 1
+
+
+def test_unloaded_generation_cannot_write_journal_or_touch_desktop(host):
+    put_scene(host, actions=[dict(type='set_volume', percent=10)])
+    host.engine.close()
+    with pytest.raises(RuntimeError, match='unloaded'):
+        host.engine.request('test')
+    with pytest.raises(RuntimeError, match='unloaded'):
+        host.engine.handle_command('create scene late')
+    assert not host.engine.path.exists() and host.desktop.calls == []

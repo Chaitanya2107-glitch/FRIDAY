@@ -91,6 +91,13 @@ class HUD:
                 self.scenes[str(payload.get('scene_id', 'scene'))] = str(payload.get('name', ''))[:80]
             elif topic == 'scene.ended':
                 self.scenes.pop(str(payload.get('scene_id', 'scene')), None)
+            elif topic == 'scene.state' and event.get('plugin_id') == 'scenes':
+                current = {k: v for k, v in self.scenes.items() if not k.startswith('scenes:')}
+                if isinstance(payload.get('scene_id'), str) and isinstance(payload.get('name'), str):
+                    current[payload['scene_id']] = payload['name'][:80]
+                if current == self.scenes:
+                    return
+                self.scenes = current
             elif topic == 'focus.started':
                 duration = payload.get('duration_s')
                 if type(duration) in (int, float) and math.isfinite(duration) and 0 < duration <= 604800:
@@ -106,6 +113,18 @@ class HUD:
             self.api.publish('hud.state_changed', {'source': topic})
 
     def state(self, request=None):
+        # Events remain the compatibility fallback; a live timer is authoritative
+        # after restart/resume, when a duration-only event cannot recover its deadline.
+        focus_state = None
+        if provider := self.api.get_service('focus'):
+            try:
+                raw = provider.status()
+                if isinstance(raw, dict):
+                    focus_state = (dict(session_id=raw.get('session_id', ''), duration_s=float(raw.get('minutes', 0)) * 60,
+                                        remaining_s=raw.get('remaining_s') if raw.get('state') == 'paused' else None,
+                                        ends_at=raw.get('end_at')) if raw.get('active') else {})
+            except Exception:
+                self.api.log.debug('HUD focus service unavailable', exc_info=True)
         with self.lock:
             activity = self.api.get_service('activity')
             if activity is None:
@@ -134,7 +153,8 @@ class HUD:
             except Exception:
                 fullscreen = False
             return dict(settings=self.settings(), scene=next(reversed(self.scenes.values()), ''),
-                        game=any(name.lower() == 'game' for name in self.scenes.values()), focus=deepcopy(self.focus),
+                        game=any(name.lower() == 'game' for name in self.scenes.values()),
+                        focus=(focus_state or None) if focus_state is not None else deepcopy(self.focus),
                         next_class=next_class, activity=self.activity, fullscreen=fullscreen)
 
 

@@ -1,0 +1,5 @@
+{
+  "id": "briefings", "name": "Morning and night briefings", "version": "1.0.0", "api_version": 1,
+  "description": "Short offline daily briefings; optional coordinate-only weather is off by default.",
+  "author": "FRIDAY", "permissions": ["events", "files", "ui", "network"], "enabled_by_default": true
+}

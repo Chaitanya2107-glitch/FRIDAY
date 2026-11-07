@@ -1,0 +1,5 @@
+{
+  "id": "schedule_alerts", "name": "Schedule alerts", "version": "1.0.0", "api_version": 1,
+  "description": "Read-only College Schedules service and durable offline class/deadline alerts.",
+  "author": "FRIDAY", "permissions": ["events", "files", "ui"], "enabled_by_default": true
+}

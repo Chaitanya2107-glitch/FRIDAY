@@ -18,7 +18,7 @@ def register(api):
         try:
             return focus.stats(request.get('query', {}).get('range', 'today'))
         except ValueError:
-            return result('Use today or this week.', ok=False, error='invalid_range')
+            return result('Use today, yesterday or this week.', ok=False, error='invalid_range')
     api.add_route('GET', 'stats', stats)
     api.every(1, focus.tick)
 

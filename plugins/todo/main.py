@@ -43,7 +43,13 @@ class Todos:
                 if item is None:
                     return {'ok': False, 'text': 'Todo not found. Say plugin todos to see IDs.', 'error': 'not_found'}
                 if action == 'done':
-                    item['done'] = True
+                    if not item['done']:
+                        item['done'] = True
+                        at = datetime.now(timezone.utc)
+                        item['done_at'] = at.isoformat()
+                        day = at.astimezone().date().isoformat()
+                        counts = data.setdefault('completed_by_day', {})
+                        counts[day] = counts.get(day, 0) + 1
                 else:
                     data['items'].remove(item)
             elif action == 'clear_done':
@@ -63,6 +69,17 @@ class Todos:
         data = self.snapshot()
         text = '\n'.join(f"{row['id']}. [{'x' if row['done'] else ' '}] {row['text']}" for row in data['items'])
         return {'ok': True, 'text': text or 'No plugin todos. Say todo add <text>.', 'error': None, 'data': data}
+
+    def stats(self, period='today'):
+        if period != 'today':
+            raise ValueError('Use today')
+        data = self.snapshot()
+        day = datetime.now().astimezone().date().isoformat()
+        count = data.get('completed_by_day', {}).get(day)
+        # Old completions have no date. Do not guess which day they belong to.
+        if count is None and not any(row['done'] for row in data['items']):
+            count = 0
+        return dict(completed=count)
 
     def widget(self):
         rows = [row for row in self.snapshot()['items'] if not row['done']]

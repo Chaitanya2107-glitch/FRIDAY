@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Config } from './types';
+import type { Config, NativeStatus } from './types';
 
 export const native = isTauri();
 export const call = <T>(command: string, args: Record<string, unknown> = {}) => {
@@ -9,6 +9,15 @@ export const call = <T>(command: string, args: Record<string, unknown> = {}) => 
 };
 export async function on<T>(event: string, handler: (value: T) => void) {
   if (native) await listen<T>(event, e => handler(e.payload));
+}
+export async function startupState() {
+  for (let attempt = 0; ; attempt++) {
+    try { return { config: await call<Config>('get_config'), status: await call<NativeStatus>('runtime_status') }; }
+    catch (error) {
+      if (attempt >= 19) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 }
 export const previewConfig = (): Config => ({
   version: 1, revision: 0, pins: [], projects: [], recent_apps: [],

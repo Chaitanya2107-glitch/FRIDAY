@@ -114,7 +114,7 @@ that action. It never falls back to the legacy weather/network briefing builder.
 | quiet_mode | boolean `on` | Releases its own quiet owner; other owners are preserved. |
 | start_focus | positive `minutes` | Stops only the scene-owned timer. An existing user timer is kept. |
 | set_activity_threshold | `category`, positive `minutes` | Clears this scene's overrides. Missing activity skips cleanly. |
-| set_mood | named `mood` | Temporary priority-2 scene mood; completion celebrations have priority 3. |
+| set_mood | named `mood` | Explicit priority-4 scene mood (visible in quiet mode); previous mood is requested briefly on exit. |
 | say | `text` | Offline speech; no automatic undo. `{tomorrow_summary}` is the optional briefing marker. |
 | open_url | `url` | HTTP/HTTPS only, without credentials; no executable protocols. |
 | open_path | absolute local `path` | Folders/passive documents/media only; executable/script/shortcut targets and UNC/traversal are refused, including resolved link targets. |
@@ -131,6 +131,10 @@ both backend and tray processes. Due reminders defer before Windows/phone/model
 delivery. Unsolicited speech also respects quiet state. Critical timer completion
 and explicit confirmation/recovery cards bypass it; optional trigger suggestions
 do not. Windows-wide Do Not Disturb/Focus Assist is not changed.
+
+Existing mood arbitration still applies: focus requests its required six-second
+celebration at priority 3, while quiet/calm mode permits only priority 4 and above.
+The notification still appears; a lower-priority visual celebration can be suppressed.
 
 ## Crash safety
 

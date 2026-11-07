@@ -36,6 +36,7 @@ export class Mochi {
     this.surface = surface; this.orb = orb;
   }
   get motionAllowed() { return !this.reduced && !this.paused; }
+  replay() { this.restart(); }
   setMood(value: string) {
     if (value === this.value) return;
     this.value = value;

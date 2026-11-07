@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { pluginCard } from '../src/plugin-card.ts';
+import { briefingCard, pluginCard } from '../src/plugin-card.ts';
 import { replyDuration } from '../src/reply-state.ts';
 
 const event = { topic: 'ui.card', plugin_id: 'smart_clipboard', payload: {
@@ -25,4 +25,16 @@ test('untrusted plugin metadata cannot become markup, swatches or action paths',
   assert.equal(card.swatch, undefined);
   assert.deepEqual(card.actions, []);
   assert.equal(pluginCard({ ...event, plugin_id: 'another' })?.swatch, undefined);
+});
+
+test('briefing cards retain literal six-line content and scoped buttons for the expanded view', () => {
+  const value = { ...event, plugin_id: 'briefings', payload: { ...event.payload, title: 'Morning brief',
+    body: ['Good morning.', 'Physics at 10:00.', 'Lab report tomorrow.', '2 todos.', '45 focus minutes.', 'Battery 39%.'].join('\n'),
+    actions: [{ id: 'snooze', label: 'Snooze 30 min', payload: { card_id: 'current-offer' } }] } };
+  const card = briefingCard(value)!;
+  assert.equal(card.text.split('\n').length, 6);
+  assert.deepEqual(card.actions[0].payload, { card_id: 'current-offer' });
+  assert.equal(briefingCard(event), null);
+  assert.equal(briefingCard({ ...value, payload: { ...value.payload, body: 'line\n'.repeat(7) } }), null);
+  assert.equal(briefingCard({ ...value, plugin_id: '../briefings' }), null);
 });

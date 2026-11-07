@@ -1,0 +1,17 @@
+{
+  "morning_openers": ["{greeting}{address}. Here's the short version.", "{greeting}{address}. The calendar has a few opinions.", "{greeting}{address}. Small plan, decent odds."],
+  "night_openers": ["{greeting}{address}. A quick landing check.", "{greeting}{address}. Let's put a bookmark in today.", "{greeting}{address}. The day can stop auditioning now."],
+  "classes": ["First up: {subject} at {time}{faculty}{room}. {count} {class_word} today.", "{count} {class_word} today; {subject} leads at {time}{faculty}{room}."],
+  "tomorrow_class": ["Tomorrow starts with {subject} at {time}{faculty}{room}.", "First class tomorrow: {subject}, {time}{faculty}{room}."],
+  "due_today": ["Due today: {items}.", "Today's due list: {items}."],
+  "due_tomorrow": ["Due tomorrow: {items}.", "Tomorrow's due list: {items}."],
+  "exams": ["Exams within 7 days: {items}.", "On the exam horizon: {items}."],
+  "homework": ["{count} homework items pending.", "Homework still on the board: {count}."],
+  "todos": ["{count} open todos.", "Todo count: {count}."],
+  "completed": ["{count} todos completed today.", "{count} todos crossed off today."],
+  "focus": ["{period}: {minutes} focus minutes.", "Focus ledger for {period}: {minutes} minutes."],
+  "activity": ["Top category: {category}.", "Most time went to {category}."],
+  "battery": ["Battery {percent}%. A cable would be useful.", "Battery {percent}%. Consider a charging intermission."],
+  "charge": ["Battery {percent}%, unplugged. Leave it charging.", "A small favour for tomorrow: charge the battery ({percent}%)."],
+  "closings": ["Enough for today. Rest well.", "Tomorrow can wait its turn. Sleep well.", "Close a few tabs, including the mental ones. Good night."]
+}

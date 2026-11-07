@@ -1,0 +1,6 @@
+{
+  "id": "scenes", "name": "Local Scenes", "version": "1.0.0", "api_version": 1,
+  "description": "Previewed offline Windows routines with durable reverse undo and recovery.",
+  "author": "FRIDAY", "permissions": ["events", "files", "system_control", "ui"],
+  "requires": ["psutil"], "enabled_by_default": true
+}

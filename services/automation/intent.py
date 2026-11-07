@@ -333,6 +333,9 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     Returns an ActionResult if it was a system command, None otherwise.
     The reply may get one of FRIDAY's quips (personality.py) — once, not for each step of a routine.
     """
+    from services.briefing_runtime import try_command as try_briefing_command
+    if local_brief := await try_briefing_command(message, remote=remote_request.get()):
+        return local_brief
     from services.scene_runtime import try_command as try_scene_command
     if commands_run.get() is None:
         from services.scene_runtime import begin_turn
@@ -397,6 +400,9 @@ async def _try_correction(message: str, provider_name: str) -> ActionResult | No
 
 
 async def _try_system_action(message: str, provider_name: str, *, _allow_typo: bool = True) -> ActionResult | None:
+    from services.briefing_runtime import try_command as try_briefing_command
+    if local_brief := await try_briefing_command(message, remote=remote_request.get()):
+        return local_brief
     from services.scene_runtime import try_command as try_scene_command
     if local_scene := await try_scene_command(message, remote=remote_request.get()):
         return local_scene

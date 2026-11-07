@@ -269,22 +269,26 @@ class Focus:
             return self._status()
 
     def stats(self, period='today'):
-        if period not in {'today', 'this week'}:
-            raise ValueError('Use today or this week.')
+        if period not in {'today', 'yesterday', 'this week'}:
+            raise ValueError('Use today, yesterday or this week.')
         self.tick()
         with self.lock:
             now = self.clock.now()
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             if period == 'this week':
                 start -= timedelta(days=start.weekday())
-            low, high = start.timestamp(), now.timestamp()
+            end = start if period == 'yesterday' else now
+            if period == 'yesterday':
+                start -= timedelta(days=1)
+            low, high = start.timestamp(), end.timestamp()
             rows = self.data['history']
             segments = [segment for row in rows for segment in row['segments']]
             state = self.data['active']
             if state and state['phase'] == 'focus':
                 segments.extend(self._segments(state, high))
             seconds = sum(max(0, min(end, high)-max(begin, low)) for begin, end in segments)
-            current_rows = [row for row in rows if start.date().isoformat() <= row['date'] <= now.date().isoformat()]
+            last_date = (end - timedelta(microseconds=1)).date() if period == 'yesterday' else now.date()
+            current_rows = [row for row in rows if start.date().isoformat() <= row['date'] <= last_date.isoformat()]
             return dict(range=period, minutes=seconds/60, completed=sum(row['completed'] for row in current_rows),
                         stopped=sum(not row['completed'] for row in current_rows))
 

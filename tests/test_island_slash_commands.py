@@ -26,7 +26,7 @@ import { slashSuggestions, resolveSlash } from './src/slash-commands.ts';
 const args = {open:'chrome',proj:'fixture',resume:'fixture',note:'fixture note',
   remind:'in 10 minutes to stretch',find:'fixture', 'open-file':'1', 'ask-files':'what is in the fixture',
   research:'fixture topic',copy:'Keep CAPS',type:'fixture text',press:'ctrl+s',volume:'30',brightness:'40',
-  remember:'I prefer tea'};
+  remember:'I prefer tea',scene:'study'};
 console.log(JSON.stringify(slashSuggestions('/').map(item => {
   const name = item.text.trim().slice(1);
   const input = '/' + name + (args[name] ? ' ' + args[name] : '');
@@ -38,7 +38,7 @@ CASES = json.loads(subprocess.check_output(['node', '--experimental-strip-types'
 
 
 @pytest.mark.parametrize('case', CASES, ids=lambda row: row['input'])
-def test_advertised_slash_command_reaches_its_service(case, monkeypatch, tmp_path):
+def test_advertised_slash_command_reaches_its_service(case, monkeypatch, tmp_path, request):
     if case.get('view') or case.get('palette') or case['name'] == 'proj':
         assert case.get('view') or case.get('palette') or case['text'] == 'proj fixture'
         return  # Native panels/projects are covered by the browser and Rust checks.
@@ -73,6 +73,8 @@ def test_advertised_slash_command_reaches_its_service(case, monkeypatch, tmp_pat
     monkeypatch.setattr(chat, 'complete_with_failover', no_model)
     monkeypatch.setattr(language, 'answer', no_model)
     monkeypatch.setattr(replies, 'answer', no_model)
+    if case['name'] in {'focus', 'pomodoro', 'scene', 'scenes'}:
+        request.getfixturevalue('local_focus_scenes')
     file = tmp_path / 'fixture.txt'
     file.write_text('Fixture contents', encoding='utf-8')
     files.last_results.set([FileHit(str(file), file.name)])
@@ -103,3 +105,20 @@ def test_advertised_slash_command_reaches_its_service(case, monkeypatch, tmp_pat
         assert frames[-1].get('action_success') is not None, frames[-1]
     if case['name'] == 'copy':
         assert captured == [{'type': 'system', 'action': 'write_clipboard', 'text': 'Keep CAPS'}]
+
+
+@pytest.fixture
+def local_focus_scenes(tmp_path, monkeypatch):
+    from scenes_support import make_scenes
+    from plugins.focus.timer import Focus
+    from services import plugin_runtime
+    from services.plugin_api import PluginAPI
+
+    host = make_scenes(tmp_path)
+    api = PluginAPI(host.manager, 'focus', tmp_path / 'focus')
+    focus = Focus(api)
+    host.manager.services['focus'] = focus
+    monkeypatch.setattr(plugin_runtime, '_manager', host.manager)
+    yield host
+    focus.close(); api.stop()
+    host.engine.close(); host.api.stop(); host.manager.bus.close()

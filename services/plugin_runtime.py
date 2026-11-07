@@ -27,6 +27,9 @@ def is_smart_clipboard_command(message: str) -> bool:
 
 def builtin_matches(message: str) -> bool:
     """Parse only. Never execute a built-in to test whether it owns a command."""
+    from services.briefing_runtime import owns as briefing_owns
+    if briefing_owns(message):
+        return False
     from services.scene_runtime import owns
     if owns(message):
         return False

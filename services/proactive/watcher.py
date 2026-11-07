@@ -222,7 +222,8 @@ async def _tick(now: datetime) -> None:
         body_state.push("roast", roast)  # her body side-eyes you
     for alert in await asyncio.to_thread(limits.due_alerts, activity_log, now):  # app limits — shown while gaming too
         await _deliver(alert)
-    for warning in timetable.due_warnings(now):  # "DBMS starts in 10 minutes in room 204." — shown even while busy
+    from services import briefing_runtime
+    for warning in ([] if briefing_runtime.schedule_alerts_installed() else timetable.due_warnings(now)):
         if link := college.link_for(warning.split(" starts in ")[0]):  # a Meet link saved for the subject: [Join]
             await _notify(warning, buttons.offer("join", url=link), kind="class_warning",
                           subject=warning.split(" starts in ")[0])
@@ -234,7 +235,7 @@ async def _tick(now: datetime) -> None:
         await _notify(offer["text"], buttons.offer(
             "mode", mode="study", subject=offer["subject"], loop=asyncio.get_running_loop()),
             kind="class_mode", subject=offer["subject"])
-    for alert in deadlines.due_alerts(now):  # "DBMS assignment is due tomorrow at 11:59 PM (in 24 hours)." — same
+    for alert in ([] if briefing_runtime.schedule_alerts_installed() else deadlines.due_alerts(now)):
         await _deliver(alert)
     for ask in attendance.due_asks(now):  # "DBMS (9:30–10:30 AM): attended?" [Attended] [Missed] — same
         await _notify(ask["text"], buttons.offer(
@@ -254,6 +255,7 @@ async def _tick(now: datetime) -> None:
             await _deliver(_held.pop(0).text)
     if (
         not busy  # the briefing and the git reminder wait until the game / video is over
+        and not briefing_runtime.installed()
         and config.BRIEFING_ENABLED
         and load_state().get("last_briefing") != now.date().isoformat()
         and now.hour >= config.BRIEFING_AFTER_HOUR
@@ -382,6 +384,14 @@ def run_proactive_command(parsed: dict) -> str:
     """Blocking (the briefing reads the weather) — run it in a thread."""
     action = parsed["action"]
     if action == "briefing":
+        from services import briefing_runtime
+        manager, local = briefing_runtime.service()
+        if local is not None or briefing_runtime.installed():
+            from services.automation.intent import remote_request
+            if remote_request.get():
+                return 'Briefings are available only on this computer.'
+            return (manager.invoke(local.api, local.handle_command, 'brief me', command=True)['text'] if local
+                    else 'The local briefings plugin is unavailable. Check list plugins.')
         _save_state(last_briefing=datetime.now().date().isoformat())  # asked for it: no automatic one today
         return briefing.build()
     if action == "pause_nudges":

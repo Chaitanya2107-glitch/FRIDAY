@@ -306,6 +306,12 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     """Steps 2–5 for a transcribed voice command."""
     provider_name = request.provider or config.ACTIVE_PROVIDER
 
+    from services.briefing_runtime import try_command as try_briefing
+    local_brief = await try_briefing(transcription, remote=remote_request.get())
+    if local_brief is not None:
+        cognition_service.reply(local_brief.message, safe_text=local_brief.memory_message)
+        return VoiceResponse(transcription=transcription, response=local_brief.message, provider='local', private=True,
+                             model='briefings', tokens_used=0, action='system', action_success=local_brief.success)
     from services.plugin_runtime import try_private_search
     result = await try_private_search(transcription, remote=remote_request.get())
     if result is not None:

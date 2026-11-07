@@ -246,6 +246,18 @@ def test_stats_clip_active_and_completed_work_at_midnight_and_week_boundary(focu
     assert focus.stats()['completed'] == 1
 
 
+def test_yesterday_stats_clip_a_session_across_midnight(focus):
+    focus.clock.value = datetime(2026, 11, 6, 23, 50, tzinfo=timezone.utc)
+    focus.start(20)
+    focus.clock.advance(15 * 60)
+    assert focus.stats('yesterday')['minutes'] == 10
+    assert focus.stats('today')['minutes'] == 5
+    focus.clock.advance(5 * 60)
+    focus.tick()
+    assert focus.stats('yesterday')['minutes'] == 10
+    assert focus.stats('today')['minutes'] == 10
+
+
 def test_late_completion_keeps_its_scheduled_date(focus):
     focus.clock.value = datetime(2026, 11, 8, 22, tzinfo=timezone.utc)
     focus.start(25)

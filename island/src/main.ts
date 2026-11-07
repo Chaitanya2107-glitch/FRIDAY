@@ -10,11 +10,12 @@ import { HudController } from './hud-controller';
 import { BootAnimation } from './boot';
 import { MochiDisplay } from './mochi-display';
 import { ReplySurface } from './reply-surface';
+import { briefingCard } from './plugin-card';
 import { SceneState } from './scene-state';
 import { matchesDismiss } from './hotkeys';
 import { isFileReference, resolveSlash, slashSuggestions } from './slash-commands';
 import { PluginWidgets } from './widgets';
-import { call, native, on, previewConfig } from './native';
+import { call, native, on, previewConfig, startupState } from './native';
 import { character, icon } from './icons';
 import { button, Settings } from './settings';
 import { element as el, localSuggestions, readReminder, sneakMode, transition } from './state';
@@ -427,11 +428,13 @@ async function run(text: string, item?: Suggestion) {
       }
       friday.accept(text, result);
       if (!result.keyboard_token) {
-        if (sneakEnabled) { await setMode('sneak'); message(result.text, !result.ok); }
+        if (result.model === 'briefings' && !sneakEnabled) await openTab('friday');
+        else if (sneakEnabled) { await setMode('sneak'); message(result.text, !result.ok); }
         else replies.result(result);
       } else if (sneakEnabled) message(result.text, !result.ok); else replies.result(result);
     } else {
       if (sneakEnabled && !result.action) await setMode('sneak');
+      else if (!sneakEnabled && result.model === 'briefings') await openTab('friday');
       else if (!sneakEnabled && result.action?.kind !== 'settings') await setMode('rest');
       await perform(result);
     }
@@ -456,7 +459,10 @@ function connect() {
         paintScene();
         if (event.topic === 'scene.started' || event.topic === 'scene.ended') sceneCardVersion++;
       }
-      if (event.topic === 'ui.card' && event.plugin_id === 'scenes') {
+      if (briefingCard(event)) {
+        friday.pluginEvent(event);
+        if (!sneakEnabled) void openTab('friday');
+      } else if (event.topic === 'ui.card' && event.plugin_id === 'scenes') {
         sceneCardVersion++;
         friday.pluginEvent(event); replies.pluginEvent(event);
         if (mode === 'expanded' && tab !== 'friday') openTab('friday');
@@ -515,7 +521,7 @@ function paintScene() {
   queueMicrotask(syncRegions);
 }
 async function boot() {
-  try { if (native) { config = await call<Config>('get_config'); nativeStatus = await call<NativeStatus>('runtime_status'); } }
+  try { if (native) { const initial = await startupState(); config = initial.config; nativeStatus = initial.status; } }
   catch (error) { message(String(error), true); }
   await hud.start(); await startupAnimation.start();
   applyConfig(); await setMode(mode); connect();

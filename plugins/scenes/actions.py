@@ -183,9 +183,9 @@ def install(registry, desktop):
         events = api.manager.bus.recent('mood.changed')
         if events:
             previous['mood'] = events[-1]['payload'].get('mood', 'idle')
-        api.set_mood(p['mood'], 120, priority=2)
+        api.set_mood(p['mood'], 120, priority=4)
         return previous
-    register('set_mood', mood, lambda token: api.set_mood(token['mood'], 5, priority=2),
+    register('set_mood', mood, lambda token: api.set_mood(token['mood'], 5, priority=4),
              lambda p: 'Show a ' + p['mood'] + ' mood while the scene is active.', mood_params,
              lambda p: {'mood': 'idle'}, True)
     def url_params(p):

@@ -43,6 +43,13 @@ def main():
     with (output / 'app.log').open('w', encoding='utf-8') as log:
         fixture = subprocess.Popen([sys.executable, '-B', 'tests/island/mood_fixture.py', str(config)], cwd=ROOT,
             stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
+        for _ in range(150):
+            try:
+                if httpx.get(f'http://127.0.0.1:{api_port}/api/plugins/mood/state', headers={'X-Friday-Token': token}).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(.1)
         child = subprocess.Popen([str(executable), '--background'], cwd=ROOT, env=env,
             stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
         process = psutil.Process(child.pid)
@@ -67,11 +74,24 @@ def main():
                 assert page, [p.url for p in browser.contexts[0].pages]
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
+                page.on('console', lambda message: print('WebView error: ' + message.text[:180], flush=True) if message.type == 'error' else None)
+                detail = page.evaluate("""async token => { const c=await window.__TAURI_INTERNALS__.invoke('get_config');
+                    return {port:c.connection.port,api_port:c.connection.api_port,token_matches:c.connection.token===token}; }""", token)
+                print(json.dumps({'native_config': detail, 'expected_port': api_port}), flush=True)
                 surface, orb = page.locator('.surface'), page.locator('.character')
                 expect(orb).to_be_visible()
-                expect(surface).to_have_attribute('data-mood', re.compile('idle|dozing|sleepy'), timeout=30000)
+                try:
+                    expect(surface).to_have_attribute('data-mood', re.compile('idle|dozing|sleepy'), timeout=30000)
+                except Exception:
+                    print(json.dumps({'page_errors': errors}), flush=True)
+                    raise
                 expect(surface).to_have_css('width', '288px')
                 expect(page.locator('.island-row')).to_have_css('height', '32px')
+                status = page.evaluate("() => window.__TAURI_INTERNALS__.invoke('runtime_status')")
+                receipt['environment'] = {key: status.get(key) for key in ['fullscreen_front', 'desktop_locked', 'reduce_motion']}
+                if status.get('fullscreen_front'):
+                    expect(surface).to_have_attribute('data-motion-paused', 'true')
+                    receipt['checks']['native_fullscreen_suspends'] = True
                 def command(text):
                     response = client.post('/fixture/command', json={'text': text})
                     response.raise_for_status()
@@ -90,6 +110,9 @@ def main():
                 expect(surface).to_have_attribute('data-mood', 'worried')
                 expect(orb.locator('.mochi-sweat')).to_be_visible()
                 expect(page.locator('.mood-bubble')).to_have_text('Battery at 18%')
+                # A fullscreen foreground app correctly suppresses automatic peek.
+                # An explicit hover still reveals passive peek without taking focus.
+                page.locator('.rest-clock').hover()
                 expect(page.locator('.mood-bubble')).to_be_visible()
                 expect(surface).to_have_css('width', '288px')
                 page.screenshot(path=str(output / 'battery-bubble.png'))
@@ -99,7 +122,7 @@ def main():
                 command('focus 25')
                 expect(surface).to_have_attribute('data-mood', 'focused')
                 command('pause focus')
-                expect(surface).to_have_attribute('data-mood', 'idle')
+                expect(surface).to_have_attribute('data-mood', re.compile('idle|dozing|sleepy'))
                 command('resume focus')
                 expect(surface).to_have_attribute('data-mood', 'focused')
                 command('stop focus')

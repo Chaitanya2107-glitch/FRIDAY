@@ -1,5 +1,12 @@
 # FRIDAY plugins, API version 1
 
+`focus` provides restart-safe focus/Pomodoro timers and actual focused-time stats;
+see [its guide](../plugins/focus/README.md). `scenes` provides previewed local
+routines, durable reverse undo, recovery questions and shared FRIDAY quiet mode;
+see [its guide](../plugins/scenes/README.md). Both work without model/network calls.
+The island's `/focus` uses the timer. `/note` already uses the real backend notes
+store; a dedicated note plugin/widget and standalone-bridge notes remain separate work.
+
 `hud` adds the transparent desktop HUD, boot sequence, and cached protected
 system-statistics route. See [HUD.md](HUD.md) for settings, commands and verification.
 

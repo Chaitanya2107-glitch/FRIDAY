@@ -162,7 +162,7 @@ def begin(name: str, volume_now: int | None, subject: str = "") -> tuple[dict, l
     _set_active({"name": name, "opened": opened, "volume": volume_now, "quiet": mode["quiet"], "subject": subject,
                  "since": since})
     if previous:
-        publish('scene.ended', {'scene_id': f"mode:{previous['since']}", 'name': previous['name'], 'reason': 'switched'})
+        publish('scene.ended', {'scene_id': f"mode:{previous.get('since', 0)}", 'name': previous['name'], 'reason': 'switched'})
     publish('scene.started', {'scene_id': f'mode:{since}', 'name': 'game' if name == 'gaming' else name,
                               'since': since, 'quiet_mode': mode['quiet']})
     logger.info(f"Mode on: {name}" + (f" for {subject}" if subject else ""))
@@ -176,7 +176,7 @@ def finish() -> dict | None:
     _set_active(None)
     if state:
         logger.info(f"Mode off: {state['name']}")
-        publish('scene.ended', {'scene_id': f"mode:{state['since']}", 'name': state['name'], 'reason': 'ended'})
+        publish('scene.ended', {'scene_id': f"mode:{state.get('since', 0)}", 'name': state['name'], 'reason': 'ended'})
     return state
 
 

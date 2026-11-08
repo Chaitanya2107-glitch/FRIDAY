@@ -43,12 +43,13 @@ Fields with `?` are optional. `null` is permitted only where shown.
 | `focus.started` | `{session_id: string, minutes: number, label: string, duration_s: number, task: string, phase: string, round: integer, owner: string, resumed?: boolean}` | Explicit focus/break phase started or resumed. |
 | `focus.paused` | `{session_id: string, minutes: number, label: string, duration_s: number, remaining_s: number, phase: string, round: integer, owner: string}` | Focus or break phase paused. |
 | `focus.done` | `{session_id: string, minutes: number, label: string, completed: boolean, elapsed_s: number, reason: "completed"|"stopped", phase: string, round: integer, owner: string}` | Timer phase ended; breaks do not count as focused time. |
-| `schedule.class_soon` | `{subject: string, starts_at: string, minutes?: number, room?: string, text: string}` | Scheduled class warning; starts_at is a local ISO-8601 datetime. |
-| `schedule.due_soon` | `{item_id: string, title: string, due_at: string, text: string}` | Due-item warning; due_at is an ISO-8601 datetime. |
+| `schedule.class_soon` | `{subject: string, faculty?: string, room?: string|null, starts_at: string, minutes?: number, lead_minutes?: number, text: string}` | Local ISO class start. schedule_alerts emits both configured leads (15/5 minutes by default), with persistent occurrence/lead de-duplication. `minutes` is actual remaining time rounded up; `lead_minutes` identifies the crossed threshold. |
+| `schedule.due_soon` | `{title: string, kind?: string, due_at: string, hours?: number, lead_hours?: number, item_id: string, text: string}` | Local ISO due time. Default assignment leads 24/3 hours; exams 72/24 hours. Actual remaining `hours` and configured `lead_hours` are separate. |
 | `mood.set` | `{mood: string, duration_s: number, priority: integer, message?: string, sticky?: boolean}` | Request a mood; the mood plugin arbitrates. |
 | `mood.changed` | `{mood: string, message: string, until: number|null, sticky: boolean, previous: string, priority: integer, plugin_id: string, expires_at: number}` | Accepted mood. `until` is Unix seconds for temporary moods, null for sticky/idle. `expires_at` is its Phase 0 alias (0 for null). |
-| `ui.card` | `{title: string, body: string, actions: [{id: string, label: string, payload?: object}], ttl_s: number}` | Show literal-text Island card with optional callbacks. |
-| `briefing.ready` | `{text: string, generated_at: string}` | A completed briefing, generated_at ISO-8601; no delivery claim. |
+| `ui.card` | `{title: string, body: string, actions: [{id: string, label: string, payload?: object}], ttl_s: number, card_id?: string, urgency?: "normal"|"critical"}` | Literal-text Island card. Briefings use the expanded FRIDAY view, at most six lines, with an opaque ID for scoped actions/dismissal. Explicit requests and sleep-scene responses may use critical delivery under quiet mode. |
+| `briefing.ready` | `{kind?: "morning"|"night", text: string, generated_at?: string}` | briefings publishes after local delivery is claimed. Legacy builders may omit kind and include generated_at (ISO-8601). |
+| `briefing.dismissed` | `{kind: "morning"|"night", card_id: string}` | Only the briefings owner's matching card is dismissed after Skip, Snooze or a sleep answer. |
 | `index.progress` | `{phase: string, processed?: integer, done?: integer, total?: integer, current_folder?: string}` | A local indexer's progress; semantic_search emits at most once a second. No document text. |
 | `index.done` | `{files: integer, readable?: integer, chunks?: integer, needs_ocr?: integer, elapsed_s?: number}` | A completed local index pass, including unreadable/OCR counts where available. |
 | `plugin.disabled` | `{plugin_id: string, reason: string, failures: integer}` | Host auto-disabled a plugin after repeated errors. |
@@ -57,8 +58,10 @@ Fields with `?` are optional. `null` is permitted only where shown.
 | `hud.state_changed` | `{source: string}` | HUD focus/scene reducer committed an official event; consumers may refresh slow state. |
 | `hud.available` | `{}` | HUD plugin loaded/reloaded; connected Island may fetch its current state. |
 
-`Todo` is `{id: integer, text: string, done: boolean, created_at: string}`;
-`created_at` is UTC ISO-8601. A done item remains until removed or clear-done.
+`Todo` is `{id: integer, text: string, done: boolean, created_at: string, done_at?: string}`;
+`created_at` and `done_at` are UTC ISO-8601. New completions keep a daily count
+even after clear-done; old undated completions are never assigned invented dates.
+A done item remains until removed or clear-done.
 The `items` snapshot belongs to the JSON todo plugin; existing workspace tasks
 remain in their original store.
 
@@ -77,7 +80,10 @@ plugin installed, the legacy monitor retains its older `{app, previous_app}` /
 when supporting older FRIDAY installations.
 
 The focus plugin publishes focus transitions; scenes and legacy modes publish scene starts
-and ends; timetable/deadline warnings publish schedule events. Smart clipboard
+and ends. The schedule_alerts plugin owns schedule warning events while installed;
+its presence disables legacy 10-minute class warnings and duplicate deadline alerts.
+Briefings owns daily delivery and explicit briefing aliases while installed, including
+when disabled or unavailable (the old weather-enabled briefing does not resume). Smart clipboard
 publishes action availability, and semantic search publishes index completion.
 The remaining names are shared contracts for additional providers; they should
 publish these shapes instead of introducing competing names.

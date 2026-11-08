@@ -119,7 +119,12 @@ export class FridayPanel {
     }
     this.paintState(); this.paintConversation(); return true;
   }
-  accept(prompt: string, reply: CommandResult) { this.conversation.accept(prompt, reply); this.paintConversation(); }
+  accept(prompt: string, reply: CommandResult) {
+    const shown = reply.model === 'briefings' && Array.from(this.notices.querySelectorAll('[data-plugin="briefings"] p'))
+      .some(body => body.textContent === reply.text);
+    if (shown) this.conversation.close(); else this.conversation.accept(prompt, reply);
+    this.paintConversation();
+  }
   pluginEvent(event: Record<string, unknown>) {
     const payload = event.payload;
     if (event.topic === 'briefing.dismissed' && event.plugin_id === 'briefings' && payload && typeof payload === 'object') {
@@ -134,6 +139,9 @@ export class FridayPanel {
     const value = payload as Record<string, unknown>;
     if (typeof value.title !== 'string' || value.title.length > 120 || typeof value.body !== 'string' || value.body.length > 4000) return;
     const owner = event.plugin_id;
+    if (owner === 'briefings' && this.conversation.privateReply === value.body) {
+      this.conversation.close(); this.paintConversation();
+    }
     const card = el('div', 'friday-notice'); card.setAttribute('role', 'status');
     if (owner === 'smart_clipboard' || owner === 'scenes' || owner === 'briefings') for (const previous of this.notices.querySelectorAll(`[data-plugin="${owner}"]`)) previous.remove();
     card.dataset.plugin = owner;

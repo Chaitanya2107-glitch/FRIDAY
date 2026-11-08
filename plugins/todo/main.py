@@ -17,6 +17,9 @@ class Todos:
         data = json.loads(self.path.read_text(encoding='utf-8'))
         if (not isinstance(data, dict) or data.get('version') != 1 or type(data.get('next_id')) is not int
                 or not isinstance(data.get('items'), list)
+                or not isinstance(data.get('completed_by_day', {}), dict)
+                or any(not isinstance(day, str) or type(count) is not int or count < 0
+                       for day, count in data.get('completed_by_day', {}).items())
                 or any(not isinstance(row, dict) or type(row.get('id')) is not int
                        or not isinstance(row.get('text'), str) or type(row.get('done')) is not bool
                        for row in data['items'])):

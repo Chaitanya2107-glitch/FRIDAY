@@ -1,5 +1,10 @@
 # FRIDAY plugins, API version 1
 
+`schedule_alerts` provides the read-only `schedule` service and restart-safe class,
+assignment and exam alerts. `briefings` provides offline morning/night cards,
+optional local speech and a `tomorrow_summary()` for sleep scenes. See
+[SCHEDULE_BRIEFINGS.md](SCHEDULE_BRIEFINGS.md) for sources, settings, commands and tests.
+
 `focus` provides restart-safe focus/Pomodoro timers and actual focused-time stats;
 see [its guide](../plugins/focus/README.md). `scenes` provides previewed local
 routines, durable reverse undo, recovery questions and shared FRIDAY quiet mode;

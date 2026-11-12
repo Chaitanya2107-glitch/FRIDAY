@@ -16,6 +16,7 @@ import re
 from datetime import date, datetime
 
 from core.config import config
+from services.settings_store import synchronized
 from services.automation.command_words import normalize_command
 from services.automation.system_control import AutomationError
 
@@ -61,10 +62,12 @@ def load(file=None) -> list[dict]:
         return []
 
 
+@synchronized
 def _save(notes: list[dict], file=None) -> None:
     (file or path).write_text(json.dumps(notes, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+@synchronized
 def add(text: str, now: datetime | None = None) -> str:
     notes = load()
     notes.append({"text": text, "at": (now or datetime.now()).isoformat(timespec="seconds")})
@@ -72,6 +75,7 @@ def add(text: str, now: datetime | None = None) -> str:
     return f"Noted. You have {len(notes)} note{'s' if len(notes) != 1 else ''}."
 
 
+@synchronized
 def add_diary(text: str, now: datetime | None = None) -> str:
     entries = load(diary_path)
     entries.append({"text": text, "at": (now or datetime.now()).isoformat(timespec="seconds")})
@@ -86,6 +90,7 @@ def list_message() -> str:
     return "\n".join(f"{i}. {n['text']} ({datetime.fromisoformat(n['at']):%d %b, %H:%M})" for i, n in enumerate(notes, 1))
 
 
+@synchronized
 def delete(number: int) -> str:
     notes = load()
     if not 1 <= number <= len(notes):
@@ -95,6 +100,7 @@ def delete(number: int) -> str:
     return f"Deleted: {removed['text']}"
 
 
+@synchronized
 def clear() -> str:
     count = len(load())
     _save([])

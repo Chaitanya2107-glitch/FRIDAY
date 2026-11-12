@@ -98,7 +98,7 @@ class Triggers:
 
     def event(self, event):
         from fnmatch import fnmatchcase
-        if event.get('plugin_id') == 'scenes':
+        if event.get('plugin_id') == 'scenes' or event.get('payload', {}).get('remote_origin') is True:
             return
         for scene, rule, identity in self.rules():
             if rule['type'] != 'event' or not fnmatchcase(event['topic'], rule['topic']):

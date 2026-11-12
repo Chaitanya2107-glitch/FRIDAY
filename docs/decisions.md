@@ -406,3 +406,24 @@ attention judgment, without assuming that an unchanged record means no real work
 delay a potentially useful suggestion. OS transport cannot be atomically committed with SQLite;
 unconfirmed submissions are retained without replay. Short replies are local and expire after 15
 minutes; existing OS button tokens remain process-local. General autonomous work remains deferred.
+
+## ADR-020: Owner-Paired Tailscale Routes on the Existing Loopback Bridge (2026-11-12)
+
+**Decision:** Add a default-off `/remote/v1` transport through Tailscale Serve, requiring the
+saved owner identity plus a locally approved P-256 device signature. Reject Funnel and any
+non-loopback bridge listener. Preserve the existing localhost and Telegram boundaries.
+
+**Choice:** Use a finite registry with mandatory safe/confirm/blocked risk labels. Sensitive
+effects require command-bound WebAuthn user verification within 60 seconds. Remote asks use
+the usual provider/failover conversation path without private context or action routing.
+Remote-origin events cannot activate automatic subscribers; passive display delivery is explicit.
+
+**Reason:** A general remote privacy flag does not provide an action allowlist, and ordinary
+device signatures do not demonstrate a fresh biometric/PIN check. Event-driven follow-on
+actions must retain the same authority boundary as the initiating remote command.
+
+**Trade-offs:** Remote must be enabled locally after every restart/update. CLI uncertainty
+fails closed. Only eligible preapproved quiet/focus scenes and registered executable apps are
+available; arbitrary files, shell, settings and installation remain blocked. The server and
+signing test client are included; Android hardware-backed key generation and a phone UI remain
+client work. This implementation does not attest Android Keystore hardware.

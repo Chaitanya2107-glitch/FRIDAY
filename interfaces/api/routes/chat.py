@@ -104,6 +104,17 @@ async def chat(request: ChatRequest):
     Main chat endpoint.
     Send a message, get a response. Memory is handled automatically.
     """
+    from services.remote.context import conversation_only
+    if conversation_only.get():
+        from services.remote.conversation import answer
+        result = await answer(request.message)
+        return ChatResponse(response=result.content, provider=result.provider, model=result.model,
+                            tokens_used=result.tokens_used, private=True)
+    from services.remote.local import try_command as try_remote_command
+    remote_result = await try_remote_command(request.message)
+    if remote_result is not None:
+        return ChatResponse(response=remote_result.message, provider='local', model='system_control',
+                            tokens_used=0, private=True, action_success=remote_result.success)
     logger.info(f"Chat request received — provider override: {request.provider or 'none'}")
     from services.briefing_runtime import try_command as try_briefing
     local_brief = await try_briefing(request.message, remote=remote_request.get())

@@ -22,8 +22,9 @@ def validate_topic(topic: str, *, pattern: bool = False) -> None:
 
 
 class Subscription:
-    def __init__(self, pattern: str, callback: Callable[[dict], None], plugin_id: str):
+    def __init__(self, pattern: str, callback: Callable[[dict], None], plugin_id: str, allow_remote=False):
         self.pattern, self.callback, self.plugin_id = pattern, callback, plugin_id
+        self.allow_remote = allow_remote
         self.stopped = threading.Event()
         self.dropped = 0
         self.queue: queue.Queue = queue.Queue(maxsize=200)
@@ -42,7 +43,9 @@ class Subscription:
                 if self.dropped:
                     logger.warning('Slow event subscriber dropped queued events [plugin=%s]', self.plugin_id)
                     self.dropped = 0
-                self.callback(deepcopy(event))
+                from services.remote.context import origin_scope
+                with origin_scope(event['payload'].get('remote_origin') is True):
+                    self.callback(deepcopy(event))
             except Exception:
                 logger.exception('Event subscriber failed [plugin=%s]', self.plugin_id)
 
@@ -79,6 +82,9 @@ class EventBus:
         validate_topic(topic)
         if not isinstance(payload, dict):
             raise ValueError('Event payload must be a dictionary.')
+        from services.remote.context import remote_origin
+        if remote_origin.get():
+            payload = dict(payload, remote_origin=True)
         json.dumps(payload, allow_nan=False)
         with self._lock:
             self._sequence += 1
@@ -92,16 +98,20 @@ class EventBus:
                     return deepcopy(event)
             self._events.append(event)
             for subscription in self._subscriptions:
+                if payload.get('remote_origin') is True and not subscription.allow_remote:
+                    continue  # Remote actions cannot acquire authority through automatic subscribers.
                 if fnmatchcase(topic, subscription.pattern):
                     subscription.deliver(event)
             return deepcopy(event)
 
-    def subscribe(self, pattern: str, callback: Callable[[dict], None], *, plugin_id: str = 'friday') -> Subscription:
+    def subscribe(self, pattern: str, callback: Callable[[dict], None], *, plugin_id: str = 'friday', allow_remote: bool = False) -> Subscription:
         validate_topic(pattern, pattern=True)
         if not callable(callback):
             raise ValueError('Subscriber must be callable.')
+        if type(allow_remote) is not bool:
+            raise ValueError('Remote event delivery requires an explicit Boolean.')
         with self._lock:
-            subscription = Subscription(pattern, callback, plugin_id)
+            subscription = Subscription(pattern, callback, plugin_id, allow_remote)
             self._subscriptions.add(subscription)
             return subscription
 

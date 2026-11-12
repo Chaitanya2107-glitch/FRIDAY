@@ -287,6 +287,27 @@ def test_sleep_transition_delivers_on_active_state_without_redundant_offer(tmp_p
     assert 'Start sleep mode?' not in api.payloads('ui.card')[0]['body']
 
 
+def test_sleep_state_snapshots_do_not_restart_fullscreen_deferral(tmp_path):
+    current = dict(active='sleep', phase='applying')
+    context = {'fullscreen': True}
+    brief, clock, api = make_brief(tmp_path, services={'scenes': SimpleNamespace(status=lambda: current)},
+                                  desktop=lambda: context)
+    brief.event(dict(topic='scene.started', plugin_id='scenes', payload=dict(name='sleep', scene_id='s1')))
+    current['phase'] = 'active'
+    event = dict(topic='scene.state', plugin_id='scenes', payload=dict(name='sleep', scene_id='s1', phase='active'))
+    brief.event(event)
+    retry_at = brief.state['pending']['night']['at']
+    clock.advance(minutes=1)
+    brief.event(event)
+    assert brief.state['pending']['night']['at'] == retry_at
+    context['fullscreen'] = False
+    brief.event(event)
+    assert not api.payloads('briefing.ready')
+    clock.advance(minutes=9)
+    brief.tick()
+    assert len(api.payloads('briefing.ready')) == 1
+
+
 def test_rechecks_eligibility_after_build_and_before_queued_speech(tmp_path):
     context = {'fullscreen': False}
     brief, _, api = make_brief(tmp_path, desktop=lambda: context)

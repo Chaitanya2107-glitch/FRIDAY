@@ -7,6 +7,23 @@
 
 ## Design Principles
 
+### Paired Tailscale transport (2026-11-12)
+
+`services/remote` adds `/remote/v1` to the existing loopback bridge. Configured and actual
+process listeners must be loopback; the normal launcher disables proxy-header rewriting.
+The gate starts off after restart or source updates. Owner-confirmed Tailscale Serve exposes
+only the `/remote` target within the tailnet. CLI uncertainty or Funnel blocks requests.
+MagicDNS Host, saved owner identity and paired P-256 device proofs are all required.
+Timestamp/nonce windows, device limits, revocation and a synchronous kill fence apply before
+the finite risk registry. Confirming effects additionally require one-use WebAuthn UV approvals
+bound to command, arguments, device, epoch and current effect targets.
+
+Remote asks reuse provider failover with no action routing, private context or Telegram state.
+Remote events carry provenance, including later focus completions. Automatic event subscribers
+do not receive them; explicitly passive display subscriptions may opt in. Local and Telegram
+event dispatch is unchanged. The metadata-only audit and device/pairing records stay local.
+See `REMOTE_ACCESS.md` for setup, signing format, supported commands and client limitations.
+
 ### Native college client and shared schedule data (2026-10-29)
 
 `interfaces/college` uses Tkinter/ttk and background HTTP workers, following the

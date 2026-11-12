@@ -9,6 +9,7 @@ import time
 from uuid import uuid4
 
 from services import settings_store
+from services.remote.context import origin_scope, remote_origin as transport_origin
 
 from .catalog import Catalog
 from .registry import Skipped
@@ -30,6 +31,7 @@ class Scenes:
         self.catalog = Catalog(api, registry, defaults)
         self.epoch = sys.__dict__.setdefault('_friday_scenes_epoch', uuid4().hex)
         self.active, self.pending = None, None
+        self.remote_events = False
         self.closed = False
         if self.path.exists():
             state = json.loads(self.path.read_text(encoding='utf-8'))
@@ -38,6 +40,9 @@ class Scenes:
             self.active = state.get('active')
             if self.active is not None:
                 self._validate_journal(self.active)
+            self.remote_events = state.get('remote_origin', False)
+            if type(self.remote_events) is not bool:
+                raise ValueError('Scene origin metadata is damaged; the file was preserved.')
         self.needs_recovery = bool(self.active and (self.active.get('epoch') != self.epoch or self.active['phase'] != 'active'))
         self.triggers = Triggers(self, desktop.processes)
         self._last_mood = 0
@@ -56,7 +61,10 @@ class Scenes:
                 raise ValueError('Invalid saved action; no undo was attempted.')
 
     def _save(self):
-        settings_store.save(self.path, dict(version=1, active=self.active))
+        state = dict(version=1, active=self.active)
+        if self.remote_events:
+            state['remote_origin'] = True
+        settings_store.save(self.path, state)
 
     def ensure_active(self):
         self.api._active()
@@ -103,7 +111,8 @@ class Scenes:
                     actions=[dict(id='answer', label=label, payload=dict(nonce=nonce, choice=value)) for value, label in choices])
         self.pending['card'] = card  # Authenticated status also delivers questions missed during startup/reconnect.
         self.sync_commands()
-        self.api.publish('ui.card', card)
+        with origin_scope(self.remote_events):
+            self.api.publish('ui.card', card)
         return result(body + '\nAnswer yes or no.', data={'awaiting_confirmation': True})
 
     def offer_recovery(self):
@@ -178,6 +187,7 @@ class Scenes:
 
     def _start(self, scene):
         self.ensure_active()
+        incoming_remote = transport_origin.get()
         actions = self.catalog.actions(scene)
         for action in actions:
             self.registry.validate(action)  # Validate all actions before ending a previous scene.
@@ -187,9 +197,12 @@ class Scenes:
                 return ended
         now = self.now()
         self.pending = None
+        self.remote_events = incoming_remote
         self.active = dict(id='scenes:' + uuid4().hex, name=scene['name'], key=scene['key'], hash=scene['hash'], epoch=self.epoch,
                            since=now, ends_at=now + scene['duration_minutes'] * 60 if 'duration_minutes' in scene else None,
                            restore=scene['restore'], phase='applying', entries=[])
+        if incoming_remote:
+            self.active['remote_origin'] = True
         self._save()
         self.api.publish('scene.started', dict(name=scene['name'], scene_id=self.active['id'], since=now))
         warnings = []
@@ -227,7 +240,7 @@ class Scenes:
         return result(text, data=self.status())
 
     def end(self, reason='command', restore=None):
-        with self.lock:
+        with self.lock, origin_scope(self.remote_events):
             self.ensure_active()
             self.pending = None
             self.sync_commands()
@@ -297,8 +310,9 @@ class Scenes:
 
     def publish_state(self):
         active = self.active or {}
-        self.api.publish('scene.state', dict(name=active.get('name'), scene_id=active.get('id'),
-                                            since=active.get('since'), phase=active.get('phase', 'idle')))
+        with origin_scope(self.remote_events):
+            self.api.publish('scene.state', dict(name=active.get('name'), scene_id=active.get('id'),
+                                                since=active.get('since'), phase=active.get('phase', 'idle')))
 
     def event(self, event):
         with self.lock:

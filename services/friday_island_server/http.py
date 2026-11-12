@@ -109,7 +109,7 @@ def create_router(manager_provider=current_manager, config_provider=load_config)
                 pass  # The ASGI connection's loop was already closed.
 
         async def stream():
-            subscription = manager.bus.subscribe(pattern, receive, plugin_id='island-sse')
+            subscription = manager.bus.subscribe(pattern, receive, plugin_id='island-sse', allow_remote=True)
             try:
                 yield ': FRIDAY events\n\n'
                 while not await request.is_disconnected():

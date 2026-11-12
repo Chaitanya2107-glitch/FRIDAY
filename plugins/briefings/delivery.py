@@ -107,6 +107,8 @@ class Briefings:
     def _queue(self, kind, reason, minutes, day=None):
         self.state['pending'][kind] = dict(at=(self.now()+timedelta(minutes=minutes)).isoformat(), reason=reason,
                                           day=day or self.now().date().isoformat())
+        if reason == 'sleep' and self._scene_names()[1]:
+            self.state['pending'][kind]['waiting_for_scene'] = True
         self._save()
 
     def _speaks(self, kind):
@@ -228,7 +230,7 @@ class Briefings:
                 else:
                     self.scenes.pop(key, None)
                 release_sleep = (topic == 'scene.state' and payload.get('phase') == 'active'
-                                 and self.state['pending'].get('night', {}).get('reason') == 'sleep')
+                                 and self.state['pending'].get('night', {}).get('waiting_for_scene') is True)
             if name == 'sleep' and (topic == 'scene.started' or release_sleep):
                 self.request('night', reason='sleep')
         elif topic == 'activity.idle_ended' and self.in_window():

@@ -53,6 +53,7 @@ _surface_listener = None
 _conversation_hotkey_listener = None
 _chat_done_listener = None
 _wake_hotkey_listener = None
+_remote_off_hotkey_listener = None
 _submit_listener = None
 
 
@@ -318,7 +319,10 @@ def _show_reply(hwnd, edit_hwnd):
 def _make_wndproc(hwnd_box):
     def wndproc(hwnd, msg, wparam, lparam):
         if msg == WM_HOTKEY:
-            if wparam == VOICE_HOTKEY_ID:
+            if wparam == REMOTE_OFF_HOTKEY_ID:
+                if _remote_off_hotkey_listener:
+                    _remote_off_hotkey_listener()
+            elif wparam == VOICE_HOTKEY_ID:
                 if _voice_hotkey_listener:
                     _voice_hotkey_listener()
             elif wparam == WAKE_HOTKEY_ID:
@@ -450,6 +454,11 @@ def set_voice_hotkey_listener(listener):
     _voice_hotkey_listener = listener
 
 
+def set_remote_off_hotkey_listener(listener):
+    global _remote_off_hotkey_listener
+    _remote_off_hotkey_listener = listener
+
+
 def create():
     """Create the hidden command bar and register the hotkeys. Call on the thread that runs the loop."""
     global _hwnd
@@ -525,6 +534,8 @@ def create():
         logger.warning("Could not register Ctrl+Alt+C for conversation mode — another app may already use it")
     if not user32.RegisterHotKey(hwnd, HANDY_HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("F")):
         logger.warning("Could not register Ctrl+Alt+F for Handy — another app may already use it")
+    if not user32.RegisterHotKey(hwnd, REMOTE_OFF_HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, ord('R')):
+        logger.warning('Could not register Ctrl+Alt+Shift+R for remote off — another app may already use it')
 
     _hwnd = hwnd
 
@@ -540,6 +551,7 @@ def run_message_loop():
     user32.UnregisterHotKey(_hwnd, WAKE_HOTKEY_ID)
     user32.UnregisterHotKey(_hwnd, HANDY_HOTKEY_ID)
     user32.UnregisterHotKey(_hwnd, CONVERSATION_HOTKEY_ID)
+    user32.UnregisterHotKey(_hwnd, REMOTE_OFF_HOTKEY_ID)
 
 
 def request_show():

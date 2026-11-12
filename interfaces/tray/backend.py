@@ -29,6 +29,10 @@ def screen_indicator(hwnd):
     return _request("POST", "/api/v1/screen-watch/indicator", timeout=2, json={"hwnd": hwnd})
 
 
+def remote_off():
+    return _request('POST', '/api/v1/remote/off', timeout=15)
+
+
 class ChatReply(NamedTuple):
     text: str
     awaiting_reply: bool  # FRIDAY asked a yes/no question and is waiting for the answer

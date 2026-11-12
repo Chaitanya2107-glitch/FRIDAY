@@ -306,6 +306,12 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     """Steps 2–5 for a transcribed voice command."""
     provider_name = request.provider or config.ACTIVE_PROVIDER
 
+    from services.remote.local import try_command as try_remote_command
+    remote_result = await try_remote_command(transcription)
+    if remote_result is not None:
+        return VoiceResponse(transcription=transcription, response=remote_result.message, provider='local', private=True,
+                             model='system_control', tokens_used=0, action='system', action_success=remote_result.success)
+
     from services.briefing_runtime import try_command as try_briefing
     local_brief = await try_briefing(transcription, remote=remote_request.get())
     if local_brief is not None:

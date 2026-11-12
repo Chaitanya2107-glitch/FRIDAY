@@ -20,17 +20,20 @@ native = pytest.mark.skipif(os.environ.get('FRIDAY_PANEL_UI_TEST') != '1',
 def test_normal_desktop_launch_requests_one_background_backend_start(monkeypatch):
     from interfaces.taskbar import island as island_module
     calls = []
+    hooks = {}
     noop = lambda *args, **kwargs: None
     monkeypatch.setattr(island_module, 'IslandDesktop', lambda *args: SimpleNamespace(
         enabled=False, summon=noop, start=noop, close=noop))
     bar = SimpleNamespace(create=noop, request_show=noop, request_quit=noop,
                           request_ask=noop, request_ask_done=noop,
+                          set_remote_off_hotkey_listener=lambda callback: hooks.update(remote_off=callback),
                           run_message_loop=lambda: calls.append('loop'))
     for name in ('reply', 'submit', 'voice_hotkey', 'wake_hotkey', 'conversation_hotkey', 'chat_done'):
         setattr(bar, 'set_' + name + '_listener', noop)
     tray = SimpleNamespace(icon=SimpleNamespace(stop=noop), _stopping=SimpleNamespace(set=noop),
                            notify=noop, bar_submitted=noop, toggle_listening=noop, toggle_wake=noop, pause_microphone=noop,
                            toggle_conversation=noop, typed_reply_done=noop, run=noop, status='offline')
+    tray.remote_off = lambda: calls.append('remote_off')
     panel = SimpleNamespace(start=lambda: calls.append('panel'), stop=noop,
                             request_toggle=noop, request_show=noop,
                             _lifecycle=lambda action: calls.append('backend:' + action))
@@ -43,6 +46,8 @@ def test_normal_desktop_launch_requests_one_background_backend_start(monkeypatch
     monkeypatch.setattr(desktop, 'FridayBody', lambda *args: body)
     desktop._run_desktop(SimpleNamespace(busy=False))
     assert calls == ['panel', 'host', 'backend:start', 'loop']
+    hooks['remote_off']()
+    assert calls[-1] == 'remote_off'
 
 
 @pytest.mark.parametrize('response, expected', [

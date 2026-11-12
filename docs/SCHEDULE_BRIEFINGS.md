@@ -133,12 +133,26 @@ SSE fixture in Chromium; it does not operate the real Tauri window or owner data
 
 The real-data preview never shows cards, speaks or requests weather; it compares
 academic source/database hashes and saves private results in ignored
-`tasks/schedule-briefings/real-preview.json`. On 2026-11-07 it verified 22 weekly
-slots, no classes that Saturday, and no pending deadlines in seven days. A next
-class day preview used the real five-class Monday timetable. Source hashes matched.
+`tasks/schedule-briefings/real-preview.json`. The 2026-11-12 check verified 22 weekly
+slots, four classes that Thursday, and no pending deadlines in seven days. The
+on-demand real-data brief contained two lines; all source hashes matched.
 The focused regression tests simulate both class lead times and a restart without
 editing real calendar records. UI checks are in
 [BRIEFINGS_CHECKLIST.md](../tests/island/BRIEFINGS_CHECKLIST.md).
+
+Final validation on 2026-11-12: all 69 feature tests, 235 focused/regression
+checks, 32 Island unit tests, four Chromium delivery-order cases, and the Island
+production build passed. The repository-wide run finished with 7,052 passed,
+13 skipped, and one existing semantic-search background-worker timeout while
+waiting for 22 vectors. That test passed alone and all 11 tests in its file
+passed on rerun. The full-suite run was therefore not completely green; no
+unrelated search implementation or assertions were changed. The raw reports
+are under ignored `tasks/schedule-briefings/pytest-*.xml` and `pytest-full.log`.
+Native Tauri rendering and audible speech remain manual checks.
+The 69 feature tests were repeated successfully against concurrent changes to
+the shared chat/voice routes. Source receipts distinguish the wider run's initial
+snapshot from that final feature check. Academic hash checks cover each read-only
+preview call, rather than unrelated database activity over the whole test run.
 
 ## Files in this change
 

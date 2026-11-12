@@ -112,10 +112,14 @@ class Focus:
         self.data = data
 
     def _new(self, minutes, label, owner, schedule, now, *, pomodoro=False, phase='focus', round=1):
+        from services.remote.context import remote_origin
         seconds = float(minutes) * 60
-        return dict(session_id=uuid4().hex, owner=owner, label=label, phase=phase, round=round,
+        state = dict(session_id=uuid4().hex, owner=owner, label=label, phase=phase, round=round,
                     pomodoro=pomodoro, schedule=schedule, started_at=now, segment_start=now,
                     end_at=now + seconds, duration_s=seconds, remaining_s=seconds, paused=False, segments=[])
+        if remote_origin.get() or owner == 'remote':
+            state['remote_origin'] = True
+        return state
 
     def _segments(self, state, now):
         segments = deepcopy(state['segments'])
@@ -127,6 +131,8 @@ class Focus:
         return segments
 
     def _payload(self, state, **extra):
+        if state.get('remote_origin'):
+            extra['remote_origin'] = True
         return dict(session_id=state['session_id'], owner=state['owner'], minutes=state['duration_s']/60,
                     label=state['label'], task=state['label'], phase=state['phase'], round=state['round'],
                     duration_s=state['duration_s'], **extra)
@@ -186,14 +192,18 @@ class Focus:
                 # Never synthesize completed work while FRIDAY was not running.
                 next_state = self._new(minutes, label, state['owner'], schedule, now,
                                        pomodoro=True, phase=phase, round=round)
+                if state.get('remote_origin'):
+                    next_state['remote_origin'] = True
             data['active'] = next_state
             self._save(data)  # Completion/history/next phase share one durable transaction.
-        self.api.publish('focus.done', self._payload(state, completed=True, elapsed_s=state['duration_s'], reason='completed'))
-        if next_state:
-            self.api.publish('focus.started', self._payload(next_state))
-        self.api.notify('Focus complete' if state['phase'] == 'focus' else 'Break complete',
-                        f"{state['label']} finished." + (f" {next_state['label']} has started." if next_state else ''), 'critical')
-        self.api.set_mood('celebrating', 6, priority=3)
+        from services.remote.context import origin_scope
+        with origin_scope(state.get('remote_origin', False)):
+            self.api.publish('focus.done', self._payload(state, completed=True, elapsed_s=state['duration_s'], reason='completed'))
+            if next_state:
+                self.api.publish('focus.started', self._payload(next_state))
+            self.api.notify('Focus complete' if state['phase'] == 'focus' else 'Break complete',
+                            f"{state['label']} finished." + (f" {next_state['label']} has started." if next_state else ''), 'critical')
+            self.api.set_mood('celebrating', 6, priority=3)
 
     def pause(self):
         self.tick()

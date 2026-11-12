@@ -203,6 +203,7 @@ class FridayTray:
             Item("Quick actions", Menu(self._quick_action_items)),
             Item("Routines", Menu(self._routine_menu_items), enabled=online),
             Item("Control Center & Guide…", self.open_control_center),
+            Item("Remote off   Ctrl+Alt+Shift+R", self.remote_off, enabled=online),
             Item("Customize FRIDAY…", self.open_customization),
             Item("College Schedules…", self.open_college_schedules),
             Item("Habits & To-do…", self.open_productivity),
@@ -238,6 +239,14 @@ class FridayTray:
     def open_college_schedules(self):
         from interfaces.college.launcher import launch
         self._in_background(launch)
+
+    def remote_off(self, *_):
+        def stop():
+            try:
+                self._api.remote_off()
+            except backend.BackendError as error:
+                self.icon.notify(str(error), 'FRIDAY Remote')
+        _in_background(stop)
 
     def open_customization(self):
         from interfaces.settings.launcher import launch

@@ -13,7 +13,6 @@ WHY A FACTORY FUNCTION:
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
 from core.config import config
@@ -61,6 +60,7 @@ async def lifespan(app: FastAPI):
     from services.screen_watch import service as screen_watch
     from services.friday_island_server.server import run_integrated_bridge
     background_loops = [
+        asyncio.create_task(app.state.remote.monitor()),
         asyncio.create_task(development.run()),
         asyncio.create_task(run_integrated_bridge()),
         asyncio.create_task(screen_watch.watch.run()),
@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.remote.fence_off()
         from services.browser.service import automation
         try:
             await automation.close()
@@ -117,10 +118,18 @@ def create_app() -> FastAPI:
     #     "blind" requests from other sites that would still run commands.
     allowed_hosts = sorted({config.API_HOST, *LOCAL_HOSTS})
     allowed_origins = {f"http://{host}:{config.API_PORT}" for host in allowed_hosts}
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    from services.remote import start_bridge
+    from services.remote.routes import BridgeSecurity, create_router as remote_router, local_router, remote_path
+    remote = start_bridge()
+    app.state.remote = remote
+    if remote.register(config.API_HOST):
+        app.include_router(remote_router(remote))
+    app.include_router(local_router(remote))
 
     @app.middleware("http")
     async def reject_other_websites(request: Request, call_next):
+        if remote_path(request.url.path):
+            return await call_next(request)  # The outer remote boundary has already authenticated this scope.
         from services.friday_island_server.http import is_plugin_path
         # The Island companion routes apply their own stricter token/Origin checks.
         if is_plugin_path(request.url.path):
@@ -154,7 +163,7 @@ def create_app() -> FastAPI:
         from services.screen_watch.commands import local_request
         token = local_request.set(bool(request.client and request.client.host in {'127.0.0.1', '::1', 'testclient'}))
         try:
-            if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator', '/api/v1/island/desktop', '/api/v1/island/event'}:
+            if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.url.path.startswith('/api/v1/') and request.url.path not in {'/api/v1/chat', '/api/v1/voice', '/api/v1/screen-watch/indicator', '/api/v1/island/desktop', '/api/v1/island/event', '/api/v1/remote/off'}:
                 from services.mind.cognition import cognition
                 with cognition.operation('feature_request', 'api', request.method + ' local feature operation') as operation:
                     response = await call_next(request)
@@ -196,4 +205,5 @@ def create_app() -> FastAPI:
             "island": dict(transport_state),
         }
 
+    app.add_middleware(BridgeSecurity, service=remote, allowed_hosts=allowed_hosts)
     return app

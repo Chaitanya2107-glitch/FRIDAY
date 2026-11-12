@@ -11,6 +11,9 @@ fastapi>=0.110.0        # Web framework for the local API
 uvicorn>=0.29.0         # ASGI server that runs FastAPI
 websockets>=16.0,<17    # Authenticated Island transport in the FRIDAY backend
 pydantic>=2.0.0         # Data validation (FastAPI uses this internally)
+cryptography>=46,<48   # Remote device ECDSA P-256 request signatures
+fido2>=2,<3            # Verified WebAuthn biometric/PIN command approvals
+qrcode>=8,<9           # Laptop-only one-time phone pairing QR
 
 # ── Environment / config ──────────────────────────────────────────────────────
 python-dotenv>=1.0.0    # Loads .env files into os.environ

@@ -83,6 +83,7 @@ class RuntimeStatus(BaseModel):
     mode: ModeStatus
     spotify: SpotifyStatus
     screen_watch: dict = Field(default_factory=dict)
+    remote: dict = Field(default_factory=dict)
 
 
 @router.get("/system/status", response_model=RuntimeStatus)
@@ -102,7 +103,8 @@ def get_runtime_status():
         screen = screen_watch.watch.status()
     except Exception:
         screen = {"enabled": False, "paused": True, "state": "unavailable", "local_only": True}
-    return RuntimeStatus(mode=mode, spotify=spotify, screen_watch=screen)
+    from services.remote import current
+    return RuntimeStatus(mode=mode, spotify=spotify, screen_watch=screen, remote=current().status())
 
 
 class ScreenIndicator(BaseModel):

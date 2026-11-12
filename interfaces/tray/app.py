@@ -68,6 +68,7 @@ def _run_desktop(runtime):
     command_bar.set_voice_hotkey_listener(tray.toggle_listening)
     command_bar.set_wake_hotkey_listener(tray.toggle_wake)
     command_bar.set_conversation_hotkey_listener(tray.toggle_conversation)
+    command_bar.set_remote_off_hotkey_listener(tray.remote_off)
     command_bar.set_chat_done_listener(tray.typed_reply_done)
 
     panel = ControlPanel(tray, runtime, command_bar)

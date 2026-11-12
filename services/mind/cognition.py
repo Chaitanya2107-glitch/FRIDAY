@@ -165,7 +165,14 @@ def turn(channel: str):
     def decorate(function):
         @functools.wraps(function)
         async def wrapped(*args, **kwargs):
+            from services.remote.context import conversation_only
+            if conversation_only.get():
+                return await function(*args, **kwargs)
             from services.automation.intent import remote_request
+            if not remote_request.get():
+                from services.remote.local import fence_if_off
+                incoming = args[0] if args else kwargs.get('transcription', kwargs.get('request'))
+                fence_if_off(incoming if isinstance(incoming, str) else getattr(incoming, 'message', ''))
 
             tokens = [(_turn, _turn.set(uuid.uuid4().hex)),
                       (_channel, _channel.set("telegram" if remote_request.get() else channel)),

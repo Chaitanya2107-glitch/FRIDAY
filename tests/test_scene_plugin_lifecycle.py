@@ -111,7 +111,7 @@ def register(api):
         # The module is installed before its register function is called.
         import time
         deadline = time.monotonic() + 2
-        while 'partial' not in manager.states or manager.states['partial'].module is None:
+        while 'partial' not in manager.states or not hasattr(manager.states['partial'].module, 'provided'):
             assert time.monotonic() < deadline
             time.sleep(.01)
         module = manager.states['partial'].module
@@ -120,6 +120,6 @@ def register(api):
         module.finish.set(); worker.join(3)
         assert manager.get_service('partial') == 'complete object'
     finally:
-        if 'partial' in manager.states and manager.states['partial'].module:
+        if 'partial' in manager.states and hasattr(manager.states['partial'].module, 'finish'):
             manager.states['partial'].module.finish.set()
         worker.join(3); manager.close(); bus.close()

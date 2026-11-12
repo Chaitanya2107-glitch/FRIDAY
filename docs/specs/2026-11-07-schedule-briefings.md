@@ -26,6 +26,9 @@ delivery stays inside its window, including catch-up after 07:30. Explicit
 commands may repeat; skip/snooze are scoped to the most recent live offer.
 Game/class/fullscreen defer ten minutes. Legacy automatic/explicit briefing
 paths must not cause duplicate delivery or bypass weather opt-in.
+Only a pending scene transition may release a sleep brief early when that
+transition finishes. Repeated active-state snapshots preserve a fullscreen
+deferral's original retry time.
 
 Morning speech defaults on, night speech off; there is no model/provider call.
 Weather is opt-in with validated coordinates and one three-second Open-Meteo

@@ -153,6 +153,8 @@ class ControlCenter:
         ttk.Label(card, text='Connected to your FRIDAY', style='CardTitle.TLabel').pack(anchor='w')
         self.home_status = ttk.Label(card, text='Checking backend…', style='CardText.TLabel', justify='left', wraplength=360)
         self.home_status.pack(anchor='w', pady=12)
+        self.remote_status = ttk.Label(card, text='Remote OFF', style='CardText.TLabel', justify='left', wraplength=360)
+        self.remote_status.pack(anchor='w', pady=(0, 12))
         self.button(card, 'Getting started & shortcuts', lambda: self.open_guide('CONTROL_CENTER.md')).pack(anchor='w')
 
     def build_tools(self):
@@ -274,6 +276,11 @@ class ControlCenter:
         spotify = system.get('spotify', {})
         spotify_text = 'Connected (saved authorization)' if spotify.get('connected') else 'Not connected' if spotify.get('connected') is False else 'Unavailable'
         screen = system.get('screen_watch', {})
+        remote = system.get('remote', {})
+        remote_text = (f'{"ON" if remote.get("enabled") else "OFF"} · {remote.get("devices", 0)} paired devices\n'
+                       f'Last command: {remote.get("last_command") or "none"}\n{remote.get("warning", "")}')
+        if hasattr(self, 'remote_status'):
+            self.remote_status.configure(text='Remote ' + remote_text, foreground='#ff5c5c' if remote.get('warning') else MUTED)
         files, automation = state.get('files', {}), state.get('automation', {})
         self.pages['chat'].progress(automation)
         source = (f'# Live status\nChecked locally at {datetime.now():%H:%M:%S}. Configured services may still require a successful action.\n\n'
@@ -282,6 +289,7 @@ class ControlCenter:
                   f'## Desktop & voice\n{voice if desktop.get("connected") else "Desktop controller unavailable"}\n'
                   f'## Mode\n{mode}\n## Spotify\n{spotify_text}\n'
                   f'## Screen awareness\n{screen.get("state", "Unavailable")}\n'
+                  f'## Remote access\n{remote_text}\n'
                   f'## File index\n{str(files.get("files", "Unavailable")) + " files" if files else "Unavailable"}\n'
                   f'## Browser / research task\n{automation.get("state", "Unavailable")}\n{automation.get("response", "")}\n'
                   '## Computer resources\n' + '\n'.join(state.get('stats', {}).get('lines', ['Unavailable'])))

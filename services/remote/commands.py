@@ -12,18 +12,21 @@ class Command:
     handler: Callable | None
     risk: Risk
     validate: Callable
+    scope: str | None = None
 
 
 class Registry:
     def __init__(self):
         self.commands: dict[str, Command] = {}
 
-    def register(self, identity: str, handler: Callable | None, *, risk: Risk, validate: Callable):
+    def register(self, identity: str, handler: Callable | None, *, risk: Risk, validate: Callable, scope=None):
         if risk not in {'safe', 'confirm', 'blocked'} or (risk != 'blocked' and not callable(handler)):
             raise ValueError('Every command requires a valid risk level and handler.')
         if identity in self.commands:
             raise ValueError('Command already registered.')
-        self.commands[identity] = Command(handler, risk, validate)
+        if scope not in {None, 'phone_data'}:
+            raise ValueError('Unknown device scope.')
+        self.commands[identity] = Command(handler, risk, validate, scope)
 
     def get(self, identity):
         if not isinstance(identity, str) or identity not in self.commands:
@@ -68,9 +71,14 @@ def note_number(args):
 
 def build_registry():
     from . import handlers
+    from . import panel
     registry = Registry()
     for identity, handler, validate in (
-        ('status', handlers.status, no_args), ('today_schedule', handlers.today_schedule, no_args),
+        ('status', panel.status, no_args), ('schedule', panel.schedule, no_args),
+        ('events', panel.events, no_args), ('activity', panel.activity, no_args),
+        ('device', panel.this_device, no_args), ('revoke_self', panel.revoke_self, no_args),
+        ('ask', handlers.ask_friday, text_args('text', 4000)),
+        ('today_schedule', handlers.today_schedule, no_args),
         ('next_class', handlers.next_class, no_args), ('start_focus', handlers.start_focus, focus_args),
         ('stop_focus', handlers.stop_focus, no_args), ('set_scene', handlers.set_scene, text_args('name', 48)),
         ('read_todos', handlers.read_todos, no_args), ('add_note', handlers.add_note, text_args('text', 4000)),
@@ -85,4 +93,6 @@ def build_registry():
         registry.register(identity, handler, risk='confirm', validate=validate)
     for identity in ('shell', 'exec', 'read_file', 'write_file', 'install', 'change_settings', 'change_pairing', 'disable_kill_switch'):
         registry.register(identity, None, risk='blocked', validate=no_args)
+    from services.phone_signals.remote import register
+    register(registry)
     return registry

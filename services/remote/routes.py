@@ -9,6 +9,7 @@ from .commands import fields
 from .pairing import device_input
 from .security import Denied
 from .tailscale import loopback
+from .app_shell import asset, response as shell_response
 
 MAX_BODY = 16384
 AUTH_HEADERS = ('host', 'tailscale-user-login', 'x-device-id', 'x-timestamp', 'x-nonce', 'x-signature')
@@ -68,9 +69,11 @@ class BridgeSecurity:
                     or any(part in scope['path'] for part in ('%', '\\', '//', '/./', '/../'))):
                 raise Denied('ambiguous_path')
             raw_headers = scope.get('headers', [])
+            shell = asset(scope['path']) if scope['method'] == 'GET' else None
             for name in (*AUTH_HEADERS, 'origin', 'content-length', 'content-type'):
                 count = sum(key.lower() == name.encode() for key, _ in raw_headers)
-                if count > 1 or name in AUTH_HEADERS and count != 1:
+                required = ('host', 'tailscale-user-login') if shell is not None else AUTH_HEADERS
+                if count > 1 or name in required and count != 1:
                     raise Denied('ambiguous_headers')
             if any(b'_' in key for key, _ in raw_headers):
                 raise Denied('ambiguous_headers')
@@ -84,6 +87,11 @@ class BridgeSecurity:
             origin = request.headers.get('origin')
             if origin is not None and origin != 'https://' + service.magic_dns:
                 raise Denied('origin_refused')
+            if shell is not None:
+                audit.update(command='app_shell', risk='safe', result='completed')
+                await asyncio.to_thread(service.audit.ready)
+                service.check_epoch_pending(epoch)
+                return await shell_response(shell)(scope, receive, send)
             chunks, size = [], 0
             async with asyncio.timeout(10):
                 async for chunk in request.stream():
@@ -182,18 +190,20 @@ def create_router(service):
                 audit['command'] = result['command']
             elif operation == 'status':
                 fields(body)
-                audit.update(command='status', risk='safe')
-                await asyncio.to_thread(service.pairing.get, device['id'])
-                if 'safe' not in device['scopes']:
+                entry = service.registry.get('status')
+                if entry.risk != 'safe':
                     raise Denied('command_blocked')
-                result = service.status()
+                audit.update(command='status', risk=entry.risk)
+                result = (await service.command(device, dict(command='status'), epoch))['data']
             elif operation == 'pair_begin':
-                fields(body, ('token', 'public_key', 'name'))
+                fields(body, ('token', 'public_key', 'name', 'pin'), ('scopes',))
                 audit.update(command='pair_begin', risk='confirm')
                 row, options = await asyncio.to_thread(service.pairing.begin, body, service.magic_dns, passkey=True)
                 result = dict(device_id=row['id'], **options)
             elif operation == 'pair':
-                fields(body, optional=('token', 'public_key', 'name', 'registration'))
+                fields(body, optional=('token', 'public_key', 'name', 'registration', 'pin', 'scopes'))
+                if 'token' in body and 'pin' not in body:
+                    raise Denied('pin_required')
                 audit.update(command='pair', risk='confirm')
                 result = await service.pair(device, body, epoch)
             else:
@@ -209,7 +219,7 @@ def create_router(service):
             if operation in {'pair', 'pair_begin', 'pair_status'}:
                 result['proof'] = await asyncio.to_thread(service.pairing.proof, device['id'], result.get('state', 'registration'), request.headers['x-nonce'])
             audit['result'] = result.get('result', 'completed')
-            if operation not in {'pair', 'pair_begin', 'pair_status'}:
+            if operation not in {'pair', 'pair_begin', 'pair_status'} and body.get('command') != 'revoke_self':
                 await asyncio.to_thread(service.pairing.seen, device['id'])
             return JSONResponse(result)
         except Denied as error:
@@ -222,6 +232,55 @@ def create_router(service):
     @router.get('/status')
     async def status(request: Request):
         return await handle(request, 'status')
+
+    async def read_capability(request, name):
+        auth, audit = request.state.remote_auth, request.state.remote_audit
+        try:
+            fields(auth['body'])
+            entry = service.registry.get(name)
+            if entry.risk != 'safe':
+                raise Denied('command_blocked')
+            audit.update(command=name, risk=entry.risk)
+            result = await service.command(auth['device'], dict(command=name), auth['epoch'])
+            audit['result'] = result['result']
+            return JSONResponse(result['data'])
+        except Exception:
+            audit['result'] = 'refused'
+            return refused()
+
+    @router.get('/schedule')
+    async def schedule(request: Request):
+        return await read_capability(request, 'schedule')
+
+    @router.get('/activity')
+    async def activity(request: Request):
+        return await read_capability(request, 'activity')
+
+    @router.get('/device')
+    async def device(request: Request):
+        return await read_capability(request, 'device')
+
+    @router.get('/events')
+    async def events(request: Request):
+        from .streams import authorize, event_response
+        try:
+            fields(request.state.remote_auth['body'])
+            await authorize(service, request.state.remote_auth, 'events')
+            request.state.remote_audit.update(command='events', risk='safe', result='streamed')
+            return event_response(service, request)
+        except Denied:
+            return refused()
+
+    @router.post('/chat')
+    async def chat(request: Request):
+        from .streams import authorize, chat_response
+        try:
+            await authorize(service, request.state.remote_auth, 'ask')
+            response = chat_response(service, request)
+            request.state.remote_audit.update(command='ask', risk='safe', result='streamed')
+            return response
+        except Denied:
+            return refused()
 
     @router.post('/commands')
     async def command(request: Request):
@@ -243,6 +302,8 @@ def create_router(service):
     async def pair_status(request: Request):
         return await handle(request, 'pair_status')
 
+    from services.phone_signals.remote import router as phone_router
+    router.include_router(phone_router(service))
     return router
 
 

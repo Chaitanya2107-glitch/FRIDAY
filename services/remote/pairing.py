@@ -49,7 +49,7 @@ class Pairing:
                             or not isinstance(row.get('created'), (int, float))
                             or not isinstance(row.get('last_seen'), (int, float))
                             or not isinstance(row.get('scopes'), list)
-                            or any(scope not in {'safe', 'confirm'} for scope in row['scopes'])):
+                            or any(scope not in {'safe', 'confirm', 'phone_data'} for scope in row['scopes'])):
                         raise ValueError()
                     self.devices[row['id']] = row
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -103,16 +103,23 @@ class Pairing:
 
     def begin(self, body, dns, *, passkey=False):
         candidate = device_input(body)
+        from .pin import pin_record
+        pin = pin_record(body['pin']) if 'pin' in body else None
+        requested = body.get('scopes', [])
+        if not isinstance(requested, list) or requested not in ([], ['phone_data']):
+            raise Denied('invalid_scopes')
         with self.lock:
             self.check_token(body.get('token'))
             self.pending = {key: row for key, row in self.pending.items() if row['expires'] > self.clock()}
             if len(self.pending) >= 8 or len(self.devices) >= 64 or candidate['id'] in self.devices:
                 raise Denied('pairing_limit')
             self.grant = None  # Consume before any prompt; a rejected pairing also burns the token.
-            row = dict(**candidate, created=self.clock(), last_seen=0, scopes=['safe', 'confirm'],
+            row = dict(**candidate, created=self.clock(), last_seen=0, scopes=['safe', 'confirm', *requested],
                        expires=self.clock() + 120, phase='ready', pairing_id=secrets.token_hex(16))
             options, state = registration_begin(dns, row) if passkey else ({}, None)
             row['registration_state'] = state
+            if pin:
+                row['pin'] = pin
             self.pending[row['id']] = row
             return copy.deepcopy(row), options
 
@@ -137,7 +144,9 @@ class Pairing:
             device = {key: row[key] for key in ('id', 'name', 'public_key', 'created', 'last_seen', 'scopes')}
             if approval:
                 device['approval'] = approval
-            else:
+            if 'pin' in row:
+                device['pin'] = row['pin']
+            elif not approval:
                 device['scopes'] = ['safe']
             previous = dict(self.devices)
             self.devices[identity] = device

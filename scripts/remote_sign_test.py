@@ -98,9 +98,13 @@ def main():
     client = Client(url, key, setup.get('owner_login') if options.local else None)
     try:
         if qr:
-            response, nonce = client.request('POST', '/v1/pair', {'token': qr['token'], 'name': options.name, 'public_key': client.pem})
+            pin = getpass.getpass('Set a 6-digit approval PIN (hidden): ')
+            if len(pin) != 6 or not pin.isascii() or not pin.isdigit():
+                raise ValueError('PIN must have exactly six digits.')
+            response, nonce = client.request('POST', '/v1/pair', {'token': qr['token'], 'name': options.name, 'public_key': client.pem, 'pin': pin})
+            pin = None
             client.verify_server(response, nonce, qr['fingerprint'])
-            print('Approve the pairing prompt on the laptop. This software key supports safe commands only.')
+            print('Approve the pairing prompt on the laptop. Confirm-risk commands require the approval PIN.')
             deadline = min(time.time() + 120, qr['expires'])
             while time.time() < deadline:
                 response, nonce = client.request('GET', '/v1/pair/status')

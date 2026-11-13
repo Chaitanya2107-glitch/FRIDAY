@@ -63,6 +63,8 @@ class RemoteService:
         paths = [root / 'main.py', root / 'requirements.txt']
         for folder in ('core', 'services', 'interfaces', 'providers', 'plugins'):
             paths.extend((root / folder).rglob('*.py'))
+        for folder in ('island/remote', 'island/remote-dist'):
+            paths.extend(path for path in (root / folder).rglob('*') if path.is_file())
         return tuple(sorted((str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in paths if path.is_file()))
 
     def listening_addresses(self):
@@ -215,8 +217,7 @@ class RemoteService:
         with self.effects:
             self.check(epoch, device)
             entry = self.registry.get(command)
-            if entry.risk == 'blocked' or entry.risk not in device['scopes']:
-                raise Denied('command_blocked')
+            self.authorize_entry(device, entry)
             from .handlers import approval_binding, effect_lock
             with effect_lock(command):
                 if binding is not None and approval_binding(command, args) != binding:
@@ -233,8 +234,7 @@ class RemoteService:
     async def command(self, device, body, epoch):
         fields(body, ('command',), ('args',))
         entry = self.registry.get(body['command'])
-        if entry.risk == 'blocked' or entry.risk not in device['scopes']:
-            raise Denied('command_blocked')
+        await asyncio.to_thread(self.authorize_entry, device, entry)
         args = await asyncio.to_thread(entry.validate, body.get('args', {}))
         await asyncio.to_thread(self.check, epoch, device)
         if entry.risk == 'confirm':
@@ -252,6 +252,11 @@ class RemoteService:
         if succeeded:
             self.last_command = body['command']
         return dict(result='completed' if succeeded else 'refused', data=result)
+
+    def authorize_entry(self, device, entry):
+        current = self.pairing.get(device['id'])
+        if entry.risk == 'blocked' or entry.risk not in current['scopes'] or entry.scope and entry.scope not in current['scopes']:
+            raise Denied('command_blocked')
 
     @staticmethod
     def prepare_binding(command, args):
@@ -271,7 +276,7 @@ class RemoteService:
         if not isinstance(body['challenge'], str) or not isinstance(body['approval'], dict):
             raise Denied('invalid_approval')
         await asyncio.to_thread(self.check, epoch, device)
-        row, counter = await asyncio.to_thread(self.approvals.consume, body['challenge'], device, body['approval'], epoch)
+        row, counter = await asyncio.to_thread(self.approvals.consume, body['challenge'], device, body['approval'], epoch, self.pairing)
         entry = self.registry.get(row['command'])
         if entry.risk != 'confirm':
             raise Denied('command_blocked')
@@ -311,7 +316,8 @@ class RemoteService:
 
         async def ask():
             try:
-                accepted = await asyncio.to_thread(self.confirm, f'Pair {row["name"]}?\n\nAllow this phone to use remote commands? Yes / No')
+                sharing = '\nAlso permit sending explicitly enabled phone signals (phone_data).' if 'phone_data' in row['scopes'] else ''
+                accepted = await asyncio.to_thread(self.confirm, f'Pair {row["name"]}?\n\nAllow this phone to use remote commands?{sharing} Yes / No')
                 await asyncio.to_thread(self.check, epoch)
                 await asyncio.to_thread(self.finish_pair, row, approval, epoch, accepted)
             except (Denied, OSError):

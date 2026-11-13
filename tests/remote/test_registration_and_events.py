@@ -21,7 +21,7 @@ def pair_start(remote):
     pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     device = dict(id=key_id(pem), public_key=pem)
     qr = remote.service.pairing.issue('https://laptop.example.ts.net')
-    raw = json.dumps(dict(token=qr['token'], name='Passkey phone', public_key=pem)).encode()
+    raw = json.dumps(dict(token=qr['token'], name='Passkey phone', public_key=pem, pin='123456')).encode()
     response = remote.client.post('/remote/v1/pair/begin', content=raw,
         headers=remote.signed('POST', '/remote/v1/pair/begin', raw, key=key, device=device))
     assert response.status_code == 200

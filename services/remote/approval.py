@@ -54,10 +54,12 @@ class Approvals:
 
     def create(self, dns, device, command, args, epoch, binding=None):
         credential = device.get('approval', {}).get('credential')
-        if not credential:
+        if not credential and not device.get('pin'):
             raise Denied('user_verification_unavailable')
-        options, state = server(dns).authenticate_begin(
-            [AttestedCredentialData(unb64(credential))], user_verification='required')
+        options, state = ({}, None)
+        if credential:
+            options, state = server(dns).authenticate_begin(
+                [AttestedCredentialData(unb64(credential))], user_verification='required')
         with self.lock:
             self.pending = {key: row for key, row in self.pending.items()
                             if row['expires'] > self.clock() and row['device'] != device['id']}
@@ -65,13 +67,20 @@ class Approvals:
             self.pending[identity] = dict(device=device['id'], command=command,
                 args=json.loads(json.dumps(args, allow_nan=False)), epoch=epoch, state=state,
                 dns=dns, expires=self.clock() + 60, binding=binding or {})
-        return dict(challenge=identity, expires_in=60, command=command, args=args, **dict(options))
+        return dict(challenge=identity, expires_in=60, command=command, args=args,
+                    pin_required=bool(device.get('pin')), **dict(options))
 
-    def consume(self, identity, device, response, epoch):
+    def consume(self, identity, device, response, epoch, pairing=None):
         with self.lock:
             row = self.pending.pop(identity, None)
         if not row or row['device'] != device['id'] or row['epoch'] != epoch or self.clock() >= row['expires']:
             raise Denied('approval_expired')
+        if device.get('pin'):
+            from .commands import fields
+            from .pin import verify_pin
+            fields(response, ('pin',))
+            verify_pin(pairing, device['id'], response['pin'])
+            return row, None
         try:
             value = AuthenticationResponse.from_dict(response)
             no_cross_origin(value.response.client_data)

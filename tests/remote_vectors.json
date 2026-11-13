@@ -1,0 +1,32 @@
+[
+  {
+    "method": "get",
+    "path": "/remote/v1/status",
+    "body": "",
+    "timestamp": "1800000000",
+    "nonce": "abcdefghijklmnop",
+    "canonical": "GET\n/remote/v1/status\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n1800000000\nabcdefghijklmnop",
+    "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEA1d1XzgFziX54Gzf4bcx9xr31icW\nuLw5AKBipMRh+MNULTRGg4aExDenLQeUkMFwORllc/FEz998dQtVzLVpYQ==\n-----END PUBLIC KEY-----\n",
+    "signature": "hyl1Top-mLJpIZz6GffRhYJ3FblcmT7CvcRlEbYhCJcnRNMS6D-yAV0n5GGJegOVmuiBg2fXARNvCoDe4lKhtw"
+  },
+  {
+    "method": "POST",
+    "path": "/remote/v1/commands",
+    "body": "{\"command\":\"ask\",\"args\":{\"text\":\"Hello, Mochi ☾ — café\"}}",
+    "timestamp": "1800000001",
+    "nonce": "0123456789abcdef",
+    "canonical": "POST\n/remote/v1/commands\n2aac482c9843b5e1eced9e5eb3101718039db0b784b05b0858387399174533bf\n1800000001\n0123456789abcdef",
+    "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEA1d1XzgFziX54Gzf4bcx9xr31icW\nuLw5AKBipMRh+MNULTRGg4aExDenLQeUkMFwORllc/FEz998dQtVzLVpYQ==\n-----END PUBLIC KEY-----\n",
+    "signature": "yYUt9pTpUICE6p4nY4EbRgvtoEkb0F3FvIwJEJkrSr5MSRfs9RC2IAdU2HEFRq5rtBtGFV8sto_3G9Nn6lFXqg"
+  },
+  {
+    "method": "POST",
+    "path": "/remote/v1/approve",
+    "body": "{ \"challenge\": \"sample\", \"approval\": {\"pin\":\"123456\"} }",
+    "timestamp": "1800000002",
+    "nonce": "nonce_with-dash_1234",
+    "canonical": "POST\n/remote/v1/approve\nb11fb06f72cca838d525704f47a7bd7371f9160ccd9385c62d706dfd34e4e71b\n1800000002\nnonce_with-dash_1234",
+    "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEA1d1XzgFziX54Gzf4bcx9xr31icW\nuLw5AKBipMRh+MNULTRGg4aExDenLQeUkMFwORllc/FEz998dQtVzLVpYQ==\n-----END PUBLIC KEY-----\n",
+    "signature": "5TQ5d75f3ZGqms6OKqquHooHVdyUN11FSuyp_PI2TkG7M4RmceILHY3HFwuTV2iVHbvADdSiJ-TBHf7idBPBSA"
+  }
+]

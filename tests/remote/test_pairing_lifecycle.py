@@ -44,7 +44,7 @@ def test_laptop_must_approve_before_activation(remote):
         return release.wait(3)
     remote.service.confirm = confirm
     grant = remote.service.pairing.issue('https://laptop.example.ts.net')
-    body = json.dumps(dict(token=grant['token'], name='New phone', public_key=device['public_key'])).encode()
+    body = json.dumps(dict(token=grant['token'], name='New phone', public_key=device['public_key'], pin='123456')).encode()
     try:
         response = remote.client.post('/remote/v1/pair', content=body,
             headers=remote.signed('POST', '/remote/v1/pair', body, key=key, device=device))

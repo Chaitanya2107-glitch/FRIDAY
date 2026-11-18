@@ -83,6 +83,9 @@ def _save_state(**changes) -> None:
 
 
 def nudges_active(now_ts: float | None = None) -> bool:
+    from services.mind.care_safeguard import active
+    if active(now_ts):
+        return False
     state = load_state()
     return config.NUDGES_ENABLED and not state.get("nudges_off") and (now_ts or time.time()) >= state.get("paused_until", 0)
 
@@ -202,6 +205,19 @@ async def _check_mode_left_on(now: datetime) -> None:
 
 async def tick(now: datetime | None = None) -> None:
     now = now or datetime.now()
+    from services.mind import care_safeguard, coaching_runtime
+    if care_safeguard.active(now):
+        _held.clear()
+        return
+    try:
+        await coaching_runtime.tick(now)
+    except Exception as error:
+        logger.debug('Private coaching tick unavailable (%s)', type(error).__name__)
+    from services.presence import runtime as presence_runtime
+    try:
+        await presence_runtime.tick(now)
+    except Exception as error:
+        logger.debug('Presence tick unavailable (%s)', type(error).__name__)
     from services.mind import reasoning
     await reasoning.review(now)
     with notifications.collect(now) as batch:
@@ -250,6 +266,13 @@ async def _tick(now: datetime) -> None:
         except Exception as error:
             logger.warning("Learning-data refresh unavailable: %s", type(error).__name__)
     await telegram_summaries.tick(now)  # daily + nightly + weekly, even while busy or at the laptop
+    try:
+        from services.mind.phone_patterns import analyze
+        from services.activity.attention import where_is_attention
+        await asyncio.to_thread(analyze, now)
+        await asyncio.to_thread(where_is_attention, now)
+    except Exception as error:
+        logger.debug('Phone observations unavailable (%s)', type(error).__name__)
     if not busy:
         while _held:  # what waited while the user was gaming / fullscreen
             await _deliver(_held.pop(0).text)
@@ -321,7 +344,9 @@ async def _tick(now: datetime) -> None:
     publish_event('system.battery_reading', {'percent': readings.battery, 'plugged': readings.plugged_in})
     if nudges_active(now.timestamp()):
         notifications.observe(readings)
-        for nudge in _nudger.check(readings, now, bool(load_state().get("eye_breaks"))):
+        from services.mind.care import store as care_store
+        legacy_eyes = bool(load_state().get("eye_breaks")) and not care_store().settings('eye_rest')
+        for nudge in _nudger.check(readings, now, legacy_eyes):
             if busy and not nudge.urgent:
                 if nudge.keep:
                     _held.append(nudge)  # shown when the game / fullscreen app is closed

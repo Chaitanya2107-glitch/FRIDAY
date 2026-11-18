@@ -94,6 +94,9 @@ class Briefings:
         return names, transitioning
 
     def _blocked(self, reason):
+        from services.mind.care_safeguard import active
+        if reason != 'manual' and active(self.now()):
+            return True
         names, transitioning = self._scene_names()
         if transitioning:
             return True
@@ -121,6 +124,11 @@ class Briefings:
         with self.lock:
             today = day or self.now().date().isoformat()
             explicit = reason in {'manual', 'snooze'}
+            from services.mind.care_safeguard import active
+            if reason != 'manual' and active(self.now()):
+                if self.state['pending'].pop(kind, None):
+                    self._save()
+                return result('Automatic briefings are paused.')
             if not explicit and self.state['delivered'].get(kind) == today:
                 return result('This brief was already delivered today.')
             if not explicit and not self.api.settings.get('briefings.enabled', True):
@@ -160,7 +168,7 @@ class Briefings:
             self.api.set_mood('waving' if kind == 'morning' else 'sleepy', duration_s=3 if kind == 'morning' else 5, priority=2)
             if self._speaks(kind):
                 def speak(stop):
-                    if not stop.is_set() and self.has_offer(offer['id']) and not self._blocked(reason):
+                    if not stop.is_set() and not active(self.now()) and self.has_offer(offer['id']) and not self._blocked(reason):
                         self.api.speak(text)
                 self.api.run_background(speak)
             if kind == 'morning':

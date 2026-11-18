@@ -90,7 +90,7 @@ def window(monkeypatch, tk_root):
 
 def test_catalog_covers_every_production_family_and_loads_all_guides():
     by_key = {item.key: item for item in catalog.CAPABILITIES}
-    assert len(by_key) == len(catalog.CAPABILITIES) == 64
+    assert len(by_key) == len(catalog.CAPABILITIES) == len(catalog.PHRASE_GROUPS) + len(catalog.ADDITIONS)
     for family, commands in catalog.PHRASE_GROUPS.items():
         item = by_key[family]
         assert item.description and item.how and item.requires and item.guide in catalog.GUIDES

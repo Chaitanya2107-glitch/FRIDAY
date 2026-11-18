@@ -20,6 +20,7 @@ class DesktopState(BaseModel):
     listening: bool = False
     wake: bool = False
     conversation: bool = False
+    talk: bool = False
     speak: bool = True
     speak_typed: bool = False
     provider: str | None = Field(default=None, max_length=32)
@@ -51,6 +52,7 @@ class DisplayEvent(BaseModel):
     text: str = Field(max_length=4000)
     awaiting_reply: bool = False
     transient: bool = False
+    private: bool = False
 
 
 @router.post('/island/event')
@@ -59,5 +61,8 @@ def display_event(body: DisplayEvent, x_friday_island: str = Header(default='', 
     from services.friday_island_server import events
     if not events.connected():
         return {'accepted': False}
-    events.publish(body.kind, body.text, awaiting_reply=body.awaiting_reply, transient=body.transient)
+    if body.private:
+        events.publish_private(body.text, body.transient)
+    else:
+        events.publish(body.kind, body.text, awaiting_reply=body.awaiting_reply, transient=body.transient)
     return {'accepted': True}

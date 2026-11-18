@@ -20,7 +20,8 @@ test('slash aliases reuse existing routes, preserve exact text and validate argu
   assert.equal(resolveSlash('/type ' + literal).text, 'type ' + literal);
   assert.equal(resolveSlash('/find budget').text, '\\f budget');
   assert.equal(resolveSlash('/copy Keep CAPS').text, 'copy Keep CAPS to clipboard');
-  assert.ok(!slashSuggestions('/computer').length);
+  assert.equal(resolveSlash('/computer yes').text, '\\c yes');
+  assert.equal(resolveSlash('/features').view, 'features');
   assert.equal(resolveSlash('/next').text, 'next');
   assert.equal(resolveSlash('/shutdown 30').text, 'shut down in 30 minutes');
   assert.equal(resolveSlash('/settings').view, 'settings');

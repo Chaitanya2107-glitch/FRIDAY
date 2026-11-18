@@ -201,9 +201,11 @@ class Focus:
             self.api.publish('focus.done', self._payload(state, completed=True, elapsed_s=state['duration_s'], reason='completed'))
             if next_state:
                 self.api.publish('focus.started', self._payload(next_state))
-            self.api.notify('Focus complete' if state['phase'] == 'focus' else 'Break complete',
-                            f"{state['label']} finished." + (f" {next_state['label']} has started." if next_state else ''), 'critical')
-            self.api.set_mood('celebrating', 6, priority=3)
+            from services.mind.care_safeguard import active
+            if not active(self.clock.now()):
+                self.api.notify('Focus complete' if state['phase'] == 'focus' else 'Break complete',
+                                f"{state['label']} finished." + (f" {next_state['label']} has started." if next_state else ''), 'critical')
+                self.api.set_mood('celebrating', 6, priority=3)
 
     def pause(self):
         self.tick()

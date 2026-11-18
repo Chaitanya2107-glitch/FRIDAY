@@ -44,6 +44,12 @@ def plain(raw: dict) -> str:
     """The raw data in her own plain words — what she says when no model can word it."""
     r = {k: v for k, v in raw.items() if v not in (None, "", [])}
     kind = r.get("kind")
+    if kind in {'care', 'goal_coaching', 'coaching'}:
+        return str(raw['answer'])
+    if kind == 'phone_answer':
+        return str(raw['answer'])
+    if kind == 'phone_pattern':
+        return f"I noticed a possible phone {raw.get('finding', 'usage')} pattern ({round(raw.get('seconds', 0)/60)} recorded minutes). Is that meaningful, or is there another explanation?"
     window = f" ({r['its_window']})" if r.get("its_window") else ""
     remembered = f" {r['last_time_the_boss_said']}, like last time?" if r.get("last_time_the_boss_said") else ""
     if r.get("questions_tonight"):  # the first of her end-of-day questions: she says how many are coming
@@ -121,6 +127,8 @@ def _faithful(line: str, raw: dict) -> bool:
 
 async def say(raw: dict) -> str:
     """One line in her voice for `raw`: worded by the model when there is one, by plain() when not."""
+    if raw.get('kind') in {'phone_pattern', 'phone_answer', 'care', 'goal_coaching', 'coaching'} or raw.get('phone_private'):
+        return plain(raw)
     from providers.failover import complete_with_failover
 
     if config.AI_ASSIST_ONLY:

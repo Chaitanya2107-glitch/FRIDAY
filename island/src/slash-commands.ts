@@ -4,6 +4,11 @@ interface SlashCommand { name: string; detail: string; command: string; argument
 export type SlashRuntime = 'full' | 'standalone' | 'offline';
 const commands: SlashCommand[] = [
   { name: 'help', detail: 'Show all commands', command: '' },
+  { name: 'features', detail: 'Browse every FRIDAY capability', command: '', view: 'features' },
+  { name: 'computer', detail: 'Supervised desktop task or control', command: '\\c {args}', argument: 'task, yes, no, status or stop' },
+  { name: 'care', detail: 'Private care settings', command: 'care status' },
+  { name: 'goals', detail: 'Private coaching goals', command: 'my coaching goals' },
+  { name: 'presence', detail: 'Current uncertain presence estimate', command: 'where am i' },
   { name: 'status', detail: 'FRIDAY status and controls', command: '', view: 'friday' },
   { name: 'history', detail: 'Last three exchanges', command: '', view: 'friday' },
   { name: 'settings', detail: 'Island settings', command: '', view: 'settings' },

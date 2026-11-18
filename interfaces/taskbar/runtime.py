@@ -22,7 +22,7 @@ class BackendRuntime:
         self.root = root.resolve()
         self.process: subprocess.Popen | None = None
         self.busy = False
-        self.message = "Click the taskbar button to start FRIDAY."
+        self.message = "Open the Island to start FRIDAY."
         self._lock = threading.Lock()
         self._closing = threading.Event()
         self._stop_event = None

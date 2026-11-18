@@ -95,4 +95,8 @@ def build_registry():
         registry.register(identity, None, risk='blocked', validate=no_args)
     from services.phone_signals.remote import register
     register(registry)
+    from .phone_transport import register as transport_register
+    transport_register(registry)
+    from .coaching import register as coaching_register
+    coaching_register(registry)
     return registry

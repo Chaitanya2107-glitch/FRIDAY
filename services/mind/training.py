@@ -12,6 +12,10 @@ urgent_delivery = ContextVar("urgent_training_notice", default=False)
 
 
 def question(line: dict, where: str, at: float) -> int | None:
+    from services.mind import thoughts
+    from services.mind.phone_patterns import private_thought
+    if line.get('phone_private') or (line.get('raw') or {}).get('kind') == 'phone_pattern' or (line.get('thought') and private_thought(thoughts.get(line['thought']))):
+        return None
     try:
         from services.mind import thoughts
         from services.mind.cognition_context import live_state

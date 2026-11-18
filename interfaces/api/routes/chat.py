@@ -79,6 +79,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     private: bool = False  # desktop must not persist/mirror private phone replies
+    allow_speech: bool = True
     response: str
     provider: str  # the provider that actually answered (may be a fallback)
     model: str
@@ -104,12 +105,46 @@ async def chat(request: ChatRequest):
     Main chat endpoint.
     Send a message, get a response. Memory is handled automatically.
     """
+    from services.mind import coaching_commands, care_safeguard
+    coaching = await coaching_commands.try_command(request.message)
+    if coaching is not None:
+        if coaching.message != care_safeguard.RESPONSE:
+            cognition_service.reply(coaching.message, safe_text=coaching_commands.PRIVATE_MEMORY)
+        if request.speak and coaching.speech:
+            _speak_in_background(coaching.speech, cache=False, local_only=True)
+        return ChatResponse(response=coaching.message, provider='local', model='coaching', tokens_used=0,
+                            private=True, allow_speech=bool(coaching.speech), action_success=coaching.success,
+                            awaiting_reply=coaching_commands.pending())
     from services.remote.context import conversation_only
     if conversation_only.get():
         from services.remote.conversation import answer
         result = await answer(request.message)
         return ChatResponse(response=result.content, provider=result.provider, model=result.model,
                             tokens_used=result.tokens_used, private=True)
+    from services.presence.commands import try_command as presence_command
+    presence_result = await presence_command(request.message)
+    if presence_result is not None:
+        cognition_service.reply(presence_result.message, safe_text=presence_result.memory_message)
+        return ChatResponse(response=presence_result.message, provider='local', model='presence', tokens_used=0,
+                            private=True, action_success=presence_result.success)
+    from services.remote.companion_commands import try_command as companion_command
+    companion = await companion_command(request.message)
+    if companion is not None:
+        cognition_service.reply(companion.message, safe_text=companion.memory_message)
+        return ChatResponse(response=companion.message, provider='local', model='companion', tokens_used=0,
+                            private=True, action_success=companion.success)
+    from services.activity import phone_commands
+    from services.mind import talk
+    phone_answer = phone_commands.pending_reply(request.message)
+    if phone_commands.match_command(request.message) or phone_answer:
+        if phone_commands.match_command(request.message):
+            local_phone = await phone_commands.handle(request.message)
+            answer_text = local_phone.message
+        else:
+            talk.hear(request.message)
+            answer_text = 'Your phone-pattern answer was handled locally.'
+        cognition_service.reply(answer_text, safe_text=phone_commands.PRIVATE_MEMORY)
+        return ChatResponse(response=answer_text, provider='local', model='phone_activity', tokens_used=0, private=True)
     from services.remote.local import try_command as try_remote_command
     remote_result = await try_remote_command(request.message)
     if remote_result is not None:
@@ -290,6 +325,7 @@ async def chat(request: ChatRequest):
             model="computation_engine" if calculation else "system_control",
             tokens_used=0,
             action_success=success,
+            private=system_result.memory_message is not None,
             awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get()),
             keyboard=list(system_result.keyboard),
         )

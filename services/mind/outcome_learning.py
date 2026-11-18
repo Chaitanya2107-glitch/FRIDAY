@@ -1,5 +1,6 @@
 """Expected versus observed settings; historical receipts never grant action permission."""
 import json
+import math
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -193,6 +194,98 @@ class OutcomeLearning:
             return next((row['advice'] for row in self.lessons() if row['family'] == self.family(job)), '')
         except (OSError, sqlite3.Error):
             return ''
+
+    @contextmanager
+    def _private_db(self):
+        # Separate tables never participate in legacy action evidence or model context.
+        with self.store._lock, self.store._connect() as db:
+            db.execute('PRAGMA secure_delete=ON')
+            db.execute('CREATE TABLE IF NOT EXISTS private_experiment_meta(id INTEGER PRIMARY KEY,epoch INTEGER NOT NULL)')
+            db.execute('INSERT OR IGNORE INTO private_experiment_meta VALUES(1,0)')
+            db.execute('''CREATE TABLE IF NOT EXISTS private_numeric_experiments(
+                id TEXT PRIMARY KEY,definition TEXT NOT NULL,baseline REAL,observed REAL,
+                start REAL NOT NULL,end REAL NOT NULL,source_links TEXT NOT NULL,
+                state TEXT NOT NULL,epoch INTEGER NOT NULL,created REAL NOT NULL,finished REAL)''')
+            db.commit()
+            db.execute('BEGIN IMMEDIATE')
+            yield db
+
+    @staticmethod
+    def _private_number(value):
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 10**12):
+            raise ValueError('Experiment observations must be finite nonnegative numbers or unavailable.')
+        return value
+
+    @staticmethod
+    def _private_time(value):
+        value = value.timestamp() if isinstance(value, datetime) else value
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError('Invalid experiment time.')
+        return float(value)
+
+    @staticmethod
+    def _private_view(row):
+        value = dict(row)
+        value['definition'] = json.loads(value['definition'])
+        value['source_links'] = json.loads(value['source_links'])
+        value['delta'] = (value['observed'] - value['baseline'] if value['observed'] is not None and value['baseline'] is not None else None)
+        value['meaning'] = 'Recorded comparison with your own baseline; not proof the experiment caused the difference.'
+        return value
+
+    def propose_private_experiment(self, definition, baseline, start, end, source_links, *, now=None):
+        if not isinstance(definition, dict) or not definition or len(json.dumps(definition, allow_nan=False).encode()) > 4096:
+            raise ValueError('Use a short local experiment definition.')
+        baseline = self._private_number(baseline)
+        start, end = self._private_time(start), self._private_time(end)
+        if not 0 < end - start <= 31 * 86400:
+            raise ValueError('Choose an experiment lasting at most 31 days.')
+        if not isinstance(source_links, (list, tuple)) or len(source_links) > 100 or len(json.dumps(source_links, allow_nan=False).encode()) > 12000:
+            raise ValueError('Use bounded source links.')
+        at = self._private_time(now or datetime.now())
+        with self._private_db() as db:
+            db.execute("UPDATE private_numeric_experiments SET state='expired' WHERE state='proposed' AND end<=?", (at,))
+            if db.execute("SELECT COUNT(*) FROM private_numeric_experiments WHERE state IN ('proposed','confirmed')").fetchone()[0] >= 10:
+                raise ValueError('Complete or cancel an earlier experiment first.')
+            epoch = db.execute('SELECT epoch FROM private_experiment_meta WHERE id=1').fetchone()[0]
+            identity = uuid.uuid4().hex
+            db.execute('INSERT INTO private_numeric_experiments VALUES(?,?,?,NULL,?,?,?,?,?,?,NULL)',
+                       (identity, json.dumps(definition, sort_keys=True, allow_nan=False), baseline, start, end,
+                        json.dumps(list(source_links), allow_nan=False), 'proposed', epoch, at))
+        return identity
+
+    def confirm_private_experiment(self, identity, *, now=None):
+        at = self._private_time(now or datetime.now())
+        with self._private_db() as db:
+            row = db.execute('SELECT * FROM private_numeric_experiments WHERE id=? AND epoch=(SELECT epoch FROM private_experiment_meta WHERE id=1)', (identity,)).fetchone()
+            if not row or row['state'] not in {'proposed', 'confirmed'} or at >= row['end']:
+                return None
+            db.execute("UPDATE private_numeric_experiments SET state='confirmed' WHERE id=?", (identity,))
+            return self._private_view(db.execute('SELECT * FROM private_numeric_experiments WHERE id=?', (identity,)).fetchone())
+
+    def finish_private_experiment(self, identity, observed, source_links, now=None):
+        observed, at = self._private_number(observed), self._private_time(now or datetime.now())
+        if not isinstance(source_links, (list, tuple)) or len(source_links) > 100 or len(json.dumps(source_links, allow_nan=False).encode()) > 12000:
+            raise ValueError('Use bounded observation source links.')
+        with self._private_db() as db:
+            row = db.execute('SELECT * FROM private_numeric_experiments WHERE id=? AND epoch=(SELECT epoch FROM private_experiment_meta WHERE id=1)', (identity,)).fetchone()
+            if not row or row['state'] != 'confirmed' or at < row['end']:
+                return None
+            links = {'baseline': json.loads(row['source_links']), 'observed': list(source_links)}
+            db.execute('UPDATE private_numeric_experiments SET state=?,observed=?,source_links=?,finished=? WHERE id=?',
+                       ('measured' if observed is not None else 'unavailable', observed, json.dumps(links), at, identity))
+            return self._private_view(db.execute('SELECT * FROM private_numeric_experiments WHERE id=?', (identity,)).fetchone())
+
+    def private_experiments(self):
+        with self._private_db() as db:
+            return [self._private_view(row) for row in db.execute('SELECT * FROM private_numeric_experiments ORDER BY created DESC LIMIT 100')]
+
+    def forget_private_phone(self, device):
+        from .goals_sources import linked
+        with self._private_db() as db:
+            rows = db.execute('SELECT id,definition,source_links FROM private_numeric_experiments').fetchall()
+            for row in rows:
+                if linked(json.loads(row['definition']), device) or linked(json.loads(row['source_links']), device):
+                    db.execute('DELETE FROM private_numeric_experiments WHERE id=?', (row['id'],))
 
 
 outcome_learning = OutcomeLearning(cognition)

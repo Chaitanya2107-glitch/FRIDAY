@@ -34,7 +34,7 @@ class Target(BaseModel):
 class Request(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     v: Literal[1]
-    type: Literal["handshake", "command", "suggestions", "plugin_list", "plugin_widget", "plugin_action", "status", "runtime_action", "history", "keyboard_apply", "projects"]
+    type: Literal["handshake", "command", "suggestions", "plugin_list", "plugin_widget", "plugin_action", "status", "runtime_action", "history", "keyboard_apply", "projects", "desktop_tools"]
     id: str = Field(min_length=1, max_length=64)
     text: str = Field(default="", max_length=4000)
     token: str = Field(default="", max_length=128)
@@ -54,6 +54,8 @@ class Bridge:
         self.clients: set[ServerConnection] = set()
         self.runtime = runtime
         self.http_port = None
+        from .tools import DesktopTools
+        self.tools = DesktopTools()
 
     @staticmethod
     async def send(ws: ServerConnection, kind: str, id: str | None = None, **data):
@@ -90,10 +92,16 @@ class Bridge:
                 state = await self.runtime.snapshot(cursor)
                 cursor, epoch = state['last'], state['epoch']
                 await self.send(ws, 'runtime_state', **state)
+                from .events import take_private
+                for reply in take_private(ws):
+                    if not state.get('display_suppressed'):
+                        await self.send(ws, 'private_response', **reply)
             await asyncio.sleep(1 if self.runtime else 5)
 
     async def command(self, ws, request, config):
         try:
+            if self.runtime:
+                await self.tools.outcome(ws, request.text)
             head = request.text.strip().split(maxsplit=1)
             if self.runtime and (not head or head[0].casefold() not in self.registry.commands
                                  or (head[0].casefold() == 'next' and len(head) > 1)
@@ -109,6 +117,11 @@ class Bridge:
                         operation.finish('completed' if result.get('ok') else 'failed')
                 else:
                     result = await asyncio.wait_for(self.engine.execute(request.text, config), 60)
+            if self.runtime:
+                if result.get('private') and result.get('awaiting_reply'):
+                    self.tools.private_pending.add(ws)
+                else:
+                    self.tools.private_pending.discard(ws)
             await self.send(ws, 'command_result', request.id, **result)
         except ConnectionClosed:
             pass
@@ -171,10 +184,21 @@ class Bridge:
                         if work and not work.done():
                             raise ValueError('A command is already running')
                         work = asyncio.create_task(self.command(ws, request, config))
-                    elif request.type in {'runtime_action', 'history', 'keyboard_apply', 'projects'}:
+                    elif request.type in {'runtime_action', 'history', 'keyboard_apply', 'projects', 'desktop_tools'}:
                         if self.runtime is None:
                             raise ValueError('Full FRIDAY runtime required')
-                        if request.type == 'runtime_action':
+                        if request.type == 'desktop_tools':
+                            if request.action in {'prediction_closed', 'prediction_sent'}:
+                                await self.tools.outcome(ws, request.text if request.action == 'prediction_sent' else None)
+                                result = {'ok': True}
+                            else:
+                                from .runtime import local_turn
+                                with local_turn():
+                                    if request.action in {'files_open', 'files_reveal'} and (await self.runtime.action('local_ready')).get('pending'):
+                                        result = {'ok': False, 'text': 'Finish or cancel the pending FRIDAY request first.'}
+                                    else:
+                                        result = await self.tools.request(ws, request.action, request.item, request.value)
+                        elif request.type == 'runtime_action':
                             result = await self.runtime.action(request.action, request.value)
                         elif request.type == 'history':
                             result = await self.runtime.history()
@@ -199,8 +223,9 @@ class Bridge:
                             result = await asyncio.wait_for(handler(request.action, request.item, request.value, request.revision), 60)
                         await self.send(ws, 'command_result', request.id, **result)
                     elif request.type == "suggestions":
+                        personal = await self.tools.suggestions(ws) if self.runtime and not request.text.strip() else []
                         await self.send(ws, "suggestions", request.id,
-                                        items=await asyncio.to_thread(self.engine.suggestions, request.text, config))
+                                        items=(personal + await asyncio.to_thread(self.engine.suggestions, request.text, config))[:6])
                     elif request.type == "plugin_list":
                         await self.send(ws, "plugin_list", request.id, plugins=self.registry.manifests())
                     elif request.type == "plugin_widget":
@@ -231,6 +256,7 @@ class Bridge:
             if work:
                 # Disconnect never replays actions; let an already submitted action finish.
                 await asyncio.gather(work, return_exceptions=True)
+            self.tools.disconnect(ws)
             if self.runtime:
                 self.runtime.disconnect(ws)
             if ticker:

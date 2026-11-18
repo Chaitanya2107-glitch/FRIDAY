@@ -1,4 +1,5 @@
 """Allowlisted native-phone capabilities, using the existing P0 execution fence."""
+import sqlite3
 from . import schema
 from .store import PhoneStore
 from services.remote.commands import no_args
@@ -10,6 +11,17 @@ def store(service):
 
 def receive(service, device, args):
     acknowledged, inserted = store(service).ingest(device['id'], args['events'], args['generation'])
+    from services.presence.triage import store as triage_store
+    from services.presence.phone import capabilities
+    from datetime import datetime
+    caps = capabilities(service, device)
+    try:
+        triage_store(service.directory.parent / 'phone' / 'triage.db').ingest(
+            [dict(row, device=device['id']) for row in inserted], datetime.fromtimestamp(service.clock()),
+            vip=caps.get('vip', []), urgent=caps.get('urgent', []))
+    except (ValueError, OSError, sqlite3.Error):
+        from core.logger import logger
+        logger.debug('Private notification triage deferred; source events remain stored.')
     from services.event_bus import event_bus
     for row in inserted:
         event_bus.publish('phone.event', dict(type=row['type'], time=row['timestamp']), plugin_id='phone-signals')
@@ -25,10 +37,39 @@ def status(service, device, args):
 
 
 def forget(service, device, args):
-    return dict(forgotten=True, generation=store(service).forget(device['id']))
+    from services.mind import phone_patterns
+    with phone_patterns.lock:
+        generation = store(service).forget(device['id'])
+        phone_patterns.forget(device['id'])
+    from services.remote.phone_handoff import store as transport_store
+    from services.remote.phone_files import PhoneFiles
+    from services.automation.clipboard_history import clipboard_history
+    PhoneFiles(service, transport_store(service)).forget(device['id'])
+    transport_store(service).forget(device['id'])
+    clipboard_history.forget_phone(device['id'])
+    from services.presence.runtime import forget as forget_presence
+    forget_presence(device['id'], service.directory.parent / 'phone' / 'triage.db')
+    from services.mind import care, goals
+    care.forget_phone(device['id'])
+    goals.forget_phone(device['id'])
+    with service.lock:
+        pending = getattr(service, '_phone_link', None)
+        if pending and pending['device'] == device['id']:
+            service._phone_link = None
+    return dict(forgotten=True, generation=generation)
+
+
+def timeline(service, device, args):
+    from datetime import datetime
+    from services.activity.timeline import segments
+    from services.activity.attention import where_is_attention
+    now = datetime.now()
+    return dict(day=now.date().isoformat(), segments=segments(now.replace(hour=0, minute=0, second=0, microsecond=0), now,
+                path=service.directory.parent / 'phone' / 'phone_events.db'), attention=where_is_attention(now))
 
 
 def register(registry):
+    registry.register('timeline', timeline, risk='safe', validate=no_args)
     for name, handler, validator, risk in (
         ('phone_events', receive, schema.events, 'safe'), ('phone_heartbeat', heartbeat, schema.heartbeat, 'safe'),
         ('phone_status', status, no_args, 'safe'), ('phone_forget', forget, no_args, 'confirm'),

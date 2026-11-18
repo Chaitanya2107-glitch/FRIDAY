@@ -255,6 +255,16 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
             let Some(window) = app.get_webview_window("main") else {
                 break;
             };
+            if count.is_multiple_of(3) {
+                let ui = app.clone();
+                let tick_hud = count.is_multiple_of(12);
+                // Window changes can wait for the UI thread, which also handles status requests.
+                let _ = app.run_on_main_thread(move || {
+                    crate::display::refresh(&ui);
+                    if tick_hud { crate::hud::tick(&ui); }
+                });
+            }
+            let suppressed = app.state::<crate::AppState>().runtime.lock().unwrap().display_suppressed;
             if let Ok(hotkeys) = receiver.try_recv() {
                 let mut errors = register(&hotkeys);
                 match parse_dismiss(&hotkeys.dismiss) {
@@ -266,8 +276,11 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 #[cfg(debug_assertions)]
                 eprintln!("Island hotkeys registered: {:?}", errors);
                 let state = app.state::<crate::AppState>();
-                state.runtime.lock().unwrap().hotkey_errors = errors;
-                let _ = app.emit("native-status", state.runtime.lock().unwrap().clone());
+                let mut runtime = state.runtime.lock().unwrap();
+                runtime.hotkey_errors = errors;
+                let status = runtime.clone();
+                drop(runtime);
+                let _ = app.emit("native-status", status);
             }
             unsafe {
                 let down = GetAsyncKeyState(dismiss.1 as i32) < 0
@@ -298,7 +311,7 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 escape_down = down;
                 let mut message: MSG = zeroed();
                 while PeekMessageW(&mut message, null_mut(), 0, 0, PM_REMOVE) != 0 {
-                    if message.message == WM_HOTKEY {
+                    if message.message == WM_HOTKEY && !suppressed {
                         #[cfg(debug_assertions)]
                         eprintln!("Island hotkey: {}", message.wParam);
                         let _ = app.emit(
@@ -308,7 +321,7 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                     }
                 }
                 let mut point: POINT = zeroed();
-                if GetCursorPos(&mut point) != 0 && last_pointer != (point.x, point.y) {
+                if !suppressed && GetCursorPos(&mut point) != 0 && last_pointer != (point.x, point.y) {
                     last_pointer = (point.x, point.y);
                     if let (Ok(pos), Ok(scale), Ok(Some(primary))) = (
                         window.inner_position(),
@@ -331,7 +344,6 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                 }
             }
             if count.is_multiple_of(12) {
-                crate::hud::tick(&app);
                 let state = app.state::<crate::AppState>();
                 let runtime = state.runtime.lock().unwrap().clone();
                 let sneak = runtime.mode == "sneak";
@@ -352,19 +364,19 @@ pub fn start(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<Hotkeys>
                             let mut status = state.runtime.lock().unwrap();
                             status.max_width = width;
                             status.max_height = height;
-                            let _ = app.emit("native-status", status.clone());
+                            let snapshot = status.clone();
+                            drop(status);
+                            let _ = app.emit("native-status", snapshot);
                         }
                     }
                 }
                 let reduced = reduce_motion();
-                let (locked, fullscreen) = crate::hud::visibility();
-                let state = app.state::<crate::AppState>();
                 let mut status = state.runtime.lock().unwrap();
-                if status.reduce_motion != reduced || status.fullscreen_front != fullscreen || status.desktop_locked != locked {
+                if status.reduce_motion != reduced {
                     status.reduce_motion = reduced;
-                    status.fullscreen_front = fullscreen;
-                    status.desktop_locked = locked;
-                    let _ = app.emit("native-status", status.clone());
+                    let snapshot = status.clone();
+                    drop(status);
+                    let _ = app.emit("native-status", snapshot);
                 }
             }
             crate::hud::boot_input(&app);

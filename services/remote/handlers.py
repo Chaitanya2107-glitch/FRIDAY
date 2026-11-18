@@ -186,6 +186,6 @@ async def ask_friday(service, device, args):
     token = conversation_only.set(True)
     try:
         reply = await chat(ChatRequest(message=args['text']))
-        return dict(text=reply.response)
+        return dict(text=reply.response, allow_speech=reply.allow_speech)
     finally:
         conversation_only.reset(token)

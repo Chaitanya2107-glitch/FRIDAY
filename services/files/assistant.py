@@ -142,11 +142,15 @@ def _still_indexing() -> str:
     return " I'm still indexing your files, so try again in a few minutes." if file_index.scanning else ""
 
 
-def find_reply(query: str) -> str:
+def search_results(query: str) -> tuple[list[FileHit], str]:
     if not config.FILE_SEARCH_ENABLED:
         raise AutomationError("File search is turned off (FILE_SEARCH_ENABLED=false in .env).")
     hits = find_files(query)
-    last_results.set(hits)
+    return hits, last_results.set(hits)
+
+
+def find_reply(query: str) -> str:
+    hits, _ = search_results(query)
     if not hits:
         return f"I couldn't find any files matching \"{query}\".{_still_indexing()}"
     lines = [f"{i}. {hit.name} — in {_where(hit.path)}" for i, hit in enumerate(hits, start=1)]
@@ -156,9 +160,11 @@ def find_reply(query: str) -> str:
     return "\n".join([heading, *lines, hint])
 
 
-def _result(number: int, action="select_found_file", context_token=None) -> FileHit:
+def _result(number: int, action="select_found_file", context_token=None, *, search_id=None) -> FileHit:
     row = last_results.snapshot()
     if context_token is not None and (not row or row["token"] != context_token):
+        raise AutomationError("The file reference changed or expired. Find the file again.")
+    if search_id is not None and (not row or row["payload"].get("search_id") != search_id):
         raise AutomationError("The file reference changed or expired. Find the file again.")
     hits = [FileHit(h["path"], h["name"]) for h in row["payload"]["hits"]] if row else []
     if number == 0 and row:
@@ -184,8 +190,8 @@ def _result(number: int, action="select_found_file", context_token=None) -> File
     return hit
 
 
-def open_result(number: int, context_token=None) -> str:
-    hit = _result(number, "open_found_file", context_token)
+def open_result(number: int, context_token=None, *, search_id=None) -> str:
+    hit = _result(number, "open_found_file", context_token, search_id=search_id)
     try:
         os.startfile(hit.path)
     except OSError as e:
@@ -194,8 +200,8 @@ def open_result(number: int, context_token=None) -> str:
     return f"Opening {hit.name}."
 
 
-def reveal_result(number: int, context_token=None) -> str:
-    hit = _result(number, "reveal_found_file", context_token)
+def reveal_result(number: int, context_token=None, *, search_id=None) -> str:
+    hit = _result(number, "reveal_found_file", context_token, search_id=search_id)
     subprocess.Popen(["explorer", "/select,", os.path.normpath(hit.path)])
     return f"Showing {hit.name} in File Explorer."
 

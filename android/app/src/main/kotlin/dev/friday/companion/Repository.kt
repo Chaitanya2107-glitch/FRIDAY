@@ -17,6 +17,21 @@ class RoomStore(private val db: PhoneDatabase) : BufferStore {
     override fun <T> transaction(block: () -> T): T = db.runInTransaction(java.util.concurrent.Callable { block() })
 }
 
+class RoomCommands(private val db: PhoneDatabase) : CommandStore {
+    override fun rows() = db.handoff().commands().map { WaitingCommand(it.id, it.created, it.expiresAt, it.command, Json.parseToJsonElement(it.args).jsonObject, it.state, Json.parseToJsonElement(it.reply).jsonObject) }
+    override fun put(row: WaitingCommand) = db.handoff().put(CommandRow().apply {
+        id = row.id; created = row.created; expiresAt = row.expiresAt; command = row.command; args = row.args.toString(); state = row.state; reply = row.reply.toString()
+    })
+    override fun remove(id: String) = db.handoff().removeCommand(id)
+}
+
+val HANDOFF_MIGRATION = object : androidx.room.migration.Migration(1, 2) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS commands (id TEXT NOT NULL PRIMARY KEY, created REAL NOT NULL, expiresAt REAL NOT NULL, command TEXT NOT NULL, args TEXT NOT NULL, state TEXT NOT NULL, reply TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS inbox (id TEXT NOT NULL PRIMARY KEY, type TEXT NOT NULL, payload TEXT NOT NULL, created REAL NOT NULL, expiresAt REAL NOT NULL, processed INTEGER NOT NULL)")
+    }
+}
+
 class CompanionApp : Application() { val repository by lazy { Repository(this) } }
 val Context.repository get() = (applicationContext as CompanionApp).repository
 
@@ -24,12 +39,21 @@ class Repository(private val context: Context) {
     val settings = Settings(context)
     val key = DeviceKey(context)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val database = Room.databaseBuilder(context, PhoneDatabase::class.java, "phone-buffer.db")
+    val database = Room.databaseBuilder(context, PhoneDatabase::class.java, "phone-buffer.db")
+        .addMigrations(HANDOFF_MIGRATION)
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.TRUNCATE)
         .addCallback(object : androidx.room.RoomDatabase.Callback() {
-            override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) { db.execSQL("PRAGMA secure_delete=ON") }
+            override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // This PRAGMA returns a row; Android rejects it through execSQL.
+                db.query("PRAGMA secure_delete=ON").use { result ->
+                    check(result.moveToFirst() && result.getInt(0) == 1) { "Secure deletion could not be enabled" }
+                }
+            }
         }).build()
     val buffer = EventBuffer(RoomStore(database), System::currentTimeMillis)
+    val commands = CommandQueue(RoomCommands(database))
+    val handoff by lazy { Handoff(this, context) }
+    val presence by lazy { PresenceControls(context) }
     val gate = CollectorGate(settings, buffer, System::currentTimeMillis)
     private val sync = Mutex()
     @Volatile var message = "Signals are off until you enable them."
@@ -53,11 +77,18 @@ class Repository(private val context: Context) {
     suspend fun synchronize(): Boolean = withContext(Dispatchers.IO) { sync.withLock {
         if (!settings.paired || settings.forgetting() || System.currentTimeMillis() < settings.pausedUntil()) return@withLock false
         try {
+            commands.drain {
+                check(!settings.forgetting())
+                client().json("POST", "queue", it).body.also { check(!settings.forgetting()) }
+            }
+            database.handoff().pruneCommands(System.currentTimeMillis() / 1000.0 - 86400)
+            if (System.currentTimeMillis() < settings.pausedUntil()) return@withLock true
             buffer.prune(settings.retentionDays())
             val heartbeat = buildJsonObject {
                 put("battery", if (collecting("battery")) SystemSignals.battery(context) ?: JsonNull else JsonNull)
                 put("app_version", BuildConfig.VERSION_NAME); put("last_sync", settings.lastSync / 1000.0)
                 put("signals", JsonArray(settings.enabledSignals().filter { collecting(it) }.map(::JsonPrimitive)))
+                put("capabilities", presence.capabilities())
             }
             val serverGeneration = client().json("POST", "phone/heartbeat", heartbeat).body.getValue("generation").jsonPrimitive.int
             if (serverGeneration != settings.generation) {
@@ -76,9 +107,14 @@ class Repository(private val context: Context) {
     suspend fun beginForget() = withContext(Dispatchers.IO) {
         settings.forgettingPending = true
         settings.enabledSignals().forEach { settings.toggle(it, false) }
+        settings.connection = false
+        settings.notificationSnooze = false; settings.phoneModes = false
+        presence.forget()
+        handoff.forget()
+        database.handoff().clearCommands(); database.handoff().clearInbox()
         buffer.clear(); settings.lastSync = 0
         message = "Phone buffer wiped. Laptop deletion needs your approval; no signals will upload meanwhile."
-        sync.withLock { buffer.clear(); settings.lastSync = 0 }
+        sync.withLock { buffer.clear(); database.handoff().clearCommands(); database.handoff().clearInbox(); handoff.forget(); settings.lastSync = 0 }
     }
     suspend fun forgetChallenge(): JsonObject = withContext(Dispatchers.IO) { sync.withLock {
         client().json("POST", "commands", buildJsonObject { put("command", "phone_forget") }).body

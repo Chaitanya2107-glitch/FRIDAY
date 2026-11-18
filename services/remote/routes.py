@@ -252,6 +252,10 @@ def create_router(service):
     async def schedule(request: Request):
         return await read_capability(request, 'schedule')
 
+    @router.get('/timeline')
+    async def timeline(request: Request):
+        return await read_capability(request, 'timeline')
+
     @router.get('/activity')
     async def activity(request: Request):
         return await read_capability(request, 'activity')
@@ -304,6 +308,8 @@ def create_router(service):
 
     from services.phone_signals.remote import router as phone_router
     router.include_router(phone_router(service))
+    from .phone_transport import router as transport_router
+    router.include_router(transport_router(service))
     return router
 
 

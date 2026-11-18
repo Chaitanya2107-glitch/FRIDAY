@@ -1,7 +1,7 @@
 """
 interfaces/tray/app.py
 
-Entry point for FRIDAY's taskbar controls, command bar, hotkeys and body.
+Desktop controller for Island, backend ownership and microphone hotkeys.
 
 Run with: python -B -m interfaces.taskbar (or the FRIDAY shortcut).
 """
@@ -77,11 +77,9 @@ def _run_desktop(runtime):
     host = TaskbarButton(island.summon if island.enabled else panel.request_toggle,
                          state=lambda: "busy" if runtime.busy else tray.status,
                          show=island.summon if island.enabled else panel.request_show,
-                         island_primary=island.enabled, controls=panel.request_show)
+                         island_primary=island.enabled, controls=island.summon if island.enabled else panel.request_show)
     panel.host = host
-    tray.body = FridayBody(tray, command_bar)
-    if island.enabled:
-        tray.body.visible = False
+    tray.body = None if island.enabled else FridayBody(tray, command_bar)
     try:
         panel.start()
         host.start()
@@ -97,7 +95,7 @@ def _run_desktop(runtime):
         island.close()
         tray.icon.stop()
         host.stop()
-        if tray.body._thread.is_alive():
+        if tray.body and tray.body._thread.is_alive():
             tray.body.stop()
         panel.stop()
 

@@ -30,6 +30,10 @@ def build(kind: str, now: datetime) -> str:
     if kind == "nightly":
         parts = [section("📊 Activity", activity_lines(activity_log.day_summary(now))),
                  section("⏰ Due soon", briefing._deadlines(now, structured=True))]
+        from services.phone_signals.preferences import load as phone_preferences
+        if phone_preferences()['telegram_briefings']:
+            from services.activity.timeline import phone_line
+            parts.append(section('Phone', phone_line(now) or ''))
         return (f"🌙 FRIDAY — Nightly recap\n{now:%A, %d %B %Y}\n\n"
                 + "\n\n".join(part for part in parts if part))
     if kind == "weekly":

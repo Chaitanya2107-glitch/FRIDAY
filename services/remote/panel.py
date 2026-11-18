@@ -50,6 +50,11 @@ def status(service, device, args):
     read('scene', lambda: plugin_state('scenes', 'status'))
     read('focus', lambda: plugin_state('focus', 'status'))
     read('mood', lambda: plugin_state('mood', 'state'))
+    def presence():
+        from services.presence.engine import current
+        value = current(now)
+        return {key: value[key] for key in ('state', 'reason', 'confidence', 'since', 'data_available')}
+    read('presence', presence)
     read('next_class', lambda: overview.class_status(now)['next_class'])
     read('due_today', lambda: [r for r in overview.overview(now)['due_soon']
                               if r['due'][:10] == now.date().isoformat()])

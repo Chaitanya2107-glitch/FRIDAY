@@ -229,7 +229,8 @@ pub fn tick(app: &tauri::AppHandle) {
     #[cfg(windows)] let reduced = crate::windows::reduce_motion();
     #[cfg(not(windows))] let reduced = false;
     let provider_fullscreen = runtime.provider_fullscreen && runtime.provider_until.is_some_and(|end| std::time::Instant::now() < end);
-    let reason = if !settings.enabled { "off" } else if locked { "locked" }
+    let suppressed = crate::display::blocked(&app.state::<crate::AppState>().runtime.lock().unwrap());
+    let reason = if !settings.enabled { "off" } else if suppressed { "gaming / fullscreen" } else if locked { "locked" }
         else if settings.hide_game && runtime.game { "game" }
         else if settings.hide_fullscreen && (fullscreen || provider_fullscreen) { "fullscreen" }
         else if !runtime.ready { "boot" } else { "" };
@@ -270,7 +271,9 @@ pub(crate) fn visibility() -> (bool, bool) {
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         let mut rect: RECT = std::mem::zeroed();
-        let fullscreen = GetWindowRect(hwnd, &mut rect) != 0
+        // With an auto-hidden taskbar, an ordinary maximized window can cover the monitor.
+        let fullscreen = IsZoomed(hwnd) == 0
+            && GetWindowRect(hwnd, &mut rect) != 0
             && GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) != 0
             && rect.left <= info.rcMonitor.left + 1 && rect.top <= info.rcMonitor.top + 1
             && rect.right >= info.rcMonitor.right - 1 && rect.bottom >= info.rcMonitor.bottom - 1;

@@ -111,7 +111,7 @@ class Startup(Model):
     manage_bridge: bool = True
     backend_root: str = ''
     launch_at_login: bool = False
-    start_with_friday: bool = False
+    start_with_friday: bool = True
 
     @field_validator('backend_root')
     @classmethod

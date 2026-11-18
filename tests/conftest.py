@@ -50,6 +50,13 @@ for handler in [h for h in logger.handlers if isinstance(h, logging.FileHandler)
 @pytest.fixture(autouse=True)
 def isolated_caches(tmp_path, tmp_path_factory, monkeypatch):
     """Tests never read or write the real command and speech caches."""
+    from services import desktop_visibility
+    monkeypatch.setattr(desktop_visibility, 'suppressed', lambda: False)
+    from services.activity import timeline
+    monkeypatch.setattr(timeline, 'DEFAULT_PATH', tmp_path / 'phone' / 'phone_events.db')
+    from services.presence import engine as presence_engine, runtime as presence_runtime
+    presence_engine.engine.reset()
+    presence_runtime.reset_ephemeral()
     from services.mind import development
     from services import activity_plugin
     monkeypatch.setattr(activity_plugin, 'installed', lambda: False)  # Legacy tests opt into a fake activity service explicitly.

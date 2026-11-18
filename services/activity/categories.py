@@ -142,6 +142,21 @@ def clean_title(title: str | None) -> str:
     return _UNREAD_COUNT.sub("", _TITLE_MARKS.sub("", title)).strip()
 
 
+def android_category(package, category=-1, device=''):
+    """Android metadata first; unknown identities reuse owner-confirmed knowledge."""
+    fixed = {'com.instagram.android': 'social', 'com.google.android.youtube': 'entertainment',
+             'com.whatsapp': 'communication', 'com.spotify.music': 'music', 'com.termux': 'coding',
+             'com.google.android.apps.classroom': 'study', 'com.google.android.gm': 'communication'}
+    if package in fixed:
+        return fixed[package]
+    native = {0: 'gaming', 1: 'music', 2: 'entertainment', 3: 'media', 4: 'social', 5: 'news', 6: 'maps', 7: 'documents', 8: 'system'}
+    if category in native:
+        return native[category]
+    from services.mind import knowledge
+    known = knowledge.get(knowledge.key_for('app', f'phone:{device}:{package}'))
+    return known.category if known and known.source in {'boss', 'confirmed'} else 'other'
+
+
 def app_category(app: str | None, title: str | None = None) -> str:
     app = (app or "").lower()
     if app in BROWSERS:

@@ -332,7 +332,10 @@ def _make_wndproc(hwnd_box):
                 if _conversation_hotkey_listener:
                     _conversation_hotkey_listener()
             elif wparam == HANDY_HOTKEY_ID:
-                _handy_hotkey(hwnd, hwnd_box["edit"])
+                if _surface_listener:
+                    _surface_listener('dictate')
+                else:
+                    _handy_hotkey(hwnd, hwnd_box["edit"])
             else:
                 if _surface_listener:
                     _surface_listener()

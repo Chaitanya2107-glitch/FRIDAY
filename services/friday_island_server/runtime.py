@@ -5,6 +5,16 @@ import secrets
 import time
 
 
+def presence_summary():
+    """Authenticated display projection only; physical place/device never enter AI context."""
+    try:
+        from services.presence.engine import current
+        state = current()
+        return {key: state.get(key) for key in ('state', 'reason', 'confidence', 'since', 'data_available')}
+    except Exception:
+        return dict(state='away', reason='Presence estimate unavailable.', confidence=0, since=0, data_available=False)
+
+
 @contextmanager
 def local_turn():
     from services.automation.intent import remote_request, telegram_owner, skip_confirmation
@@ -49,6 +59,8 @@ class FridayRuntime:
                     if state.get('listening'):
                         from interfaces.api.routes.voice import stop_listening
                         await stop_listening(discard=True)
+                    from .focus import prepare_request
+                    await prepare_request(text, target)
                     result = await chat.chat(chat.ChatRequest(message=text,
                         provider=state.get('provider'),
                         speak=bool(state.get('speak_typed') or state.get('conversation'))))
@@ -106,7 +118,16 @@ class FridayRuntime:
         from .desktop_link import desktop
         from services.mind.cognition import cognition
         with local_turn(), cognition.operation('feature_request', 'island', 'Local Island control') as operation:
-            if action == 'speech_stop':
+            if action == 'local_ready':
+                from services.mind.coaching_commands import pending as coaching_pending
+                from services.computer.agent import computer_agent
+                from interfaces.api.routes.chat import automation_status
+                task = await automation_status()
+                blocked = (self.command_lock.locked() or self.pending() or coaching_pending()
+                           or computer_agent.session is not None or task.get('awaiting_reply', False))
+                operation.finish('completed')
+                return {'ok': True, 'pending': bool(blocked)}
+            elif action == 'speech_stop':
                 from services.voice.tts import tts
                 tts.stop()
             elif action == 'voice_stop':
@@ -149,10 +170,20 @@ class FridayRuntime:
         from .events import snapshot
         from core.config import config
         from services import body_state
+        from services.desktop_visibility import suppressed
+        from services.computer.agent import computer_agent
         with local_turn():
             automation = await chat.automation_status()
             automation['response'] = automation.get('response', '')[:12000]
+            session = computer_agent.session
+            computer = {'active': computer_agent._busy or session is not None,
+                        'planning': computer_agent._busy,
+                        'awaiting': bool(session and session.pending and session.expires > time.monotonic()),
+                        'steps': session.steps if session else 0}
             return {'backend': True, 'epoch': self.epoch,
+                    'display_suppressed': await asyncio.to_thread(suppressed),
+                    'computer': computer,
+                    'presence': await asyncio.to_thread(presence_summary),
                     'body': await body.body(since=body_state.last_id()), 'system': (await asyncio.to_thread(system.get_runtime_status)).model_dump(),
                     'desktop': desktop.snapshot(), 'automation': automation,
                     'provider': config.ACTIVE_PROVIDER, **snapshot(since)}

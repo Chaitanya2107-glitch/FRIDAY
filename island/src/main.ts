@@ -12,7 +12,12 @@ import { MochiDisplay } from './mochi-display';
 import { ReplySurface } from './reply-surface';
 import { briefingCard } from './plugin-card';
 import { SceneState } from './scene-state';
+import { PresenceDisplay } from './presence-display';
 import { matchesDismiss } from './hotkeys';
+import { displayMode, restoredMode } from './display-policy';
+import { nativeCommand } from './command-routing';
+import { FeatureLibrary } from './feature-library';
+import { Dictation } from './dictation';
 import { isFileReference, resolveSlash, slashSuggestions } from './slash-commands';
 import { PluginWidgets } from './widgets';
 import { call, native, on, previewConfig, startupState } from './native';
@@ -36,6 +41,7 @@ const sceneState = new SceneState();
 let sceneCardVersion = 0;
 const sceneChip = el('button', 'scene-chip'); sceneChip.hidden = true;
 sceneChip.onclick = () => openTab('friday'); sceneChip.title = 'Show the active scene';
+const presence = new PresenceDisplay(surface, () => queueMicrotask(syncRegions));
 const command = el('input', 'command');
 command.placeholder = 'A thought, a command…'; command.autocomplete = 'off'; command.spellcheck = false; command.maxLength = 4000;
 command.setAttribute('aria-label', 'FRIDAY command'); command.setAttribute('role', 'combobox');
@@ -46,7 +52,7 @@ const fridayButton = button('FRIDAY', 'app', () => openTab('friday'));
 const settingsButton = button('Settings', 'settings', () => openTab('settings'));
 const closeButton = button('Close · Esc', 'close', () => dispatch('escape'));
 const tools = el('div', 'tools'); tools.append(pins, fridayButton, projectsButton, settingsButton, closeButton);
-row.append(capsule.left, orb, capsule.right, live, sceneChip, command, tools);
+row.append(capsule.left, orb, capsule.right, live, sceneChip, presence.node, command, tools);
 const results = el('div', 'suggestions'); results.id = 'suggestions'; results.setAttribute('role', 'listbox');
 const body = el('div', 'expanded-body');
 const sneakReply = el('div', 'sneak-reply'); sneakReply.hidden = true; sneakReply.setAttribute('role', 'status');
@@ -63,6 +69,8 @@ let tab: Tab = 'projects';
 let connection: Connection;
 let online = false;
 let integrated = false;
+let displaySuppressed = false;
+let backendSuppressed = false;
 let snippet = '';
 let schedule = '';
 let reminder: PillSnippet | null = null;
@@ -84,7 +92,7 @@ let suggestionGeneration = 0;
 const icons = new Map<string, string>();
 const replies = new ReplySurface(surface, {
   mode: () => mode, sneak: () => sneakEnabled,
-  available: () => !active && !command.value && mode !== 'expanded',
+  available: () => !displaySuppressed && !active && !command.value && mode !== 'expanded',
   reveal: () => setMode('rest'), restore: () => busy ? Promise.resolve() : setMode(config.appearance.idle_mode === 'hover' ? 'hidden' : 'rest'),
   changed: () => animateRegions(),
   action: async value => { const result = await connection.request('runtime_action', { action: 'notification', value }); return { ok: result.ok === true, text: String(result.text ?? '') }; },
@@ -111,10 +119,21 @@ const settings = new Settings(panels, {
 });
 const widgets = new PluginWidgets(panels, () => connection, result => { message(result.text, !result.ok); if (result.ok) mood('happy', 850); });
 const friday = new FridayPanel(() => connection, text => run(text), message, event => replies.event(event), () => setMode('rest'));
+const library = new FeatureLibrary(() => connection, text => {
+  command.value = text; clearSuggestions(); void setMode('expanded', true).then(() => command.focus());
+}, text => run(text), message);
+const dictation = new Dictation({ control: action => call('handy_control', { action }),
+  prepare: async () => {
+    if (busy || command.value.trim()) throw Error('Finish your current command before using Handy.');
+    await setMode(sneakEnabled ? 'sneak' : 'peek', true);
+    if (document.activeElement !== command || !active) throw Error('Focus the Island command bar to use Handy.');
+  }, value: () => command.value,
+  submit: text => run(text), message });
+command.addEventListener('blur', () => dictation.cancel());
 const hud = new HudController(() => connection, message, () => config.island?.reduced_motion === true);
 const mochi = new MochiDisplay(surface, orb, {
   config: () => config, status: () => nativeStatus, mode: () => mode,
-  available: () => !sneakEnabled && !active && !busy && !command.value && !replies.visible && (mode === 'rest' || mode === 'peek'),
+  available: () => !displaySuppressed && !sneakEnabled && !active && !busy && !command.value && !replies.visible && (mode === 'rest' || mode === 'peek'),
   peek: () => setMode('peek'), restore: () => setMode('rest'), refresh: () => mood(), layout: animateRegions,
 });
 const startupAnimation = new BootAnimation(surface, () => config, () => mochi.reduced, next => { config = next; });
@@ -170,10 +189,16 @@ new ResizeObserver(syncRegions).observe(surface);
 window.addEventListener('resize', syncRegions);
 
 async function setMode(next: Mode, activate = false) {
-  next = sneakMode(next, sneakEnabled, activate, mode);
+  if (next === 'rest' || next === 'hidden') dictation.cancel();
+  const wasActive = active;
+  next = displayMode(next, displaySuppressed);
+  if (displaySuppressed) activate = false;
+  next = displayMode(sneakMode(next, sneakEnabled, activate, mode), displaySuppressed);
   clearTimeout(leaveTimer);
   lastActivity = Date.now();
   mode = next; active = activate && ['peek', 'expanded', 'sneak'].includes(next);
+  if (wasActive && !active && !busy && online && integrated)
+    void connection.request('desktop_tools', { action: 'prediction_closed' }, 3000).catch(() => {});
   surface.dataset.mode = next;
   root.dataset.mode = next;
   surface.dataset.active = String(active);
@@ -190,8 +215,12 @@ async function setMode(next: Mode, activate = false) {
   try { if (native) await call('set_mode', { mode: next, activate: active }); if (active) command.focus(); }
   catch (error) { message(String(error), true); }
   replies.flush();
+  if (active && !command.value) command.oninput?.(new Event('input'));
 }
 function dispatch(event: Parameters<typeof transition>[1], activate = false) {
+  if (event === 'escape' || event === 'sneak') dictation.cancel();
+  if (displaySuppressed) return Promise.resolve();
+  if (event === 'escape' && online && integrated) void connection.request('desktop_tools', { action: 'prediction_closed' }, 3000).catch(() => {});
   if (event === 'escape' || event === 'sneak') interaction++;
   if (event === 'sneak') {
     sneakEnabled = !sneakEnabled;
@@ -204,6 +233,7 @@ function dispatch(event: Parameters<typeof transition>[1], activate = false) {
 async function openTab(next: Tab) { tab = next; await setMode('expanded', active); }
 surface.onpointerenter = () => { lastActivity = Date.now(); clearTimeout(leaveTimer); };
 surface.onpointermove = event => {
+  if (displaySuppressed) return;
   if (mode !== 'rest' || replies.visible) return;
   const bounds = orb.getBoundingClientRect();
   if (event.clientX < bounds.left || event.clientX > bounds.right) void dispatch('hover');
@@ -224,6 +254,8 @@ surface.addEventListener('pointerdown', event => {
   void call('set_mode', { mode, activate: true }).then(() => target.focus()).catch(error => message(String(error), true));
 });
 window.addEventListener('blur', () => {
+  dictation.cancel();
+  if (active && online && integrated) void connection.request('desktop_tools', { action: 'prediction_closed' }, 3000).catch(() => {});
   active = false;
   if (native) void call('clear_execution_target').catch(() => {});
   if (mode === 'peek' || mode === 'sneak') void dispatch('escape');
@@ -265,19 +297,28 @@ function pinButton(pin: Config['pins'][number]) {
 function pinLimit() { return (nativeStatus.max_width || 720) < 660 ? 4 : 8; }
 function renderPins() { pins.replaceChildren(...config.pins.filter(p => p.visible).slice(0, pinLimit()).map(pinButton)); }
 function renderPanel() {
+  library.close();
   widgets.hide();
   tabs.replaceChildren();
-  for (const id of ['friday', 'projects', 'plugins', 'settings'] as const) {
+  for (const id of ['friday', 'features', 'projects', 'plugins', 'settings'] as const) {
     const node = el('button', tab === id ? 'selected' : '', id === 'friday' ? 'FRIDAY' : id[0].toUpperCase() + id.slice(1));
     node.onclick = () => { tab = id; renderPanel(); }; tabs.append(node);
   }
   panels.replaceChildren();
   if (tab === 'friday') { friday.mount(panels); return; }
   friday.close();
+  if (tab === 'features') {
+    if (online && integrated) void library.mount(panels);
+    else panels.append(el('p', 'empty', 'Start FRIDAY to browse its features.'));
+    return;
+  }
   if (tab === 'settings') { settings.render(); return; }
   if (tab === 'plugins') {
     if (!online) panels.append(el('p', 'empty', 'Connect FRIDAY to see your plugins.'));
-    else widgets.show(manifests);
+    else {
+      if (integrated) void library.mount(panels, true);
+      widgets.show(manifests);
+    }
     return;
   }
   const extras = config.pins.filter(p => p.visible).slice(pinLimit());
@@ -328,7 +369,8 @@ function clearSuggestions(keepCompletion = false) {
   if (!keepCompletion) completed = undefined;
   selected = -1; suggestions = []; renderSuggestions();
 }
-command.oninput = () => {
+command.oninput = event => {
+  if (event instanceof InputEvent) dictation.input(event.inputType === 'insertFromPaste');
   sneakReply.textContent = ''; sneakReply.hidden = true;
   completed = undefined;
   lastActivity = Date.now(); mood();
@@ -357,6 +399,7 @@ function isBrainCommand(text: string) {
   return head.startsWith('\\') || ['proj', 'settings', 'next', 'habit', 'todo', 'note', 'focus', ...manifests.flatMap(m => m.commands)].includes(head);
 }
 command.onkeydown = event => {
+  if (!(event.ctrlKey && event.altKey && event.key.toLowerCase() === 'f')) dictation.key(event.key, event.ctrlKey || event.metaKey);
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault(); selected = suggestions.length ? (selected + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length : -1; renderSuggestions();
   } else if (event.key === 'Tab' && suggestions.length) {
@@ -378,6 +421,10 @@ async function perform(result: CommandResult) {
   try {
     let text = result.text;
     if (action) {
+      if (integrated && online) {
+        const gate = await connection.request('runtime_action', { action: 'local_ready' }, 5000);
+        if (gate.pending) throw Error('Finish or cancel FRIDAY’s pending request before opening an app or project.');
+      }
       if (!['pin', 'project', 'app'].includes(action.kind) || typeof action.id !== 'string') throw Error('Unsupported backend action');
       text = await call<string>('launch', { kind: action.kind, id: action.id });
       config = await call<Config>('get_config');
@@ -386,6 +433,7 @@ async function perform(result: CommandResult) {
   } catch (error) { message(String(error), true); }
 }
 async function run(text: string, item?: Suggestion) {
+  if (displaySuppressed) return;
   if (item?.fill) { command.value = item.text; clearSuggestions(); command.focus(); return; }
   if (item?.rescan) { await apps.rescan(); command.oninput?.(new Event('input')); return; }
   if (busy || !text.trim()) return;
@@ -396,6 +444,7 @@ async function run(text: string, item?: Suggestion) {
     if (resolved.view) { if (sneakEnabled) message('Turn off Sneak mode to open Island panels.'); else await openTab(resolved.view); return; }
     text = resolved.text;
   } catch (error) { message(String(error), true); return; }
+  if (online && integrated) void connection.request('desktop_tools', { action: 'prediction_sent', text }, 3000).catch(() => {});
   const generation = interaction;
   busy = true; command.disabled = true;
   const sneak = mode === 'sneak';
@@ -406,9 +455,13 @@ async function run(text: string, item?: Suggestion) {
     let result: CommandResult;
     const feature = integrated && (isFileReference(text) || /^(?:open (?:college schedules|habits|productivity|friday settings)|settings friday)(?:\s|$)/i.test(text.trim()));
     const nativeText = fromSlash && text.startsWith('\\o ') ? `open ${text.slice(3)}` : text;
-    const local = native && !feature && /^(?:open|proj|settings)(?:\s|$)/i.test(nativeText.trim());
-    const exact = !fromSlash && !item?.app && !feature && !local && native && !isBrainCommand(text) ? (await apps.search(text, 1).catch(() => [])).find(a => a.name.toLowerCase() === text.trim().toLowerCase()) : undefined;
-    const target = item?.app ?? exact;
+    const nativeRoute = native && !feature && nativeCommand(nativeText, integrated, fromSlash);
+    const exact = !fromSlash && !item?.app && !feature && !nativeRoute && native && !isBrainCommand(text) ? (await apps.search(text, 1).catch(() => [])).find(a => a.name.toLowerCase() === text.trim().toLowerCase()) : undefined;
+    const app = feature ? undefined : item?.app ?? exact;
+    const pending = integrated && online && (nativeRoute || app)
+      && (await connection.request('runtime_action', { action: 'local_ready' }, 5000)).pending === true;
+    const local = nativeRoute && !pending;
+    const target = pending ? undefined : app;
     if (target) result = { ok: true, text: `Opening ${target.name}`, action: { kind: target.kind, id: target.id } };
     else {
       if (integrated && !local && !target) await setMode('rest');
@@ -428,7 +481,7 @@ async function run(text: string, item?: Suggestion) {
       }
       friday.accept(text, result);
       if (!result.keyboard_token) {
-        if (result.model === 'briefings' && !sneakEnabled) await openTab('friday');
+        if (['briefings', 'computer_agent'].includes(result.model ?? '') && !sneakEnabled) await openTab('friday');
         else if (sneakEnabled) { await setMode('sneak'); message(result.text, !result.ok); }
         else replies.result(result);
       } else if (sneakEnabled) message(result.text, !result.ok); else replies.result(result);
@@ -450,6 +503,14 @@ function connect() {
   sceneState.reset(); paintScene();
   sceneCardVersion++;
   connection = new Connection(config.connection, frame => {
+    if (frame.type === 'private_response') {
+      if (!displaySuppressed && typeof frame.text === 'string') {
+        const reply = { text: frame.text, ok: true, private: true };
+        friday.accept('', reply);
+        if (sneakEnabled && mode === 'sneak') message(frame.text); else replies.result(reply);
+      }
+      return;
+    }
     if (frame.type === 'bus_event' && frame.event && typeof frame.event === 'object') {
       const event = frame.event as Record<string, unknown>;
       hud.event(event);
@@ -459,6 +520,7 @@ function connect() {
         paintScene();
         if (event.topic === 'scene.started' || event.topic === 'scene.ended') sceneCardVersion++;
       }
+      if (displaySuppressed) return;
       if (briefingCard(event)) {
         friday.pluginEvent(event);
         if (!sneakEnabled) void openTab('friday');
@@ -488,8 +550,13 @@ function connect() {
       const previous = integrated; integrated = frame.integrated === true;
       if (integrated && !previous) { tab = 'friday'; if (mode === 'expanded') renderPanel(); }
     }
-    startupAnimation.receive(frame);
-    if (friday.receive(frame)) { hud.scene(friday.state?.system.mode.name ?? ''); mood(); return; }
+    if (frame.type === 'runtime_state') {
+      backendSuppressed = frame.display_suppressed === true;
+      if (native) void call('display_policy', { suppressed: backendSuppressed }).catch(() => {});
+      applyVisibility();
+    }
+    if (!displaySuppressed) startupAnimation.receive(frame);
+    if (friday.receive(frame)) { presence.update(friday.state?.presence); hud.scene(friday.state?.system.mode.name ?? ''); mood(); return; }
     if (frame.type === 'pill_snippet_update' && typeof frame.text === 'string') {
       schedule = typeof frame.schedule === 'string' ? frame.schedule.slice(0, 100) : '';
       widgets.updateCollege(frame.college_text);
@@ -502,16 +569,26 @@ function connect() {
     if (['status', 'plugin_list'].includes(frame.type) && command.value.trimStart().startsWith('/')) command.oninput?.(new Event('input'));
   }, connected => {
     online = connected;
-    if (!connected) { mochi.reset(); sceneState.reset(); paintScene(); sceneCardVersion++; }
+    if (!connected) { backendSuppressed = false; applyVisibility(); }
+    if (!connected) { mochi.reset(); sceneState.reset(); paintScene(); presence.update(); sceneCardVersion++; }
     hud.online(connected);
     friday.connected(connected);
     settings.connectionChanged();
     if (!connected) { manifests = []; snippet = ''; schedule = ''; reminder = null; sneakReply.textContent = ''; sneakReply.hidden = true; replies.clear(); }
     if (command.value.trimStart().startsWith('/')) command.oninput?.(new Event('input'));
     updateLive();
-    if (mode === 'expanded' && tab === 'plugins') renderPanel();
+    if (mode === 'expanded' && (tab === 'plugins' || tab === 'features')) renderPanel();
   });
   if (native) connection.start();
+}
+function applyVisibility() {
+  const next = backendSuppressed || nativeStatus.display_suppressed === true;
+  if (next === displaySuppressed) return;
+  displaySuppressed = next;
+  if (next) dictation.cancel();
+  surface.style.visibility = next ? 'hidden' : '';
+  interaction++; replies.clear(); friday.close();
+  void setMode(next ? 'hidden' : restoredMode(config.appearance.idle_mode, sneakEnabled));
 }
 function paintScene() {
   surface.dataset.scene = sceneState.name ? 'true' : 'false';
@@ -524,21 +601,28 @@ async function boot() {
   try { if (native) { const initial = await startupState(); config = initial.config; nativeStatus = initial.status; } }
   catch (error) { message(String(error), true); }
   await hud.start(); await startupAnimation.start();
-  applyConfig(); await setMode(mode); connect();
+  applyVisibility(); applyConfig(); await setMode(mode); connect();
   if (nativeStatus.hotkey_errors.length) message(`Hotkey registration failed: ${nativeStatus.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
   capsule.setMode(mode);
   await apps.start(() => { icons.clear(); renderPins(); if (mode === 'expanded' && tab === 'settings' && settings.section === 'apps') settings.render(); });
   applyLimits();
   mochi.comfort();
-  await on<string>('hotkey', event => { if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape'); });
+  await on<string>('hotkey', event => {
+    if (event === 'dictate') { if (!displaySuppressed) void dictation.toggle(); }
+    else if (event === 'sneak' || event === 'expand' || event === 'escape') void dispatch(event, event !== 'escape');
+  });
   await on<NativeStatus>('native-status', status => {
     if (status.hotkey_errors.length && JSON.stringify(status.hotkey_errors) !== JSON.stringify(nativeStatus.hotkey_errors))
       message(`Hotkey registration failed: ${status.hotkey_errors.join(' ')} Open Settings → Hotkeys.`, true);
-    nativeStatus = status; applyLimits(); mochi.comfort();
+    nativeStatus = status; applyVisibility(); applyLimits(); mochi.comfort();
     if (mode === 'expanded' && tab === 'settings' && settings.section === 'hotkeys') settings.render();
   });
+  if (native) {
+    nativeStatus = await call<NativeStatus>('runtime_status');
+    applyVisibility(); applyLimits(); mochi.comfort();
+  }
   await on<{ x: number; y: number; reveal: boolean }>('pointer', point => {
-    if (sneakEnabled) return;
+    if (sneakEnabled || displaySuppressed) return;
     if (point.reveal && mode === 'hidden') void dispatch('hover');
     if (!mochi.character.motionAllowed) return;
     if (mode === 'hidden' || mode === 'sneak') return;

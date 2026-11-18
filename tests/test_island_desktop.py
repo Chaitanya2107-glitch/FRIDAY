@@ -85,8 +85,9 @@ def test_short_voice_replies_reach_capsule_but_private_replies_stay_private():
     instance._notify = lambda text, transient, private: calls.append((transient, private))
     instance.notify('Opened', transient=True)
     instance.notify('Private reply', private=True)
-    assert calls == [(False, True)]
-    assert published == [('event', {'kind': 'response', 'text': 'Opened', 'transient': True})]
+    assert calls == []
+    assert published == [('event', {'kind': 'response', 'text': 'Opened', 'transient': True}),
+                         ('event', {'kind': 'response', 'text': 'Private reply', 'transient': False, 'private': True})]
     instance._post = lambda *args: {'accepted': False}
     instance.notify('Opened offline', transient=True)
     assert calls[-1] == (True, False)

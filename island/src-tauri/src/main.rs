@@ -5,6 +5,7 @@ mod bridge_process;
 mod catalog;
 mod config;
 mod desktop;
+mod display;
 mod hud;
 #[cfg(windows)]
 mod discovery;
@@ -35,6 +36,9 @@ pub struct RuntimeStatus {
     reduce_motion: bool,
     fullscreen_front: bool,
     desktop_locked: bool,
+    display_suppressed: bool,
+    #[serde(skip)]
+    backend_game_until: Option<std::time::Instant>,
     #[serde(skip)]
     previous_window: usize,
     #[serde(skip)]
@@ -105,6 +109,8 @@ fn set_mode(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut runtime = state.runtime.lock().unwrap();
+    let suppressed = display::blocked(&runtime);
+    let mode = if suppressed { Mode::Hidden } else { mode };
     runtime.mode = match mode {
         Mode::Rest => "rest",
         Mode::Peek => "peek",
@@ -142,6 +148,11 @@ fn set_mode(
             runtime.height,
             matches!(mode, Mode::Sneak),
         )?;
+    }
+    if suppressed {
+        window.hide().map_err(|e| e.to_string())?;
+    } else {
+        window.show().map_err(|e| e.to_string())?;
     }
     if deliberate {
         window.set_focus().map_err(|e| e.to_string())?;
@@ -259,7 +270,7 @@ fn main() {
             if args.iter().any(|a| a == "--quit") {
                 app.exit(0);
             } else if !args.iter().any(|a| a == "--background") {
-                let _ = app.emit("hotkey", "expand");
+                let _ = app.emit("hotkey", if args.iter().any(|a| a == "--dictate") { "dictate" } else { "expand" });
             }
         }))
         .invoke_handler(tauri::generate_handler![
@@ -285,7 +296,8 @@ fn main() {
             local_command,
             friday_commands::execution_target,
             friday_commands::clear_execution_target,
-            friday_commands::open_controls,
+            friday_commands::handy_control,
+            display::display_policy,
             launch,
             choose_path,
             pin_icon,
@@ -351,7 +363,8 @@ fn main() {
             windows::start(app.handle().clone(), receiver);
             #[cfg(not(windows))]
             drop(receiver);
-            window.show()?;
+            display::refresh(app.handle());
+            if !app.state::<AppState>().runtime.lock().unwrap().display_suppressed { window.show()?; }
             #[cfg(windows)]
             windows::passive(&window, true)?;
             catalog::Catalog::start(app.handle().clone());

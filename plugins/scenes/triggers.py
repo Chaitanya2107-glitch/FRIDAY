@@ -13,8 +13,17 @@ def validate_triggers(rules):
     if not isinstance(rules, list) or len(rules) > 32:
         raise ValueError('triggers must be a list of at most 32 rules.')
     for rule in rules:
-        if not isinstance(rule, dict) or rule.get('type') not in {'time', 'process', 'event'}:
-            raise ValueError('Trigger type must be time, process or event.')
+        if not isinstance(rule, dict) or rule.get('type') not in {'time', 'process', 'event', 'presence'}:
+            raise ValueError('Trigger type must be time, process, event or presence.')
+        if rule['type'] == 'presence':
+            from services.presence.rules import conditions, trigger
+            if set(rule) - {'type', 'event', 'place', 'state', 'conditions', 'auto', 'action'}:
+                raise ValueError('Unknown presence trigger fields.')
+            if rule.get('action', 'start') != 'start' or type(rule.get('auto', False)) is not bool:
+                raise ValueError('Presence triggers start a reviewed scene; auto does not bypass the trust ladder.')
+            trigger({k: v for k, v in rule.items() if k in {'type', 'event', 'place', 'state'}})
+            conditions(rule.get('conditions', {}))
+            continue
         if set(rule) - {'type', 'auto', 'action', 'at', 'days', 'process', 'topic', 'match', 'within_minutes'}:
             raise ValueError('Unknown trigger fields.')
         if type(rule.get('auto', False)) is not bool or rule.get('action', 'start') not in {'start', 'end'}:

@@ -73,6 +73,10 @@ class PluginAPI:
 
     def publish(self, topic: str, payload: dict):
         self._active()
+        from services.mind.care_safeguard import active
+        if (topic == 'activity.nudge' or topic == 'ui.card' and isinstance(payload, dict)
+                and payload.get('urgency') == 'normal') and active():
+            return None
         json.dumps(payload, allow_nan=False)
         return self.manager.bus.publish(topic, payload, plugin_id=self.plugin_id)
 
@@ -108,6 +112,9 @@ class PluginAPI:
 
     def notify(self, title: str, body: str, urgency: str = 'normal'):
         self._active()
+        from services.mind.care_safeguard import active
+        if active():
+            return False
         self.manager.notify(str(title), str(body), urgency)
 
     def speak(self, text: str):

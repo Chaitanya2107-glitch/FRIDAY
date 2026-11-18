@@ -208,9 +208,7 @@ async def _handle_pending_reply(message: str, provider_name: str) -> ActionResul
     if pending.parsed.get("action") == "resume_project":
         return await _resume_project(pending.parsed["name"], provider_name,
                                      expected=pending.parsed.get('_project_snapshot', ...))
-    if pending.parsed.get("action") == "phone_reply":
-        return await asyncio.to_thread(_execute, pending.parsed, True)
-    return _execute(pending.parsed, confirmed=True)
+    return await asyncio.to_thread(_execute, pending.parsed, True)
 
 
 def _ask_to_organise(parsed: dict) -> ActionResult:
@@ -333,6 +331,15 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     Returns an ActionResult if it was a system command, None otherwise.
     The reply may get one of FRIDAY's quips (personality.py) — once, not for each step of a routine.
     """
+    from services.mind.coaching_commands import try_command as try_coaching_command
+    if coaching := await try_coaching_command(message):
+        return coaching
+    from services.presence.commands import try_command as try_presence_command
+    if presence := await try_presence_command(message):
+        return presence
+    from services.remote.companion_commands import try_command as try_companion_command
+    if companion := await try_companion_command(message):
+        return companion
     from services.briefing_runtime import try_command as try_briefing_command
     if local_brief := await try_briefing_command(message, remote=remote_request.get()):
         return local_brief
@@ -353,6 +360,9 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     if commands_run.get() is not None:  # a routine / mode step inside a request: seasoned at the top
         return await _try_system_action(message, provider_name)
     from services.phone import commands as phone_commands
+    from services.activity import phone_commands as activity_phone
+    if activity_phone.match_command(message):
+        return await activity_phone.handle(message, provider_name)
     if phone_commands.private_turn(message):
         return await phone_commands.handle(message, provider_name)
     from services.screen_watch import commands as screen_commands

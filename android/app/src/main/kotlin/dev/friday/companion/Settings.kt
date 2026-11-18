@@ -7,6 +7,21 @@ import java.security.SecureRandom
 
 class Settings(context: Context) : SharingPolicy {
     private val prefs = context.getSharedPreferences("private", Context.MODE_PRIVATE)
+    var phoneModes: Boolean
+        get() = prefs.getBoolean("phoneModes", false)
+        set(value) { check(prefs.edit().putBoolean("phoneModes", value).commit()) }
+    var notificationSnooze: Boolean
+        get() = prefs.getBoolean("notificationSnooze", false)
+        set(value) { check(prefs.edit().putBoolean("notificationSnooze", value).commit()) }
+    var vipApps: Set<String>
+        get() = prefs.getStringSet("vipApps", emptySet())!!.toSet()
+        set(value) { require(value.size <= 10); value.forEach(TriagePolicy.Companion::packageName); check(prefs.edit().putStringSet("vipApps", value).commit()) }
+    var urgentApps: Set<String>
+        get() = prefs.getStringSet("urgentApps", emptySet())!!.toSet()
+        set(value) { require(value.size <= 10); value.forEach(TriagePolicy.Companion::packageName); check(prefs.edit().putStringSet("urgentApps", value).commit()) }
+    var connection: Boolean
+        get() = prefs.getBoolean("connection", false)
+        set(value) { check(prefs.edit().putBoolean("connection", value).commit()) }
     override fun enabled(signal: String) = prefs.getBoolean("signal.$signal", false)
     override fun pausedUntil() = prefs.getLong("pause", 0)
     override fun retentionDays() = prefs.getInt("retention", 7).coerceIn(1, 7)

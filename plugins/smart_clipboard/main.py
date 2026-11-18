@@ -159,6 +159,8 @@ class SmartClipboard:
                     self.clear()
                     return
                 if self._refresh():
+                    from services.remote.phone_handoff import auto_clipboard
+                    auto_clipboard(self.latest)
                     self.show(automatic=True)
         except Exception:
             # The host logs callback tracebacks; none may contain clipboard data.

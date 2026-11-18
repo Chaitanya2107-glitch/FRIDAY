@@ -73,6 +73,13 @@ def copy_pairing(text):
 
 
 def notify(message):
+    from services.desktop_visibility import suppressed
+    if suppressed():
+        return
+    from services.friday_island_server.events import connected, publish_private
+    if connected():
+        publish_private(message)
+        return
     def show():
         if os.name == 'nt':
             box = ctypes.windll.user32.MessageBoxW

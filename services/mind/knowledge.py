@@ -232,7 +232,7 @@ def days_watched() -> int:
 def regulars(min_days: int) -> list[Thing]:
     """Apps seen on at least `min_days` days — the Boss's regulars."""
     with db() as conn:
-        return [_thing(r) for r in conn.execute("SELECT * FROM things WHERE kind = 'app' AND days >= ?", (min_days,))]
+        return [_thing(r) for r in conn.execute("SELECT * FROM things WHERE kind = 'app' AND name NOT LIKE 'phone:%' AND days >= ?", (min_days,))]
 
 
 def refresh_learned() -> None:
@@ -266,11 +266,13 @@ def due_lookup(now: datetime) -> Thing | None:
             return None
         return _thing(conn.execute(
             "SELECT * FROM things WHERE about IS NULL AND looked_up IS NULL AND kind='app' AND category=? "
-            "AND seconds>=? ORDER BY seconds DESC LIMIT 1",
+            "AND name NOT LIKE 'phone:%' AND seconds>=? ORDER BY seconds DESC LIMIT 1",
             (UNPLACED["app"], APP_LOOKUP_MIN_SECONDS)).fetchone())
 
 
 def _question(thing: Thing, requested: bool = False) -> str:
+    if thing.name.startswith('phone:'):
+        return f'What is Android package "{thing.name.split(":", 2)[-1]}"?'
     if thing.kind == "app":
         return f'What is "{thing.name}"? It is the name of a Windows program.'
     if requested:
@@ -290,6 +292,10 @@ def _parse(reply: str) -> dict | None:
 async def look_up(thing: Thing, now: datetime, *, requested: bool = False) -> Thing | None:
     """Ask the model what `thing` is. Returns the thing as she now knows it; None when no model answered
     (she'll try again later). A thing the model doesn't know comes back with no `about`."""
+    if thing.name.startswith('phone:'):
+        from services.phone_signals.preferences import load
+        if not (load()['ai_app_names'] and load()['teacher']):
+            return None
     from providers.failover import complete_with_failover
     from services.mind import app_learning
     from services.mind.training import teaching_for

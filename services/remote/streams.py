@@ -9,6 +9,7 @@ from .commands import fields
 from .security import Denied
 
 TOPICS = {
+    'presence.changed': ('state', 'reason', 'confidence', 'since'),
     'mood.changed': ('mood', 'expires_at', 'sticky'),
     'schedule.class_soon': ('subject', 'faculty', 'starts_at', 'room', 'minutes', 'date'),
     'schedule.due_soon': ('title', 'item_id', 'kind', 'due_at', 'hours', 'subject'),
@@ -115,7 +116,7 @@ def chat_response(service, request):
             await authorize(service, auth, 'ask')
             if result['result'] != 'completed':
                 raise Denied('conversation_refused')
-            yield frame('reply', {'text': result['data']['text']})
+            yield frame('reply', {'text': result['data']['text'], 'allow_speech': result['data'].get('allow_speech', True) is True})
             yield frame('done', {})
         except (Denied, OSError):
             yield frame('refused', {})

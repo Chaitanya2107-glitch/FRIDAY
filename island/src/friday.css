@@ -19,3 +19,17 @@
 .friday-notice strong, .friday-notice p { flex-basis: 100%; }
 .surface[data-mood='thinking'] .character { filter: drop-shadow(0 0 8px #ffb347); }
 .surface[data-mood='speaking'] .character { filter: drop-shadow(0 0 12px #8ae8cf); }
+.desktop-tools { display: grid; gap: 8px; user-select: text; }
+.desktop-tools p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.desktop-tools h3 { margin: 8px 0 0; font-size: 13px; }
+.clipboard-entry { padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.clipboard-entry p { max-height: 90px; overflow: auto; }
+.desktop-tools form { display: flex; gap: 8px; }
+.desktop-tools input { min-width: 0; flex: 1; }
+.file-result { padding: 6px; border-bottom: 1px solid var(--border); }
+.feature-library { display: grid; gap: 10px; }
+.feature-library input, .feature-library select { padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.feature-card { display: grid; gap: 6px; padding: 10px; margin: 8px 0; border: 1px solid var(--border); border-radius: 10px; }
+.feature-card summary { cursor: pointer; color: var(--accent); }
+.feature-card button { margin: 3px; max-width: 100%; white-space: normal; text-align: left; }
+.feature-guide { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; user-select: text; font: inherit; }

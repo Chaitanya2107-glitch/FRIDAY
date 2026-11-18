@@ -443,6 +443,26 @@ class TemporalMemory:
                               (subject_key(subject),)).fetchall()
         return [self._row(row) for row in rows]
 
+    def private_commitments(self, kind='goal'):
+        from .goals_sources import commitments
+        return commitments(self, kind)
+
+    def save_private_commitment(self, definition, source, **options):
+        from .goals_sources import save
+        return save(self, definition, source, **options)
+
+    def private_logs(self, identity):
+        from .goals_sources import logs
+        return logs(self, identity)
+
+    def log_private_progress(self, identity, value, **options):
+        from .goals_sources import log
+        return log(self, identity, value, **options)
+
+    def forget_private_phone(self, device):
+        from .goals_sources import forget_phone
+        forget_phone(self, device)
+
 
 temporal_memory = TemporalMemory(cognition)
 

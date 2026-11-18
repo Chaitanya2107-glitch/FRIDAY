@@ -39,14 +39,15 @@ class ScreenBadge:
         self.tray._command_action("pause screen awareness")()
 
     def update(self):
+        from services.desktop_visibility import suppressed
         state = (self.tray.runtime_status or {}).get("screen_watch") or {}
         if (self._pending_pause and state.get("epoch") is not None and state.get("epoch") != self._pause_epoch
                 and (state.get("paused") or not state.get("enabled"))):
             self._pending_pause = False
         visible = self.tray.online and state.get("enabled") and not state.get("paused") and not self._pending_pause
-        if not visible:
-            self.window.withdraw()
+        if not visible or suppressed():
             self.tray.screen_indicator = 0
+            self.window.withdraw()
             return
         label = ("Screen blocked" if state.get("state") in {"private_window", "privacy_scan_incomplete"} else
                  "Screen unavailable" if state.get("state") == "unavailable" else "Screen awareness")

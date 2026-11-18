@@ -84,6 +84,9 @@ EXTRA = {
 }
 
 ADDITIONS = (
+    ('care', 'Private care & coaching', 'Day & college', 'Opt in to care reminders and private goal coaching, with reviewed schedules and caps.', 'Review the preview before confirming. Private details clear when closed.', 'Care types start off; explicit local consent is required.', 'COACHING.md', ('care status', 'set up sleep care', 'my coaching goals', 'goal 1 progress', 'weekly care review', 'show private care check')),
+    ('presence', 'Presence & phone context', 'Phone & messaging', 'Inspect uncertain presence estimates, consented phone activity and local presence rules.', 'Review estimates and explicitly approve proposed rules. Physical location is kept out of AI context.', 'Consented companion signals; scenes plugin for rules.', 'PRESENCE.md', ('where am i', 'list presence rules', 'phone status')),
+    ('phone_handoff', 'Phone link & file handoff', 'Phone & messaging', 'Review items received from your paired phone and open an explicitly selected link.', 'Inspect the phone inbox before requesting a link to open. Sensitive approvals remain on the paired handset.', 'Paired companion and an active local remote connection.', 'PHONE-HANDOFF.md', ('phone inbox', 'open phone link', 'remote status', 'remote off')),
     ('chat', 'AI chat & web answers', 'Chat & voice', 'Ask questions, write drafts and search the web with citations.', 'Choose a provider or use the backend default. \\s searches the web; ordinary chat uses recent history.', 'Configured provider/model; internet for online providers and web search.', 'AI_ASSISTANCE.md', ('hello Friday', 'look up graph traversal algorithms', '\\s Python tkinter documentation')),
     ('browser', 'Browser & research tasks', 'Files & web', 'Run supervised browser tasks and bounded cited research reports.', 'State a task. Review each proposed input step and approve with browser yes; browser stop cancels. Headless is explicit.', 'Installed Playwright Chromium; browser/provider configuration; internet for web tasks.', 'BROWSER_AUTOMATION.md', ('browser task search for tkinter examples', 'research graph traversal algorithms', 'browser status', 'browser yes', 'browser stop', 'research report', 'desktop task type Hello in Notepad')),
     ('phone', 'Android phone bridge', 'Phone & messaging', 'Select a paired phone, inspect notifications, preview replies and ring it.', 'Check phone status; choose a paired device. A notification reply needs its existing confirmation.', 'Paired KDE Connect device and available local bridge.', 'PERSONAL_ASSISTANT_UPGRADES.md', ('phone status', 'read my phone notifications', 'read phone notification 1', 'reply: I will call you later', 'ring my phone', 'forget my phone')),
@@ -122,6 +125,9 @@ def capabilities() -> tuple[Capability, ...]:
 CAPABILITIES = capabilities()
 CATEGORIES = ('All capabilities', *sorted({item.category for item in CAPABILITIES}))
 GUIDES = {
+    'COACHING.md': 'Private care & coaching',
+    'PRESENCE.md': 'Presence & consented signals',
+    'PHONE-HANDOFF.md': 'Phone handoff & approvals',
     'CONTROL_CENTER.md': 'Start here · Control center',
     'FEATURES.md': 'Everything FRIDAY can do',
     'COMMAND_LANGUAGE.md': 'Command wording & shortcuts',

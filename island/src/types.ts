@@ -1,5 +1,5 @@
 export type Mode = 'rest' | 'peek' | 'expanded' | 'sneak' | 'hidden';
-export type Tab = 'friday' | 'projects' | 'plugins' | 'settings';
+export type Tab = 'friday' | 'features' | 'projects' | 'plugins' | 'settings';
 export interface Pin { id: string; name: string; path: string; visible: boolean; app_id?: string | null }
 export interface AppMatch { id: string; name: string; source: string; kind: 'app' | 'pin'; pinned: boolean }
 export interface IndexStatus { count: number; scanning: boolean; updated_at: number; errors: string[] }
@@ -27,8 +27,10 @@ export interface CommandResult {
 export interface ExecutionTarget { hwnd: number; pid: number; captured_at: number }
 export interface FridayState {
   backend: boolean; epoch: string; last: number; provider: string;
+  presence?: unknown;
+  computer?: { active: boolean; planning: boolean; awaiting: boolean; steps: number };
   body: { listening: boolean; thinking: boolean; speaking: boolean };
-  desktop: { connected: boolean; listening: boolean; wake: boolean; conversation: boolean; speak: boolean; speak_typed: boolean; body: boolean; owned: boolean; provider?: string | null; message: string };
+  desktop: { connected: boolean; listening: boolean; wake: boolean; conversation: boolean; speak: boolean; speak_typed: boolean; talk?: boolean; body: boolean; owned: boolean; provider?: string | null; message: string };
   system: { mode: { name: string | null }; screen_watch: { state?: string; enabled?: boolean; paused?: boolean } };
   automation: { active: boolean; job_id?: string | null; state?: string; response?: string; awaiting_reply?: boolean };
   events: { id: number; kind: string; text: string; title: string; at: number; buttons: [string, string][]; awaiting_reply?: boolean; transient?: boolean }[];
@@ -42,7 +44,7 @@ export interface Widget {
   input?: { label: string; placeholder: string; action: string; max_length: number };
 }
 export interface PillSnippet { text: string; show_from: number; expires_at: number }
-export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean; fullscreen_front?: boolean; desktop_locked?: boolean }
+export interface NativeStatus { mode: string; hotkey_errors: string[]; max_width: number; max_height: number; reduce_motion: boolean; fullscreen_front?: boolean; desktop_locked?: boolean; display_suppressed?: boolean }
 export interface BatteryStatus { percent: number | null; charging: boolean; plugged_in: boolean | null }
 export interface MediaSession {
   source: string; title: string; artist: string; playing: boolean;

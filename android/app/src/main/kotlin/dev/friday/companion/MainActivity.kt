@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
         val signal = pending; pending = null
         if (signal == "persistent") {
             if (activity.granted(Manifest.permission.POST_NOTIFICATIONS)) SharingService.start(activity)
-            else { settings.enabledSignals().forEach { settings.toggle(it, false) }; revision++; status = "Signals remain off because the sharing notification was denied." }
+            else { settings.connection = false; settings.enabledSignals().forEach { settings.toggle(it, false) }; revision++; status = "Signals and companion connection remain off because the notification was denied." }
         } else if (signal == "wifi_identity") status = if (activity.granted(Manifest.permission.ACCESS_FINE_LOCATION)) "Now tap ‘Remember current Wi-Fi as home’." else "Network type works without a Wi-Fi name/hash."
         else if (signal == "places" && activity.granted(Manifest.permission.ACCESS_FINE_LOCATION)) explanation = "places_background"
         else if (signal != null && results.values.all { it }) enable(signal) else status = "Permission denied; signal stays off."
@@ -113,12 +113,12 @@ class MainActivity : ComponentActivity() {
                         if (on) explanation = signal else {
                             settings.toggle(signal, false); revision++
                             scope.launch(Dispatchers.IO) { repo.buffer.discardSignal(signal) }
-                            if (settings.enabledSignals().isEmpty()) activity.stopService(Intent(activity, SharingService::class.java)) else start()
+                            if (settings.enabledSignals().isEmpty() && !settings.connection) activity.stopService(Intent(activity, SharingService::class.java)) else start()
                         }
                     })
                 }
             }
-            Button(onClick = { settings.pauseHour(); revision++; start() }) { Text("Pause everything for 1 hour") }
+            Button(onClick = { settings.pauseHour(); repo.presence.disconnect(); revision++; start() }) { Text("Pause everything for 1 hour") }
             OutlinedButton(onClick = { settings.resume(); revision++; start() }) { Text("Resume sharing / restart service") }
             OutlinedButton(onClick = { explanation = "battery_exemption" }) { Text("Explain battery optimisation exemption") }
             if (settings.enabled("network")) {
@@ -132,6 +132,8 @@ class MainActivity : ComponentActivity() {
             }
             if (settings.enabled("sleep") || settings.enabled("steps")) OutlinedButton(onClick = { explanation = "health_background" }) { Text("Optional background Health aggregates") }
             SharingControls(activity, revision, onChanged = { revision++; start() }, explain = { explanation = it })
+            HandoffControls(activity, startConnection = { start() })
+            PresenceSettings(activity)
         }
     }
     if (explanation != null) {

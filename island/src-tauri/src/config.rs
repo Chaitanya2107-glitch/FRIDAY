@@ -42,7 +42,7 @@ impl Default for Startup {
             manage_bridge: true,
             backend_root: String::new(),
             launch_at_login: false,
-            start_with_friday: false,
+            start_with_friday: true,
         }
     }
 }

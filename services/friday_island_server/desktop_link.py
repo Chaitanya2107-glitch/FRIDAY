@@ -5,7 +5,7 @@ import threading
 import time
 
 ACTIONS = frozenset({'listen', 'wake', 'conversation', 'speech', 'speak_typed',
-                     'body', 'controls', 'customization', 'college', 'productivity',
+                     'talk', 'microphone_stop', 'remote_off', 'control_center', 'controls', 'customization', 'college', 'productivity',
                      'start', 'stop', 'restart', 'quit', 'typed', 'typed_done', 'provider'})
 
 

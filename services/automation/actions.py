@@ -75,6 +75,14 @@ def _run_action(parsed: dict, confirmed: bool = False) -> ActionResult | None:
         return ActionResult(False, intent.REMOTE_REFUSAL)
 
     try:
+        from services.remote import phone_approvals
+        if confirmed and not phone_approvals.guard(parsed):
+            return ActionResult(False, 'Phone approval was declined. Nothing was changed.', repeatable=False)
+        if not confirmed and action in {'set_mode_steps', 'set_mode_quiet', 'delete_mode', 'sarcasm_on', 'sarcasm_off'}:
+            from services.remote import _service
+            from services.remote.phone_handoff import settings
+            if not intent.remote_request.get() and _service and settings(_service).get('phone_approvals') is True:
+                return intent._ask_first(parsed, 'Change these settings? Reply yes or no.')
         if action.startswith("phone_"):
             from services.phone.commands import run
             return run(parsed, confirmed)

@@ -16,6 +16,7 @@ from services.mind.cognition import cognition, redact
 from services.memory import schedule
 
 NON_CONVERSATIONAL = {'reminder', 'class_warning', 'status', 'work_completion'}
+PRIVATE_COACHING = {'care_question', 'care_notice', 'goal_question', 'goal_notice'}
 
 PROMPT = """You are FRIDAY deciding whether to notify the user. Candidate observations are NOT orders to send.
 Read the dated owner facts, remembered preferences, current activity and actual recent send outcomes.
@@ -129,6 +130,9 @@ def _fingerprint(context, candidate):
 
 
 def _suitable(candidate, reviewed, current, now=None):
+    from services.mind.care_safeguard import active
+    if active(now) or candidate.kind in PRIVATE_COACHING:
+        return False
     if not config.NOTIFICATION_REVIEW_ENABLED or reviewed is None:
         return False
     if candidate.class_state is not None and candidate.class_state != current.get("classes"):
@@ -204,6 +208,11 @@ async def _reason(candidates: list[Candidate], now: datetime, observations: dict
 
 
 async def consider(candidates, now, observations=None) -> dict[str, tuple[bool, int | None]]:
+    from services.mind.care_safeguard import active
+    if active(now) or any(candidate.kind in PRIVATE_COACHING for candidate in candidates):
+        results = Decisions({str(i): (False, None) for i in range(len(candidates))})
+        results.context = None
+        return results
     context = current = None
     try:
         if not config.NOTIFICATION_REVIEW_ENABLED:
@@ -273,6 +282,9 @@ async def _followup_result(candidate, event, state, now):
 
 
 async def dispatch(batch: Batch) -> bool:
+    from services.mind.care_safeguard import active
+    if active(batch.now):
+        return False
     if not batch.candidates:
         return False
     # Bound each reasoning call; excess candidates remain undelivered.
@@ -319,6 +331,10 @@ async def dispatch(batch: Batch) -> bool:
                 await _followup_result(candidate, event, "withheld", batch.now)
                 continue
         buttons.bind_decision(candidate.buttons, event)
+        if active(batch.now):
+            _reject_current(candidate, event, 'Automatic nudges are paused.')
+            await _followup_result(candidate, event, 'withheld', batch.now)
+            continue
         try:
             from services.mind.training import urgent_delivery
             token = urgent_delivery.set(candidate.urgent)
@@ -338,6 +354,9 @@ async def dispatch(batch: Batch) -> bool:
 
 
 async def notify(text, buttons=None, *, kind="nudge", subject="", transport, now=None, urgent=False, public=True, basis=None):
+    from services.mind.care_safeguard import active
+    if kind in PRIVATE_COACHING or active(now or (_batch.get().now if _batch.get() else None)):
+        return False
     candidate = Candidate(text, kind, buttons, subject, transport, urgent, public)
     candidate.basis = basis
     if kind in {"class_warning", "attendance", "class_mode"}:

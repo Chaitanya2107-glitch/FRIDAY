@@ -5,13 +5,32 @@ export async function request(identity, method, operation, body, options = {}) {
   const text = body === undefined ? '' : JSON.stringify(body);
   const canonicalPath = '/remote/v1/' + operation;
   const headers = await signedHeaders(identity, method, canonicalPath, text);
-  const response = await fetch(prefix + '/v1/' + operation, {
+  let response;
+  try { response = await fetch(prefix + '/v1/' + operation, {
     method, headers, body: text || undefined, cache: 'no-store', credentials: 'same-origin',
     signal: options.signal || AbortSignal.timeout(45000), redirect: 'error',
-  });
-  if (!response.ok) throw Error('Request refused or laptop unreachable. Check remote access on the laptop.');
+  }); } catch (cause) {
+    const error = Error('Laptop unreachable. Safe actions can wait for reconnection.', { cause });
+    error.networkUnavailable = true; throw error;
+  }
+  if (!response.ok) {
+    if ([502, 503, 504].includes(response.status)) {
+      const error = Error('Laptop service unavailable. Safe actions will wait for reconnection.');
+      error.networkUnavailable = true; throw error;
+    }
+    const error = Error('Request refused. Check remote access on the laptop.');
+    error.requestRefused = true; throw error;
+  }
   if (options.stream) return response;
-  const value = await response.json();
+  let value;
+  try { value = await response.json(); }
+  catch (cause) {
+    if (!(cause instanceof SyntaxError)) {
+      const error = Error('Laptop reply interrupted. Safe actions keep their request IDs.', { cause });
+      error.networkUnavailable = true; throw error;
+    }
+    throw cause;
+  }
   if (operation.startsWith('pair')) await verifyLaptop(value, identity, headers['X-Nonce']);
   return value;
 }

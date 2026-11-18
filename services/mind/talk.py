@@ -195,6 +195,13 @@ def hear(message: str, now: float | None = None) -> str | None:
         pending = state.pop("pending", None)
         if not pending:
             return None
+        from services.mind.phone_patterns import private_thought
+        if pending.get('thought') and private_thought(thoughts.get(pending['thought'])):
+            _save(state)
+            if not shush and now-pending['at'] <= ANSWER_SECONDS:
+                brain.answered(pending['thought'], message, datetime.fromtimestamp(now))
+                return 'answered'
+            return 'shushed' if shush else 'ignored'
         if now - pending["at"] > ANSWER_SECONDS:
             state['pending'] = pending
             _expire(state, now)
@@ -342,7 +349,8 @@ def _on_her_mind(now: datetime) -> "thoughts.Thought | None":
 
 def may_talk(state: dict, now_ts: float, busy: bool, idle: float) -> bool:
     """The hard limits. Quiet hours aren't one: late at night is a situation she learns about like any other."""
-    return (state.get("on", True) and not busy and now_ts >= state.get("paused_until", 0)
+    from services.mind.care_safeguard import active
+    return (not active(now_ts) and state.get("on", True) and not busy and now_ts >= state.get("paused_until", 0)
             and "pending" not in state and now_ts - state.get("last_at", 0) >= MIN_GAP_MINUTES * 60
             and TYPING_IDLE_SECONDS <= idle < ACTIVE_SECONDS)
 
@@ -395,6 +403,12 @@ def choose(log, where: str, state: dict, now: datetime, rng: random.Random = ran
 
 async def compose(log, where: str, state: dict, now: datetime) -> dict | None:
     """The local brain may generate one grounded question, or choose silence."""
+    if where in {'asked', 'day_review', 'learning'}:
+        from services.mind.phone_patterns import private_thought
+        candidate = next((t for t in thoughts.unsaid_on(now.date().isoformat()) if private_thought(t)), None)
+        if candidate:
+            raw = dict(candidate.data, kind=candidate.kind)
+            return dict(raw=raw, thought=candidate.id, say=wording.plain(raw), phone_device=raw.get('device'), phone_private=True)
     from services.mind.inquiry import inquiry
     return await inquiry.propose(now, explicit=where in {'asked', 'day_review', 'learning'}, intention=where)
 
@@ -438,6 +452,11 @@ async def tick(log, now: datetime, busy: bool, idle: float, rng: random.Random =
 def _record(line: dict, where: str, now_ts: float) -> None:
     """She said it: wait for the answer, and cross it off her lists."""
     state = load()  # compose took a few seconds
+    if line.get('phone_private'):
+        state.update(last_at=now_ts, pending=dict(where=where, at=now_ts, question=line['say'], thought=line['thought'], phone_device=line.get('phone_device')))
+        _save(state)
+        thoughts.mark_said(line['thought'])
+        return
     from services.mind.cognition import cognition
 
     cognition.record("question", "proactive", line["say"], status="prepared")
@@ -482,6 +501,9 @@ async def ask_now(log, now: datetime) -> str:
 
 async def deliver(text: str) -> None:
     """Say it, show it, put it in the chat history (so the answer makes sense), and tell the tray to listen."""
+    from services.mind.care_safeguard import active
+    if active():
+        return
     from interfaces.api.routes.voice import _speak_in_background
     from services.memory.sqlite_memory import MemoryService
     from services.reminders.service import show_toast
@@ -509,6 +531,8 @@ async def deliver(text: str) -> None:
                 _save(state)
             return
 
+    if active():
+        return
     cognition.record("reply", "proactive", text, status="prepared")
     try:
         MemoryService().save_message("assistant", text)
@@ -526,6 +550,8 @@ async def deliver(text: str) -> None:
                          "failed" if accepted is False else "attempted")
         evidence(pending.get("review_id"), delivery="submitted" if accepted is True else
                  "failed" if accepted is False else "attempted")
+    if active():
+        return
     body_state.push("say", text)  # a speech bubble next to her body
     _speak_in_background(text)
     queue = asks()

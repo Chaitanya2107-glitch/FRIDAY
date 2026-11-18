@@ -25,5 +25,5 @@ export const previewConfig = (): Config => ({
   island: { boot_animation: true, reduced_motion: false }, user_name: '',
   appearance: { glow: '#FFB347', idle_mode: 'always', idle_seconds: 30, snippet: true },
   connection: { port: 17321, api_port: 8000, token: '' },
-  startup: { manage_bridge: true, backend_root: '', launch_at_login: false, start_with_friday: false },
+  startup: { manage_bridge: true, backend_root: '', launch_at_login: false, start_with_friday: true },
 });

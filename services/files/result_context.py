@@ -1,6 +1,7 @@
 """Durable file results, scoped to laptop or Telegram; metadata only."""
 
 import time
+import uuid
 from pathlib import Path
 
 from services.files.search import FileHit
@@ -33,11 +34,13 @@ class LastResults:
             return row
         return None
 
-    def set(self, hits):
+    def set(self, hits) -> str:
+        search_id = uuid.uuid4().hex
         payload = {"hits": [{"path": h.path, "name": h.name, "stamp": stamp(h.path)} for h in hits[:100]],
-                   "at": time.monotonic(), "selected": None, "pending": None}
+                   "at": time.monotonic(), "selected": None, "pending": None, "search_id": search_id}
         with workspace._db() as conn:
             context.remember(conn, "files", payload, self.scope)
+        return search_id
 
     def change(self, row, **fields):
         with workspace._db() as conn:

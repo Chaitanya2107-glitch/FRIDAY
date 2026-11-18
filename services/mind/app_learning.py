@@ -69,7 +69,7 @@ def pending(key=None):
 
 def evidence():
     return {"app-explanation:" + row["token"]: {**row, "kind": "app_verification"} for row in pending()
-            if row["kind"] == "app"}
+            if row["kind"] == "app" and not row['key'].startswith('app:phone:')}
 
 
 def identity(row):

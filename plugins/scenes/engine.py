@@ -46,6 +46,8 @@ class Scenes:
         self.needs_recovery = bool(self.active and (self.active.get('epoch') != self.epoch or self.active['phase'] != 'active'))
         self.triggers = Triggers(self, desktop.processes)
         self._last_mood = 0
+        from .presence import PresenceRules
+        self.presence = PresenceRules(self)
 
     @staticmethod
     def _validate_journal(active):
@@ -85,6 +87,7 @@ class Scenes:
 
     def dismiss_pending(self):
         with self.lock:
+            self.presence.scene_declined()
             self.pending = None
             self.sync_commands()
 
@@ -107,11 +110,11 @@ class Scenes:
         choices = [('yes', 'Yes'), ('no', 'No')]
         if kind == 'trigger':
             choices = [('yes', 'Yes'), ('no', 'Not now'), ('disable', "Don't suggest again")]
-        card = dict(title=title, body=body, urgency='normal' if kind == 'trigger' else 'critical', ttl_s=120,
+        card = dict(title=title, body=body, urgency='normal' if kind in {'trigger', 'presence_run', 'presence_promote', 'presence_review'} else 'critical', ttl_s=120,
                     actions=[dict(id='answer', label=label, payload=dict(nonce=nonce, choice=value)) for value, label in choices])
         self.pending['card'] = card  # Authenticated status also delivers questions missed during startup/reconnect.
         self.sync_commands()
-        with origin_scope(self.remote_events):
+        with origin_scope(self.remote_events or kind.startswith('presence_')):
             self.api.publish('ui.card', card)
         return result(body + '\nAnswer yes or no.', data={'awaiting_confirmation': True})
 
@@ -158,6 +161,8 @@ class Scenes:
                 return result('Answer yes or no.', ok=False, error='invalid_answer')
             self.pending = None
             self.sync_commands()
+            if pending['kind'].startswith('presence_'):
+                return self.presence.answer(pending, choice)
             if choice == 'disable' and pending['kind'] == 'trigger':
                 disabled = self.api.settings.get('disabled_triggers', [])
                 self.api.settings.set('disabled_triggers', sorted(set(disabled + [pending['trigger']])))
@@ -166,6 +171,7 @@ class Scenes:
                 self.needs_recovery = False
                 return self.end('recovery', restore=choice == 'yes')
             if choice != 'yes':
+                self.presence.scene_declined()
                 return result('Scene unchanged.')
             if pending['kind'] == 'trigger':
                 return self.end('trigger') if pending['action'] == 'end' else self.request(pending['name'])
@@ -176,7 +182,18 @@ class Scenes:
                 approved = self.api.settings.get('approved_scenes', {})
                 approved[scene['key']] = scene['hash']
                 self.api.settings.set('approved_scenes', approved)
-                return self._start(scene)
+                if not self.presence.permit_scene_answer():
+                    return result('The presence rule no longer matches. No scene was started.', ok=False, error='rule_stale')
+                prior_owner = self.presence.applying_owner
+                if self.presence.scene_waiting:
+                    self.presence.applying_owner = self.presence.scene_waiting['owner']
+                try:
+                    with origin_scope(bool(self.presence.scene_waiting) or transport_origin.get()):
+                        value = self._start(scene)
+                finally:
+                    self.presence.applying_owner = prior_owner
+                self.presence.scene_completed(scene, value)
+                return value
             except (ValueError, OSError) as error:
                 return result(str(error), ok=False, error='invalid_scene')
 
@@ -201,6 +218,8 @@ class Scenes:
         self.active = dict(id='scenes:' + uuid4().hex, name=scene['name'], key=scene['key'], hash=scene['hash'], epoch=self.epoch,
                            since=now, ends_at=now + scene['duration_minutes'] * 60 if 'duration_minutes' in scene else None,
                            restore=scene['restore'], phase='applying', entries=[])
+        if self.presence.applying_owner:
+            self.active['presence_owner'] = self.presence.applying_owner
         if incoming_remote:
             self.active['remote_origin'] = True
         self._save()
@@ -276,6 +295,8 @@ class Scenes:
             self.needs_recovery = False
             self._save()
             self.api.publish('scene.ended', dict(name=active['name'], scene_id=active['id'], reason=reason))
+            if reason != 'presence_undo':
+                self.presence.release_scene(active)
             return result('Ended ' + active['name'] + ' mode.' + (' Reversible settings restored.' if should_restore else ' Settings kept.'), data=self.status())
 
     def tick(self):
@@ -307,6 +328,7 @@ class Scenes:
                         break
                 self._last_mood = self.now()
             self.triggers.tick()
+            self.presence.tick()
 
     def publish_state(self):
         active = self.active or {}

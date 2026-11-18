@@ -305,6 +305,15 @@ async def _record_command() -> str:
 async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     """Steps 2–5 for a transcribed voice command."""
     provider_name = request.provider or config.ACTIVE_PROVIDER
+    from services.mind import coaching_commands, care_safeguard
+    coaching = await coaching_commands.try_command(transcription)
+    if coaching is not None:
+        if coaching.message != care_safeguard.RESPONSE:
+            cognition_service.reply(coaching.message, safe_text=coaching_commands.PRIVATE_MEMORY)
+        if request.speak and coaching.speech:
+            _speak_in_background(coaching.speech, cache=False, local_only=True)
+        return VoiceResponse(transcription='', response=coaching.message, provider='local', private=True,
+                             model='coaching', tokens_used=0, action='system', action_success=coaching.success)
 
     from services.remote.local import try_command as try_remote_command
     remote_result = await try_remote_command(transcription)
@@ -312,6 +321,35 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         return VoiceResponse(transcription=transcription, response=remote_result.message, provider='local', private=True,
                              model='system_control', tokens_used=0, action='system', action_success=remote_result.success)
 
+    from services.presence.commands import try_command as presence_command
+    presence_result = await presence_command(transcription)
+    if presence_result is not None:
+        cognition_service.reply(presence_result.message, safe_text=presence_result.memory_message)
+        if request.speak:
+            _speak_in_background(presence_result.message, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=presence_result.message, provider='local', private=True,
+                             model='presence', tokens_used=0, action='system', action_success=presence_result.success)
+    from services.remote.companion_commands import try_command as companion_command
+    companion = await companion_command(transcription)
+    if companion is not None:
+        cognition_service.reply(companion.message, safe_text=companion.memory_message)
+        if request.speak:
+            _speak_in_background(companion.message, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=companion.message, provider='local', private=True,
+                             model='companion', tokens_used=0, action='system', action_success=companion.success)
+    from services.activity import phone_commands as activity_phone
+    if activity_phone.match_command(transcription) or activity_phone.pending_reply(transcription):
+        if activity_phone.match_command(transcription):
+            phone_result = await activity_phone.handle(transcription, provider_name)
+            phone_text = phone_result.message
+        else:
+            talk.hear(transcription)
+            phone_text = 'Your phone-pattern answer was handled locally.'
+        cognition_service.reply(phone_text, safe_text=activity_phone.PRIVATE_MEMORY)
+        if request.speak:
+            _speak_in_background(phone_text, cache=False, local_only=True)
+        return VoiceResponse(transcription=transcription, response=phone_text, provider='local', private=True,
+                             model='phone_activity', tokens_used=0, action='system', action_success=True)
     from services.briefing_runtime import try_command as try_briefing
     local_brief = await try_briefing(transcription, remote=remote_request.get())
     if local_brief is not None:
@@ -445,7 +483,7 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
             from services.mind.wording import enhance
             system_result = system_result._replace(message=await enhance(system_result.message, provider_name))
         cognition_service.reply(system_result.message, safe_text=system_result.memory_message)
-        logger.info(f"System action completed: {system_result.message}")
+        logger.info("System action completed: %s", system_result.memory_message or system_result.message)
         if system_result.speech is not None:  # "read this": say the text itself, not "Reading it out"
             if system_result.speech:
                 _speak_in_background(system_result.speech)
@@ -463,6 +501,7 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
             tokens_used=0,
             action="system",
             action_success=system_result.success,
+            private=system_result.memory_message is not None,
             awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get()),
             keyboard=list(system_result.keyboard),
         )

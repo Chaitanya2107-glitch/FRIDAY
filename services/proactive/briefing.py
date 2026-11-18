@@ -54,6 +54,8 @@ def build(now: datetime | None = None, *, structured: bool | None = None) -> str
                 + "\n\n".join(part for part in sections if part))
     parts = [_greeting(now), weather(), _classes_today(now), _attendance(now), _deadlines(now), _exams(now), _college_events(now),
              _risk(now), _reminders_today(now), notes.briefing_line(), _system(), _yesterday(now)]
+    from services.activity.timeline import phone_line
+    parts.append(phone_line(now, now.date()-timedelta(days=1)))
     return " ".join(part for part in parts if part)
 
 

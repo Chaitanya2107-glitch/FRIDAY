@@ -102,6 +102,7 @@ async def main():
                         if (cmd === 'save_config') { window.fixture = structuredClone(args.next); window.fixture.revision++; return structuredClone(window.fixture); }
                         if (cmd === 'runtime_status') return {mode:'rest',hotkey_errors:[],acrylic:false,reduce_motion:false};
                         if (cmd === 'set_mode') { window.nativeModes.push(args); return; }
+                        if (cmd === 'boot_done') return;
                         if (cmd === 'set_regions') { window.regions = args.rects; return; }
                         if (cmd === 'plugin:event|listen') { listeners.set(args.event, callbacks.get(args.handler)); return ++next; }
                         if (cmd === 'plugin:event|unlisten') return;
@@ -301,8 +302,14 @@ async def main():
                 await expect(page.get_by_role("textbox", name="New app display name")).to_be_visible()
                 await page.get_by_role("button", name="Move New app up", exact=True).click()
                 assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[2] == "New app"
-                await page.locator('.config-row').first.drag_to(page.locator('.config-row').last)
-                assert (await page.evaluate("window.fixture.pins.map(p=>p.name)"))[-1] == 'Notes'
+                await expect(page.locator('.config-row').nth(2).get_by_role('textbox', name='New app display name')).to_be_visible()
+                # Playwright's pointer drag scrolls the source away before dropping.
+                rows = page.locator('.config-row')
+                drag = await page.evaluate_handle('new DataTransfer()')
+                await rows.first.dispatch_event('dragstart', {'dataTransfer': drag})
+                await rows.last.dispatch_event('dragover', {'dataTransfer': drag})
+                await rows.last.dispatch_event('drop', {'dataTransfer': drag})
+                await page.wait_for_function("window.fixture.pins.at(-1).name === 'Notes'")
                 await page.get_by_role('button', name='Remove New app', exact=True).click()
                 await page.get_by_role('button', name='Remove New app', exact=True).click()
                 assert len(await page.evaluate('window.fixture.pins')) == 3
@@ -343,7 +350,7 @@ async def main():
                 reads = await page.evaluate('window.desktopReads')
                 await page.wait_for_timeout(2200)
                 assert await page.evaluate('window.desktopReads') == reads, 'Sneak kept polling Windows media'
-                await expect(surface).to_have_attribute('data-mood', 'sleepy')
+                await expect(surface).to_have_attribute('data-motion-paused', 'true')
                 command = page.get_by_role("combobox", name="FRIDAY command")
                 await command.fill("ne")
                 await expect(page.get_by_role("option").first).to_contain_text("next")

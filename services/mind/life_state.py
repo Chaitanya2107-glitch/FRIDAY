@@ -184,8 +184,28 @@ def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic
         preferences = talk.load() if preferences is None else preferences
         busy = is_busy() if busy is None else busy
         mic = talk.mic_in_use() if mic is None else mic
-        return (LifeState(store) if store is not None else life_state).assess(
+        from services.activity.attention import where_is_attention
+        attention = where_is_attention(now, publish=False)
+        result = (LifeState(store) if store is not None else life_state).assess(
             now, known, live, preferences, busy=busy, mic=mic, imminent=imminent)
+        from services.mind.care_safeguard import active
+        if active(now):
+            result['can_initiate'] = result['can_review'] = False
+            result['interruption_blocks'].append('care_pause')
+            result['review_blocks'].append('care_pause')
+            result['reason'] = 'Automatic nudges are paused.'
+        from services.presence.engine import current as presence_now
+        presence = presence_now(now)
+        if presence['confidence'] >= .6 and presence['state'] in {'in_class', 'commuting', 'asleep', 'winding_down'}:
+            result['can_initiate'] = False
+            result['interruption_blocks'].append('presence_restraint')
+            result['reason'] = 'The current activity estimate calls for quiet.'
+        if attention['data_available']:
+            result['phone_attention'] = {key: attention[key] for key in ('attention', 'confidence')}
+            if attention['attention'] in {'phone', 'both'} and attention['confidence'] >= .6:
+                result['can_initiate'] = False
+                result['interruption_blocks'].append('phone_attention')
+        return result
     except Exception as error:
         logger.debug('Behavioral life state unavailable (%s)', type(error).__name__)
         return {'posture': 'quiet', 'can_review': False, 'can_initiate': False,

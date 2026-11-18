@@ -89,6 +89,9 @@ class ReasoningStore:
         known['runtime:current'] = operational_state()
         from services.mind import thoughts
         for thought in thoughts.unsaid_on(None)[:5]:
+            from services.mind.phone_patterns import private_thought
+            if private_thought(thought):
+                continue
             known[f'thought:{thought.id}'] = {'kind': 'observation', 'thought_id': thought.id,
                 'source': 'observed_pattern_or_hypothesis', 'thought_kind': thought.kind,
                 'subject': thought.subject, 'data': thought.data, 'noted': thought.at.isoformat()}

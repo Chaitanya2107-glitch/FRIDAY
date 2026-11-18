@@ -1,4 +1,4 @@
-const CACHE = 'friday-remote-deb6b24b0ef0a73a';
+const CACHE = 'friday-remote-44f4abdb6c504c88';
 const shell = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', event => event.waitUntil((async () => {
   const cache = await caches.open(CACHE);

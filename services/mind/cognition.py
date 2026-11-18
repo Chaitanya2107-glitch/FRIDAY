@@ -165,6 +165,10 @@ def turn(channel: str):
     def decorate(function):
         @functools.wraps(function)
         async def wrapped(*args, **kwargs):
+            incoming = args[0] if args else kwargs.get('transcription', kwargs.get('request'))
+            from services.mind.care_safeguard import matches as private_disclosure
+            if private_disclosure(incoming if isinstance(incoming, str) else getattr(incoming, 'message', '')):
+                return await function(*args, **kwargs)
             from services.remote.context import conversation_only
             if conversation_only.get():
                 return await function(*args, **kwargs)

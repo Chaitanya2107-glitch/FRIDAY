@@ -22,3 +22,12 @@
 .scene-chip:focus-visible { outline: 2px solid #9dc5ff; outline-offset: 2px; }
 .surface[data-scene='true']:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .island-row { height: 54px; }
 .surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .scene-chip { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
+.presence-chip { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 118px; padding: 0 3px;
+  color: #d9c7a8; font: 500 10px/16px system-ui; white-space: nowrap; }
+.presence-chip svg { width: 12px; height: 14px; color: var(--accent); }
+.presence-chip span { overflow: hidden; text-overflow: ellipsis; }
+.presence-chip[hidden], .surface:is([data-mode='hidden'], [data-mode='sneak']) .presence-chip { display: none; }
+.surface[data-presence='true']:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .island-row { height: 54px; }
+.surface:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .presence-chip { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
+.surface[data-presence='true'][data-scene='true']:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .presence-chip { left: 12px; transform: none; }
+.surface[data-presence='true']:is([data-mode='rest']:not(.replying), [data-mode='peek'][data-active='false']) .scene-chip { left: auto; right: 12px; transform: none; }

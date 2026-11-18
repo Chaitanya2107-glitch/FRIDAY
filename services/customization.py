@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services import settings_store
 from services.activity import projects
 from services.automation import modes, routines, whatsapp
+from services.automation.system_control import AutomationError
 from services.screen_watch.app_rules import app_name, rules as screen_apps
 
 SECTIONS = {'contacts': whatsapp, 'routines': routines, 'projects': projects, 'modes': modes, 'screen_apps': screen_apps}
@@ -155,7 +156,7 @@ def _normalize(section, value):
 
 
 @settings_store.synchronized
-def change(section: str, *, original: str | None, name: str, value: dict | None, revision: str) -> dict:
+def _change(section: str, *, original: str | None, name: str, value: dict | None, revision: str) -> dict:
     data, current = _read(section)
     if current != revision:
         raise Conflict('Settings changed elsewhere. Reload before saving; your draft has been kept.')
@@ -204,3 +205,12 @@ def change(section: str, *, original: str | None, name: str, value: dict | None,
             result['warning'] = 'Project settings were saved, but activity totals could not be refreshed. Restart FRIDAY to refresh them.'
     result['selected'] = name if value is not None else None
     return result
+
+
+def change(section: str, *, original: str | None, name: str, value: dict | None, revision: str) -> dict:
+    # Wait outside the JSON writer lock; the revision is revalidated before saving.
+    from services.remote.phone_approvals import guard
+    if not guard(dict(action='change_companion_settings', section=section, original=original,
+                      name=name, value=value, revision=revision)):
+        raise AutomationError('Phone approval declined. Settings unchanged.')
+    return _change(section, original=original, name=name, value=value, revision=revision)

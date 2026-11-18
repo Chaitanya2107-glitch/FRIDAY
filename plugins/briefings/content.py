@@ -140,6 +140,10 @@ class Builder:
             parts = [first, clean(self.stats('today') + ' ' + self.work(morning=False), 650),
                      self.classes(now.date()+timedelta(days=1), tomorrow=True), self.due(morning=False),
                      clean(self.charge(False) + ' ' + outside, 650), self.line('closings')]
+        from services.automation.intent import remote_request
+        if not remote_request.get():
+            from services.activity.timeline import phone_line
+            parts.append(phone_line(now, now.date()-timedelta(days=1) if morning else now.date()))
         return '\n'.join(part for part in parts if part)[:3900], opener
 
     def tomorrow_summary(self):

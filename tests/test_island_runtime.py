@@ -292,6 +292,7 @@ def test_native_controller_route_authentication_and_no_arbitrary_actions(island_
 @run_async
 async def test_integrated_transport_rebinds_and_reports_readiness(island_config, monkeypatch):
     import socket
+    from services.friday_island_server.config import atomic_write, locked
     from services.friday_island_server import server as bridge_server
     from services.friday_island_server.server import run_integrated_bridge, transport_state
     path, config = island_config
@@ -324,7 +325,8 @@ async def test_integrated_transport_rebinds_and_reports_readiness(island_config,
         # Inject failure without depending on Windows' exclusive-socket release delay.
         # Both successful listeners and the handshake still use real localhost sockets.
         occupied_port = config.connection.port = free_port()
-        path.write_text(config.model_dump_json(), encoding='utf-8')
+        with locked(path):
+            atomic_write(path, config)
         await until(lambda: not transport_state['ready'] and transport_state['error'] == 'OSError')
         occupied = False
         await until(lambda: transport_state['ready'] and transport_state['port'] == config.connection.port)

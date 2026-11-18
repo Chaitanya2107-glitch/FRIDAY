@@ -163,7 +163,8 @@ class FridayBody:
                 return
             now = time.monotonic()
             if now >= self._next_fullscreen_check:
-                self._fullscreen = sensors.fullscreen()
+                from services.desktop_visibility import suppressed
+                self._fullscreen = suppressed()
                 self._next_fullscreen_check = now + FULLSCREEN_CHECK_SECONDS
             if not self.visible or self._fullscreen or not self._tray.online:
                 self._show(False)

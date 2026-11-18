@@ -57,7 +57,8 @@ def payload(kind, data):
     }
     if kind not in required:
         raise Denied('phone_type')
-    fields(data, required[kind], ('ssid_hash',) if kind == 'network' else ())
+    fields(data, required[kind], ('ssid_hash',) if kind == 'network' else
+           ('notification_id', 'event', 'reason', 'importance') if kind == 'notifications' else ())
     for name in ('package', 'label', 'place', 'title', 'artist', 'category'):
         if name in data and not (name == 'category' and kind == 'app_usage'):
             string(data[name], 200 if name == 'package' else 120)
@@ -85,6 +86,20 @@ def payload(kind, data):
         boolean(data['connected'])
     elif kind == 'notifications':
         number(data['time'])  # No title/text/content or arbitrary nested payload can pass fields().
+        if 'notification_id' in data and (not isinstance(data['notification_id'], str) or not re.fullmatch('[a-f0-9]{64}', data['notification_id'])):
+            raise Denied('phone_notification_id')
+        if 'event' in data:
+            choice(data['event'], {'posted', 'opened', 'dismissed', 'removed'})
+            if data['event'] != 'posted' and 'notification_id' not in data:
+                raise Denied('phone_notification_id')
+        if 'reason' in data:
+            integer(data['reason'], 0, 30)
+        if 'importance' in data:
+            integer(data['importance'], 0, 5)
+        if data.get('event') == 'opened' and data.get('reason') != 1:
+            raise Denied('phone_notification_reason')
+        if data.get('event') == 'dismissed' and data.get('reason') not in {2, 3}:
+            raise Denied('phone_notification_reason')
     elif kind in {'sleep', 'steps'}:
         from datetime import date
         string(data['date'], 10)
@@ -124,7 +139,7 @@ def events(args):
 
 
 def heartbeat(args):
-    fields(args, ('battery', 'app_version', 'last_sync', 'signals'))
+    fields(args, ('battery', 'app_version', 'last_sync', 'signals'), ('capabilities',))
     signal_list(args['signals'])
     if args['battery'] is not None:
         fields(args['battery'], ('level', 'charging'))
@@ -133,4 +148,14 @@ def heartbeat(args):
             raise Denied('phone_schema')
     string(args['app_version'], 48)
     number(args['last_sync'])
+    if 'capabilities' in args:
+        caps = args['capabilities']
+        fields(caps, ('phone_modes', 'notification_snooze', 'vip', 'urgent'))
+        boolean(caps['phone_modes']); boolean(caps['notification_snooze'])
+        for key in ('vip', 'urgent'):
+            if not isinstance(caps[key], list) or len(caps[key]) > 20 or not all(isinstance(v, str) for v in caps[key]) or len(set(caps[key])) != len(caps[key]):
+                raise Denied('phone_capabilities')
+            for package in caps[key]:
+                if not isinstance(package, str) or not re.fullmatch(r'android|[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+', package) or len(package) > 200:
+                    raise Denied('phone_capabilities')
     return args

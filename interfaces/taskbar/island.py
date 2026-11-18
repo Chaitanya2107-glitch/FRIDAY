@@ -30,8 +30,6 @@ class IslandDesktop:
                                    if arg.startswith('--island-owner=')), None)
         self.executable = EXECUTABLE
         self.created = None
-        if not self._attached_pid:
-            self.enabled = self.enabled and load_config().startup.start_with_friday
         if self._attached_pid:
             try:
                 process = psutil.Process(self._attached_pid)
@@ -48,7 +46,10 @@ class IslandDesktop:
             self.panel.request_show(anchor)
             return
         self._start_requested.set()
-        self._launch(background=False)
+        if anchor == 'dictate':
+            self._launch(background=False, dictate=True)
+        else:
+            self._launch(background=False)
 
     def _ensure_started(self):
         if not self._start_requested.is_set() or self.runtime.busy:
@@ -57,10 +58,10 @@ class IslandDesktop:
         if not backend.is_online():
             self.panel._lifecycle('start')
 
-    def _launch(self, background=True):
+    def _launch(self, background=True, dictate=False):
         env = {**os.environ, 'FRIDAY_ISLAND_MANAGE_BRIDGE': '0'}
         with (ROOT / 'logs/island-desktop.log').open('ab') as output:
-            child = subprocess.Popen([str(self.executable), *(['--background'] if background else [])],
+            child = subprocess.Popen([str(self.executable), *(['--background'] if background else []), *(['--dictate'] if dictate else [])],
                 cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                 creationflags=subprocess.CREATE_NO_WINDOW)
         if self.process is None and child.poll() is None:
@@ -86,12 +87,12 @@ class IslandDesktop:
             return reply.json()
 
     def notify(self, text, transient=False, *, private=False):
-        if not private:
-            try:
-                if self._post('event', {'kind': 'response', 'text': text, 'transient': transient})['accepted']:
-                    return
-            except (httpx.HTTPError, OSError, ValueError):
-                pass
+        try:
+            if self._post('event', {'kind': 'response', 'text': text, 'transient': transient,
+                                    **({'private': True} if private else {})})['accepted']:
+                return
+        except (httpx.HTTPError, OSError, ValueError):
+            pass
         self._notify(text, transient, private=private)
 
     def question(self, text):
@@ -111,7 +112,7 @@ class IslandDesktop:
     def state(self):
         tray = self.tray
         return dict(listening=tray.listening, wake=tray.wake_on, conversation=tray.in_conversation,
-                    speak=backend.settings.speak_replies, speak_typed=backend.settings.speak_typed,
+                    talk=tray.talk_on, speak=backend.settings.speak_replies, speak_typed=backend.settings.speak_typed,
                     provider=backend.settings.provider, body=bool(tray.body and tray.body.visible),
                     busy=self.runtime.busy, owned=self.runtime.owned, message=self.runtime.message)
 
@@ -121,8 +122,11 @@ class IslandDesktop:
         action, value = command['action'], command.get('value', '')
         actions = {'listen': self.tray.toggle_listening, 'wake': self.tray.toggle_wake,
                    'conversation': self.tray.toggle_conversation, 'speech': self.tray.toggle_speak_replies,
-                   'speak_typed': self.tray.toggle_speak_typed, 'body': self.tray.toggle_body,
-                   'controls': self.panel.request_show, 'customization': self.tray.open_customization,
+                   'speak_typed': self.tray.toggle_speak_typed,
+                   'talk': lambda: self.tray.toggle_talk(), 'remote_off': lambda: self.tray.remote_off(),
+                   'microphone_stop': lambda: self.tray.pause_microphone(),
+                   'control_center': lambda: self.tray.open_control_center(),
+                   'controls': self.summon, 'customization': self.tray.open_customization,
                    'college': self.tray.open_college_schedules, 'productivity': self.tray.open_productivity,
                    'quit': self.bar.request_quit, 'typed_done': self.tray.typed_reply_done}
         if action in {'start', 'stop', 'restart'}:

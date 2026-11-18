@@ -4,6 +4,7 @@ import type { Connection } from './connection';
 import type { CommandResult, FridayState } from './types';
 import { call } from './native';
 import { searchCardBody } from './search-card';
+import { DesktopTools } from './desktop-tools';
 
 export class FridayPanel {
   readonly conversation = new Conversation();
@@ -23,16 +24,21 @@ export class FridayPanel {
   private historyLoaded = false;
   private painted = '';
   private automationSignature?: string;
+  private tools: DesktopTools;
+  private toolsOpen = false;
+  private computerApproval = false;
 
   constructor(private connection: () => Connection, private submit: (text: string) => Promise<void>,
               private message: (text: string, bad?: boolean) => void,
               private reveal: (event: FridayState['events'][number]) => void, private prepare: () => Promise<void>) {
+    this.tools = new DesktopTools(connection, submit, message);
     this.log.setAttribute('role', 'log'); this.log.setAttribute('aria-label', 'FRIDAY conversation');
     this.log.setAttribute('aria-live', 'polite');
     this.root.append(this.status, this.detail);
     const controls = el('div', 'friday-controls');
     for (const [action, label] of [['listen', 'Listen'], ['voice_stop', 'Stop listening'], ['speech_stop', 'Stop speaking'], ['automation_stop', 'Stop tasks'],
-      ['wake', 'Hey Friday'], ['conversation', 'Conversation'], ['speech', 'Spoken replies'], ['speak_typed', 'Speak typed replies']] as const) {
+      ['wake', 'Hey Friday'], ['conversation', 'Conversation'], ['speech', 'Spoken replies'], ['speak_typed', 'Speak typed replies'],
+      ['talk', 'Talk on her own'], ['microphone_stop', 'Stop microphone'], ['remote_off', 'Remote off']] as const) {
       const button = this.button(label, () => this.action(action)); controls.append(button); this.controls.set(action, button);
     }
     this.provider.setAttribute('aria-label', 'FRIDAY provider');
@@ -43,13 +49,26 @@ export class FridayPanel {
     controls.append(this.provider); this.root.append(controls, this.log, this.automation, this.notices);
     const features = el('div', 'friday-features');
     for (const [action, label] of [['college', 'College schedules'], ['productivity', 'Habits & To-do'],
-      ['customization', 'Customize FRIDAY'], ['controls', 'All controls'], ['body', 'Show / hide robot']] as const)
-      features.append(this.button(label, () => action === 'controls' ? call('open_controls') : this.action(action)));
+      ['customization', 'Customize FRIDAY'], ['control_center', 'Control Center & Guide']] as const)
+      features.append(this.button(label, () => this.action(action)));
     for (const [text, label] of [['read my notes', 'Notes'], ['list reminders', 'Reminders'], ['show deadlines', 'Deadlines'],
       ['screen awareness status', 'Screen awareness'], ['browser status', 'Browser & research'], ['phone status', 'Phone'],
-      ['brain status', 'Memory & brain'], ['what mode am I in', 'Current mode']] as const)
+      ['brain status', 'Memory & brain'], ['what mode am I in', 'Current mode'],
+      ['resume screen awareness', 'Resume screen awareness'], ['pause screen awareness', 'Pause screen awareness'],
+      ['stop screen awareness', 'Stop screen awareness'], ['screen memory', 'Screen memory'],
+      ['forget screen memory', 'Forget screen memory'], ['read my clipboard', 'Read clipboard'],
+      ["what's on my screen?", 'Ask about my screen'],
+      ['take a screenshot', 'Screenshot'], ['turn the volume up', 'Volume up'], ['turn the volume down', 'Volume down'],
+      ['mute', 'Mute'], ['unmute', 'Unmute'], ["what's playing", 'Spotify status'], ['connect spotify', 'Connect Spotify'],
+      ['disconnect spotify', 'Disconnect Spotify'], ['\\c status', 'Review computer task']] as const)
       features.append(this.button(label, () => this.submit(text)));
     features.append(this.button('Clear display', async () => { this.conversation.clear(); this.paintConversation(); }));
+    features.append(this.button('Desktop tools', async () => { this.toolsOpen = !this.toolsOpen; if (this.toolsOpen) this.tools.mount(this.root); else this.tools.close(); }));
+    features.append(this.button('Clear saved chat memory', async () => {
+      if (window.confirm('Permanently delete conversation history? Reminders and saved facts are kept.')) {
+        await this.action('history_clear'); this.conversation.clear(); this.paintConversation();
+      }
+    }));
     this.root.append(features);
     const lifecycle = el('div', 'friday-controls');
     const start = el('button', 'text-button', 'Start FRIDAY');
@@ -71,7 +90,7 @@ export class FridayPanel {
     return button;
   }
   mount(host: HTMLElement) { host.append(this.root); this.paintConversation(); this.paintState(); }
-  close() { this.conversation.close(); this.paintConversation(); }
+  close() { this.computerApproval = false; this.conversation.close(); this.paintConversation(); if (this.toolsOpen) { this.tools.close(); this.toolsOpen = false; } }
   connected(online: boolean) {
     this.online = online;
     if (!online) { this.state = undefined; this.automationSignature = undefined; this.conversation.awaiting = false; this.close(); }
@@ -120,6 +139,7 @@ export class FridayPanel {
     this.paintState(); this.paintConversation(); return true;
   }
   accept(prompt: string, reply: CommandResult) {
+    this.computerApproval = reply.model === 'computer_agent' && reply.private === true && reply.awaiting_reply === true;
     const shown = reply.model === 'briefings' && Array.from(this.notices.querySelectorAll('[data-plugin="briefings"] p'))
       .some(body => body.textContent === reply.text);
     if (shown) this.conversation.close(); else this.conversation.accept(prompt, reply);
@@ -174,7 +194,7 @@ export class FridayPanel {
       at: Number(event.at) || Date.now() / 1000, buttons: [] });
   }
   private paintConversation() {
-    const signature = JSON.stringify([this.conversation.turns, this.conversation.privateReply, this.conversation.awaiting]);
+    const signature = JSON.stringify([this.conversation.turns, this.conversation.privateReply, this.conversation.awaiting, this.computerApproval]);
     if (this.painted === signature) return;
     this.painted = signature;
     this.log.replaceChildren();
@@ -184,6 +204,8 @@ export class FridayPanel {
     }
     if (this.conversation.privateReply) {
       const row = el('div', 'friday-turn private'); row.append(el('strong', '', 'Private · clears when closed'), el('p', '', this.conversation.privateReply)); this.log.append(row);
+      if (this.computerApproval) row.append(this.button('Approve this step', () => this.submit('\\c yes')),
+        this.button('Cancel computer task', () => this.submit('\\c no')));
     }
     if (this.conversation.awaiting) this.log.append(el('p', 'friday-pending', 'FRIDAY is waiting for your reply. Type or speak your answer.'));
     if (!this.log.childElementCount) this.log.append(el('p', 'muted', 'Ask FRIDAY or run any of your usual commands.'));
@@ -197,18 +219,21 @@ export class FridayPanel {
     for (const [action, button] of this.controls) {
       const active = action === 'listen' ? state?.body.listening : action === 'wake' ? state?.desktop.wake
         : action === 'conversation' ? state?.desktop.conversation : action === 'speech' ? state?.desktop.speak
-        : action === 'speak_typed' ? state?.desktop.speak_typed : false;
+        : action === 'speak_typed' ? state?.desktop.speak_typed : action === 'talk' ? state?.desktop.talk : false;
       button.setAttribute('aria-pressed', String(!!active));
       button.disabled = !this.online || (!action.endsWith('_stop') && !state?.desktop.connected);
     }
     if (document.activeElement !== this.provider) this.provider.value = state?.desktop.provider ?? '';
     this.provider.disabled = !state?.desktop.connected;
     const progress = state?.automation;
-    const text = progress?.state && progress.state !== 'idle' ? progress.response ?? progress.state : '';
+    const browser = progress?.state && progress.state !== 'idle' ? progress.response ?? progress.state : '';
+    const computer = state?.computer;
+    if (this.computerApproval && computer && !computer.awaiting) { this.computerApproval = false; this.paintConversation(); }
+    const text = [browser && `Browser / research\n${browser}`, computer?.active ? `Supervised desktop task · ${computer.steps} completed steps · ${computer.planning ? 'Planning' : computer.awaiting ? 'Waiting for approval' : 'Step expired; review the task'}` : ''].filter(Boolean).join('\n\n');
     if (this.automation.dataset.text !== text) {
       this.automation.dataset.text = text; this.automation.replaceChildren();
       if (text) {
-        this.automation.append(el('strong', '', 'Browser / research task'), el('p', '', text));
+        this.automation.append(el('strong', '', 'Task progress'), el('p', '', text));
       }
     }
   }

@@ -1,5 +1,57 @@
 # Offline scenes
 
+## Presence rules and trust
+
+These local, offline phrases show the complete parsed rule and scene preview before saving:
+
+```text
+when I reach college start class mode
+when I leave home tell me what is due today
+at 11 pm start sleep mode
+list presence rules
+where am I
+undo that
+```
+
+Answer **yes** to save, or **no** to discard. Saving never runs the action. New rules start at **Ask**;
+each matching occurrence asks separately. Existing scene first-run/version and close-app confirmations
+still apply, and an acceptance counts only once the action actually completes.
+
+Three consecutive successful accepts make a rule eligible for one offer to switch to **Do and tell**.
+The offer itself needs Yes and shares the existing question/nudge budgets, so it may wait for a later
+eligible interval. One No or Undo returns the rule to Ask. A changed rule or referenced scene invalidates
+its approval and requires review again. Rules with app launches, closes, unknown plugin effects or phone
+interruption-mode changes remain at Ask; they cannot silently inherit authority from a safe scene name.
+
+Presence rules are stored atomically in the scenes plugin's `presence-rules.json`, with definition hashes,
+scene-version bindings, per-rule trust, last-event IDs and at most 200 run receipts. A receipt is written
+before any effect, and reversible tokens are checkpointed. `undo that` handles a recent presence receipt
+only when it still owns the affected scene; an explicit Undo button cannot close a newer scene. Delivered
+notices and spoken words cannot be recalled, which Undo reports plainly. Forgetting phone data discards
+phone-triggered trust and receipts while retaining owner-written definitions and existing laptop undo journals.
+
+A scene JSON may also declare a presence trigger. Its `auto` setting cannot bypass the trust ladder:
+
+```json
+{"type":"presence","event":"arrive","place":"college",
+ "conditions":{"days":"weekdays","after":"08:00","before":"18:00","in_class":true}}
+```
+
+Events are `arrive`/`leave` with `place`, or `enter_state`/`leave_state` with a named presence `state`.
+Conditions support `daily`, `weekdays`, `weekends` or a list of `mon`–`sun`, an optional paired `after`/`before`
+window (including overnight), and a Boolean class-window condition. Standalone rule action types are
+`start_scene`, `show_card`, `phone_notice`, `phone_mode` and `read_due_today`. Phone modes require current
+companion permission and a fresh owner Yes. They use the companion's bounded 15-minute lease: presence
+Undo cancels a pending mode change or requests restoration of that exact owner; ordinary `end scene`
+restores the scene's laptop journal and does not itself shorten a separate phone-mode lease. The phone
+restores its prior mode when the lease ends, including while the laptop is unreachable. Unknown fields/actions fail closed.
+
+Timer callbacks only stage candidates. The owner watcher drains them through existing executive/nudge
+and question budgets before releasing UI or effects. A phone-derived event never passes through the
+ordinary generic scene event trigger; remote-origin provenance stays attached to rule cards and scenes.
+Arrival IDs and minimum confidence prevent repeated reads from firing again; startup does not invent an
+arrival, stale arrivals are dropped, and clock triggers have a five-minute window rather than a restart backlog.
+
 Scenes are editable local routines with an explicit preview and reverse undo.
 They use the existing app aliases, local Windows APIs, offline speech and the
 authenticated island bridge. There is no shell action, arbitrary program command

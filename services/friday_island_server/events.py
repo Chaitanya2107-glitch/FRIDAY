@@ -7,14 +7,32 @@ _lock = threading.Lock()
 _events = deque(maxlen=80)
 _sequence = 0
 _listeners = set()
+_private = {}
 
 
 def listen(owner, enabled):
     with _lock:
         if enabled:
             _listeners.add(owner)
+            _private.setdefault(owner, deque(maxlen=6))
         else:
             _listeners.discard(owner)
+            _private.pop(owner, None)
+
+
+def publish_private(text, transient=False):
+    with _lock:
+        for queue in _private.values():
+            queue.append({'text': str(text)[:4000], 'transient': transient, 'at': time.time()})
+
+
+def take_private(owner):
+    with _lock:
+        queue = _private.get(owner)
+        rows = [dict(row) for row in queue or [] if time.time() - row['at'] < 10]
+        if queue is not None:
+            queue.clear()
+        return rows
 
 
 def connected():

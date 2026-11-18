@@ -12,6 +12,11 @@ PROMPT = (PERSONAL_ASSISTANT_ROLE + '\nThis is an isolated remote conversation. 
 
 
 async def answer(text):
+    from services.mind.coaching_commands import try_command
+    private = await try_command(text, conversation=True)
+    if private is not None:
+        from providers.base_provider import ProviderResponse
+        return ProviderResponse(private.message, 'local', 'coaching', metadata={'allow_speech': False})
     async with asyncio.timeout(35):
         result = await complete_with_failover(config.ACTIVE_PROVIDER, [Message('user', text)], PROMPT,
                                               500, purpose='conversation', attempt_timeout=10)

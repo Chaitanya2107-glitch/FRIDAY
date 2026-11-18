@@ -79,6 +79,26 @@ class ExecutiveControl:
     def __init__(self, store):
         self.store = store
 
+    def reserve_local(self, identity, kind, now):
+        """Scoped deterministic reviews share the model loop's actual attempt budget."""
+        from services.presence.delivery import KINDS
+        if kind not in KINDS or not config.COGNITION_ENABLED or not config.COGNITIVE_REVIEW_ENABLED:
+            return None
+        stamp = now.timestamp()
+        with self._db() as conn:
+            conn.execute('CREATE TABLE IF NOT EXISTS executive_local_notices (identity TEXT PRIMARY KEY, kind TEXT NOT NULL, created REAL NOT NULL)')
+            conn.execute('BEGIN IMMEDIATE')
+            enabled = conn.execute('SELECT enabled FROM executive_settings WHERE id=1').fetchone()[0]
+            used, last = conn.execute('SELECT COUNT(*),MAX(started) FROM executive_attempts WHERE started>?', (stamp - 3600,)).fetchone()
+            if not enabled or used >= HOURLY_LIMIT or last is not None and stamp - last < REVIEW_GAP:
+                return None
+            if conn.execute('SELECT 1 FROM executive_local_notices WHERE identity=?', (identity,)).fetchone():
+                return None
+            conn.execute('INSERT INTO executive_attempts(started) VALUES(?)', (stamp,))
+            conn.execute('INSERT INTO executive_local_notices VALUES(?,?,?)', (identity, kind, stamp))
+            conn.execute('DELETE FROM executive_local_notices WHERE created<?', (stamp - 31 * 86400,))
+            return identity
+
     @contextmanager
     def _db(self):
         with self.store._lock, self.store._connect() as conn:

@@ -192,12 +192,15 @@ class RemoteService:
         return state
 
     async def monitor(self):
+        from services.health.watchdog import watchdog
+
         while True:
             try:
                 await asyncio.to_thread(self.verify_bind)
                 await asyncio.to_thread(self.live)
             except Denied:
                 pass
+            watchdog.heartbeat('phone')
             await asyncio.sleep(5)
 
     def issue_pairing(self):
@@ -226,7 +229,14 @@ class RemoteService:
                 self.check_epoch(epoch, device)
                 if expires_at is not None and self.clock() >= expires_at:
                     raise Denied('approval_expired')
-                result = entry.handler(self, device, actual_args)
+                from services.automation import autonomy
+                from .context import origin_scope
+                with origin_scope(True):
+                    if entry.risk == 'confirm':
+                        with autonomy.record(command, origin='remote'):
+                            result = entry.handler(self, device, actual_args)
+                    else:
+                        result = entry.handler(self, device, actual_args)
             if not self.enabled.is_set() or self.stopped.is_set() or self.epoch != epoch:
                 raise Denied('remote_off')
             return result

@@ -259,7 +259,10 @@ class SemanticMemory:
         if self._cache is None:
             with closing(self._connect()) as conn:
                 rows = conn.execute(f"SELECT {self.COLUMNS}, vector FROM memories ORDER BY id").fetchall()
-            vectors = np.stack([np.frombuffer(r[-1], dtype=np.float32) for r in rows]) if rows else np.zeros((0, 0), np.float32)
+            arrays = [np.frombuffer(r[-1], dtype=np.float32) for r in rows]
+            dimensions = next((len(vector) for vector in arrays if vector.size), 0)
+            vectors = np.asarray([vector if len(vector) == dimensions else np.zeros(dimensions, np.float32)
+                                  for vector in arrays], dtype=np.float32).reshape(len(rows), dimensions)
             self._cache = ([r[:-1] for r in rows], vectors)
         return self._cache
 
@@ -279,13 +282,20 @@ class SemanticMemory:
         text = text.rstrip(".")
         if not text:
             return False
-        vector = self.embedder.encode([text])[0]
+        try:
+            vector = self.embedder.encode([text])[0]
+        except Exception as error:
+            logger.debug("Saving memory text without an embedding (%s)", type(error).__name__)
+            vector = np.empty(0, dtype=np.float32)
         with self._lock:
             rows, vectors = self._load()
             if source != "episode" and rows:
-                scores = vectors @ vector
-                best = int(scores.argmax())
-                if scores[best] >= DUPLICATE_SCORE:
+                best = next((i for i, row in enumerate(rows) if row[1].casefold() == text.casefold()), None)
+                if best is None and vector.size and vectors.shape[1] == vector.size:
+                    scores = vectors @ vector
+                    candidate = int(scores.argmax())
+                    best = candidate if scores[candidate] >= DUPLICATE_SCORE else None
+                if best is not None:
                     self._change("UPDATE memories SET strength = MIN(?, strength + ?) WHERE id = ?",
                                  (MAX_STRENGTH, HEARD_AGAIN, rows[best][0]))
                     return False
@@ -306,7 +316,11 @@ class SemanticMemory:
             rows, vectors = self._load()
         if not rows:
             return []
-        scores = vectors @ self.embedder.encode([text])[0]
+        try:
+            vector = self.embedder.encode([text])[0]
+            scores = vectors @ vector if vectors.shape[1] == vector.size else np.zeros(len(rows))
+        except Exception:
+            return []
         order = np.argsort(scores)[::-1]
         return [(rows[i][0], rows[i][1]) for i in order
                 if UPDATE_MIN_SCORE <= scores[i] < DUPLICATE_SCORE and rows[i][3] != "episode"][:5]
@@ -321,8 +335,16 @@ class SemanticMemory:
             rows, vectors = self._load()
             if not rows:
                 return []
-            scores = vectors @ self.embedder.encode_query(query)
-            best = [i for i in np.argsort(scores)[::-1][:limit] if scores[i] >= RECALL_MIN_SCORE]
+            from services.mind.recall import tokens
+            terms = set(tokens(query))
+            lexical = [i for i, row in enumerate(rows) if terms and terms.issubset(tokens(row[1]))]
+            try:
+                vector = self.embedder.encode_query(query) if vectors.shape[1] else None
+                scores = vectors @ vector if vector is not None and vector.size == vectors.shape[1] else np.zeros(len(rows))
+            except Exception:
+                scores = np.zeros(len(rows))
+            semantic = [int(i) for i in np.argsort(scores)[::-1] if scores[i] >= RECALL_MIN_SCORE]
+            best = list(dict.fromkeys([*semantic, *reversed(lexical)]))[:limit]
             if best:
                 ids = [rows[i][0] for i in best]
                 self._change(f"UPDATE memories SET last_used = ?, strength = MIN(?, strength + ?) "
@@ -336,10 +358,21 @@ class SemanticMemory:
             rows, vectors = self._load()
             if not rows:
                 return None
-            scores = vectors @ self.embedder.encode_query(description)
-            best = int(scores.argmax())
-            if scores[best] < FORGET_MIN_SCORE:
-                return None
+            exact = split_day(description.strip())[0].rstrip(".").casefold()
+            match = [i for i, row in enumerate(rows) if row[1].casefold() == exact]
+            if len(match) == 1:
+                best = match[0]
+            else:
+                try:
+                    vector = self.embedder.encode_query(description) if vectors.shape[1] else None
+                    if vector is None or vector.size != vectors.shape[1]:
+                        return None
+                    scores = vectors @ vector
+                    best = int(scores.argmax())
+                    if scores[best] < FORGET_MIN_SCORE:
+                        return None
+                except Exception:
+                    return None
             self._change("DELETE FROM memories WHERE id = ?", (rows[best][0],))
         if self is semantic_memory:
             from services.mind.executive import executive, clear_derived
@@ -448,7 +481,7 @@ class SemanticMemory:
     def learn_in_background(self, message: str, provider_name: str, question: str | None = None) -> None:
         """Pull lasting facts out of the user's message without delaying the reply.
         question: what FRIDAY asked, when this answers it ("pizza" only means something with the question)."""
-        if config.AI_ASSIST_ONLY or not config.SEMANTIC_MEMORY_LEARN:
+        if config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on" or not config.SEMANTIC_MEMORY_LEARN:
             return
         if question:
             message = f'Friday asked the user: "{question}"\nThe user answered: "{message}"'

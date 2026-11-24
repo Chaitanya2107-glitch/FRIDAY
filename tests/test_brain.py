@@ -187,7 +187,7 @@ def test_she_looks_up_what_she_cant_place_with_only_its_name(tmp_path, monkeypat
     lookup_says(monkeypatch, '{"known": true, "what": "God of War, an action-adventure game.", "category": "gaming"}', asked)
     log = log_with(tmp_path, [])
     asyncio.run(brain.learn_something(log, NOW))
-    assert asked == ['What is "gow"? It is the name of a Windows program.']
+    assert asked == ['What is "gow"?']
     thing = knowledge.get("app:gow")
     assert thing.about is None and thing.category == "other" and thing.source == "rule"
     proposal = app_learning.pending(thing.key)[0]

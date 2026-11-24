@@ -129,6 +129,8 @@ class AutomationService:
             return Reply(True, "Approved one step. Use browser status for its result and the next proposal.")
         if self.active:
             return Reply(False, "An automation task is already active. Use browser status or browser stop first.")
+        if config.FRIDAY_LLM != "on" and command.kind != "research":
+            return Reply(False, "What exact step should I take, Boss? Try open <app> or type <exact text>.")
         if len(command.text) > 2000:
             return Reply(False, "Keep automation tasks under 2000 characters.")
         if command.kind == "desktop" and command.headless:

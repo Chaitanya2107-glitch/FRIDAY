@@ -17,6 +17,7 @@ import httpx
 from core.config import config
 from core.logger import logger
 from providers.ollama.runtime import runtime
+from providers.failover import run_local_model
 from services.mind import cognition_context, executive, life_state, reasoning, review_metrics
 from services.mind.brain_memory import BrainMemory
 from services.mind.cognition import Cognition
@@ -34,7 +35,7 @@ def source_hashes():
     return {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in paths}
 
 
-async def residency():
+async def _residency():
     ready = await runtime.ready(config.OLLAMA_BASE_URL)
     result = {'server_ready': ready, 'configured_model_resident': None}
     if ready:
@@ -47,6 +48,10 @@ async def residency():
         except (httpx.HTTPError, ValueError, TypeError):
             pass
     return result
+
+
+async def residency():
+    return await run_local_model(_residency, timeout=2)
 
 
 async def main(args):

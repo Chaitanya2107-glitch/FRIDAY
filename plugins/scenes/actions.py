@@ -213,6 +213,26 @@ def install(registry, desktop):
                 line = line.get('text', '')
             if not isinstance(line, str) or not line:
                 raise Skipped('Tomorrow\'s briefing is empty.')
+        from services.learning.origin import current_actor
+        if current_actor() == 'automatic':
+            from datetime import datetime
+            from services.mind.speech_budget import budget, current, delivery_id
+            now = datetime.now()
+            if delivery_id.get() is not None:
+                if current(now)[2]:
+                    raise Skipped('The current situation calls for quiet.')
+                budget.note_text(line)
+            else:
+                receipt = budget.decide(now, 'scene_speech', line, reason='A saved scene calls for this announcement.')
+                if receipt is None:
+                    raise Skipped('The current situation calls for quiet.')
+                try:
+                    api.speak(line)
+                except Exception:
+                    budget.finish(receipt, False)
+                    raise
+                budget.finish(receipt, True)
+                return None
         api.speak(line)
         return None
     register('say', say, preview=lambda p: ('Read tomorrow\'s summary if the offline briefings service exists.'

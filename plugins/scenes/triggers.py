@@ -70,20 +70,20 @@ class Triggers:
             return
         if rule.get('action') == 'end' and (not engine.active or engine.active['name'] != scene['name']):
             return
-        if not rule.get('auto', False):
-            from services.quiet_mode import enabled
-            if enabled():
-                return  # Optional suggestions must not interrupt a quiet scene.
+        from services.learning.origin import action_scope
+        automatic = bool(rule.get('auto') and
+                         all(action['type'] in engine.presence.actions.safe_scene_actions for action in engine.catalog.actions(scene)))
         last = engine.api.settings.get('trigger_slots', {})
         if last.get(identity) == slot:
             return
         last[identity] = slot
         engine.api.settings.set('trigger_slots', last)
-        if rule.get('auto', False):
-            if rule.get('action') == 'end':
-                engine.end('trigger')
-            else:
-                engine.request(scene['key'])  # First-run and close confirmations still apply.
+        if automatic:
+            with action_scope('automatic'):
+                if rule.get('action') == 'end':
+                    engine.end('trigger')
+                else:
+                    engine.request(scene['key'])
             return
         engine.ask_trigger(scene, identity, rule.get('action', 'start'))
 

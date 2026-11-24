@@ -131,6 +131,8 @@
   {"family": "timetable", "action": "add_class", "phrases": ["add class Networks on Wednesday 11 to 12 in room 101", "add class Lab on friday 2 pm to 4 pm"]},
   {"family": "timetable", "action": "add_subject", "phrases": ["add subject OS", "Could you please add subject OS"]},
   {"family": "timetable", "action": "clear_timetable", "phrases": ["clear my timetable", "Could you please clear my timetable"]},
+  {"family": "timetable", "action": "course_faculty", "phrases": ["who teaches DBMS", "who is the instructor for DS"]},
+  {"family": "timetable", "action": "course_schedule", "phrases": ["what time is my DBMS class tomorrow", "when is the DSP lecture on Friday"]},
   {"family": "timetable", "action": "import_timetable", "phrases": ["read my timetable from the screen for section ii-a", "read my timetable from the screen"]},
   {"family": "timetable", "action": "list_subjects", "phrases": ["list my subjects", "show enrolled subjects"]},
   {"family": "timetable", "action": "next_class", "phrases": ["what's my next class", "which lecture is next"]},
@@ -275,5 +277,7 @@
   {"family": "workspace", "action": "clear", "phrases": ["clear my goals and tasks", "Could you please clear my goals and tasks"]},
   {"family": "workspace", "action": "goal_state", "phrases": ["pause goal Prepare for placements", "resume goal Prepare for placements"]},
   {"family": "reasoning", "action": "apply", "phrases": ["apply reasoning proposal 7", "Could you please apply reasoning proposal 7"]},
+  {"family": "reasoning", "action": "date_confirm", "phrases": ["confirm date proposal 7", "Could you please confirm date proposal 7"]},
+  {"family": "reasoning", "action": "date_reject", "phrases": ["reject date proposal 7", "Could you please reject date proposal 7"]},
   {"family": "reasoning", "action": "reject", "phrases": ["reject reasoning proposal 7", "Could you please reject reasoning proposal 7"]}
 ]

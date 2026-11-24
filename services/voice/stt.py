@@ -62,6 +62,10 @@ class SpeechToText:
         self._recognize = None
         self._load_lock = threading.RLock()  # also held throughout inference
 
+    @property
+    def ready(self) -> bool:
+        return self._recognize is not None
+
     def load(self) -> None:
         """Load (and warm up) the model once. Blocking — call from a worker thread."""
         with self._load_lock:
@@ -96,7 +100,8 @@ class SpeechToText:
                 # ponytail: whole clip in one pass; commands and short voice notes only.
                 text = self._recognize(audio.astype(np.float32, copy=False)).strip()
             except Exception as e:
-                raise STTError(f"Transcription failed: {e}")
+                self._recognize = None
+                raise STTError(f"Transcription failed: {e}") from e
         if log:
             logger.info(f"Transcribed: '{text}'")
         return text
@@ -105,9 +110,11 @@ class SpeechToText:
 stt = SpeechToText()
 
 
-async def preload() -> None:
-    """Load the model in the background at startup. If it fails, voice retries on first use."""
+async def preload() -> bool:
+    """Warm the speech recognizer on a worker and report readiness to the supervisor."""
     try:
         await asyncio.to_thread(stt.load)
     except STTError as e:
-        logger.warning(f"{e} — will retry when voice is first used")
+        logger.warning("%s", e)
+        return False
+    return True

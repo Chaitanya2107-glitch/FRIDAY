@@ -49,6 +49,10 @@ class ProviderError(FridayError):
         super().__init__(message, status_code=502)   # 502 = Bad Gateway (upstream failed)
 
 
+class ModelUnavailable(ProviderError, RuntimeError):
+    """The model is off, unavailable, saturated, or out of time."""
+
+
 class ConfigError(FridayError):
     """
     Raised when required config is missing or invalid.

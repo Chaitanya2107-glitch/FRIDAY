@@ -29,6 +29,7 @@ def register(api, *, desktop=None, now=None):
     scenes.sync_commands()
     api.on_action('answer', scenes.answer_action)
     api.on_action('presence_undo', scenes.presence.undo)
+    api.on_action('presence_accept', scenes.presence.accept)
     api.add_route('GET', 'status', lambda request: scenes.status())
     api.subscribe('*', scenes.event)
     api.every(5, scenes.tick)

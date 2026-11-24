@@ -108,6 +108,10 @@ def _cancel_question(state):
             _evening().stop()
         except Exception as error:
             logger.debug('Question cancellation receipt unavailable (%s)', type(error).__name__)
+    else:
+        from services.mind.speech_budget import budget
+        now = datetime.now()
+        budget.feedback(budget.latest_since(now, ANSWER_SECONDS), 'shushed', now)
 
 
 def _belief(state: dict, where: str) -> tuple[float, float]:
@@ -373,7 +377,8 @@ def _doing(log, now: datetime) -> tuple[str | None, int]:
 def choose(log, where: str, state: dict, now: datetime, rng: random.Random = random) -> dict:
     """What to bring up — decided here, with no AI model. Returns {"raw": the facts to word} plus what
     saying it crosses off ("thought", "wondered", "followed_up")."""
-    mood, _ = life.mood(now, brain.away_minutes(now))
+    from services.mind.state import persona
+    mood, _ = persona(now)
     base = {"time": f"{now:%A %I:%M %p}", "your_mood": mood}
     if where == "start":
         return {"raw": {"kind": "start", **base, "moment": "you have just come online",
@@ -409,8 +414,12 @@ async def compose(log, where: str, state: dict, now: datetime) -> dict | None:
         if candidate:
             raw = dict(candidate.data, kind=candidate.kind)
             return dict(raw=raw, thought=candidate.id, say=wording.plain(raw), phone_device=raw.get('device'), phone_private=True)
-    from services.mind.inquiry import inquiry
-    return await inquiry.propose(now, explicit=where in {'asked', 'day_review', 'learning'}, intention=where)
+    from services.mind.inquiry import inquiry, local_delivery
+    token = local_delivery.set(True)
+    try:
+        return await inquiry.propose(now, explicit=where in {'asked', 'day_review', 'learning'}, intention=where)
+    finally:
+        local_delivery.reset(token)
 
 
 # ── The minute ────────────────────────────────────────────────────────────────
@@ -475,6 +484,8 @@ def _record(line: dict, where: str, now_ts: float) -> None:
             state['pending']['app_generation'] = line['app_generation']
     state['pending'].update(behavior_context=line.get('behavior_context'),
                             explicit=line.get('explicit', where in {'asked', 'day_review', 'learning'}), offered=False)
+    state['pending']['cause'] = {'reason': line.get('reason', 'A recorded question was ready to ask.'),
+                                 'evidence': line.get('cause_numbers', {})}
     state["recent"] = (state.get("recent", []) + [line["say"]])[-10:]
     _save(state)
     if line.get("thought"):  # said: it leaves her mind
@@ -499,20 +510,37 @@ async def ask_now(log, now: datetime) -> str:
     return line["say"]
 
 
-async def deliver(text: str) -> None:
+def question_speech(text: str | None) -> str | None:
+    """App explanations awaiting owner verification are visible in the question."""
+    if not text:
+        return None
+    if text.startswith("The model suggests "):
+        return ""
+    pending = load().get("pending") or {}
+    return "" if pending.get("question") == text and pending.get("app_verification") else None
+
+
+async def deliver(text: str, *, now=None) -> None:
     """Say it, show it, put it in the chat history (so the answer makes sense), and tell the tray to listen."""
     from services.mind.care_safeguard import active
-    if active():
-        return
     from interfaces.api.routes.voice import _speak_in_background
     from services.memory.sqlite_memory import MemoryService
     from services.reminders.service import show_toast
     from services.mind.cognition import cognition
     from services.mind.inquiry import inquiry
+    from services.mind.speech_budget import SpeechBudget
+    budget = SpeechBudget(inquiry.store)
+    now = now or datetime.fromtimestamp(time.time())
     state = load()
-    if not state.get('on', True) or state.get('paused_until', 0) > time.time():
-        return
     pending = state.get('pending') or {}
+    if pending.get('question') != text:
+        return
+    if active(now) or not state.get('on', True) or state.get('paused_until', 0) > now.timestamp():
+        if not pending.get('explicit'):
+            await asyncio.to_thread(budget.decide, now, 'question', text, reason='An inquiry was prepared.',
+                                    blocked='conversation paused')
+        retire_question()
+        return
     if pending.get('app_verification'):
         from services.mind.app_verification import offer_current
         if not offer_current(pending):
@@ -520,10 +548,12 @@ async def deliver(text: str) -> None:
             return
     if pending.get('inquiry_id') and pending.get('question') == text:
         try:
-            allowed = await asyncio.to_thread(inquiry.deliverable, pending['inquiry_id'])
+            allowed = await asyncio.to_thread(inquiry.deliverable, pending['inquiry_id'], now)
         except Exception:
             allowed = False
         if not allowed:
+            await asyncio.to_thread(budget.decide, now, 'question', text, reason='An inquiry was prepared.',
+                                    blocked='the inquiry or its source is no longer current')
             inquiry.mark(pending['inquiry_id'], 'withheld')
             state = load()
             if (state.get('pending') or {}).get('inquiry_id') == pending['inquiry_id']:
@@ -533,14 +563,35 @@ async def deliver(text: str) -> None:
 
     if active():
         return
-    cognition.record("reply", "proactive", text, status="prepared")
+    speech_id = None
+    if not pending.get('explicit'):
+        cause = pending.get('cause') or {}
+        thought = thoughts.get(pending['thought']) if pending.get('thought') else None
+        evidence = {'inquiry': pending.get('inquiry_id'), **cause.get('evidence', {})}
+        if thought:
+            evidence.update(thought=thought.id, thought_strength=thought.strength)
+        speech_id = await asyncio.to_thread(budget.decide, now, 'question', text,
+            reason=cause.get('reason', 'A question was ready to ask.'), evidence=evidence,
+            source=f"inquiry:{pending['inquiry_id']}" if pending.get('inquiry_id') else None,
+            context=pending.get('behavior_context'))
+        if speech_id is None:
+            retire_question()
+            return
+    saved_text = text
+    if pending.get('app_verification'):
+        from services.mind.app_verification import PRIVATE_PROPOSAL
+        saved_text = PRIVATE_PROPOSAL
+    cognition.record("reply", "proactive", saved_text, status="prepared")
     try:
-        MemoryService().save_message("assistant", text)
+        MemoryService().save_message("assistant", saved_text)
     except Exception as e:
         logger.warning(f"Couldn't save FRIDAY's question to the chat history: {e}")
     from services import body_state
 
-    accepted = await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", text, cognition_public=True)
+    try:
+        accepted = await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", text, cognition_public=True)
+    except Exception:
+        accepted = False
     from services.mind.reviews import evidence
     pending = load().get("pending") or {}
     if pending.get("question") == text:
@@ -551,17 +602,21 @@ async def deliver(text: str) -> None:
         evidence(pending.get("review_id"), delivery="submitted" if accepted is True else
                  "failed" if accepted is False else "attempted")
     if active():
+        await asyncio.to_thread(budget.finish, speech_id, accepted)
         return
     body_state.push("say", text)  # a speech bubble next to her body
-    _speak_in_background(text)
-    queue = asks()
-    if queue.full():
-        queue.get_nowait()
-    queue.put_nowait(text)
+    await asyncio.to_thread(budget.finish, speech_id, True)
+    if question_speech(text) != "":
+        _speak_in_background(text)
+        queue = asks()
+        if queue.full():
+            queue.get_nowait()
+        queue.put_nowait(text)
     state = load()
     if (state.get('pending') or {}).get('inquiry_id') == pending.get('inquiry_id') and (state.get('pending') or {}).get('question') == text:
         state['pending']['offered'] = True  # offered/attempted, never proof the owner read or heard it
-        state['pending']['offered_at'] = time.time()
+        state['pending']['offered_at'] = now.timestamp()
+        state['pending']['speech_id'] = speech_id
         _save(state)
 
 

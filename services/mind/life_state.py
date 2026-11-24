@@ -1,6 +1,6 @@
 """Shared behavioral priorities and learned interruption timing, with no model loop."""
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 
 from core.config import config
@@ -41,7 +41,7 @@ class LifeState:
             yield db
 
     def feedback(self, context, reaction, source, now=None):
-        if not config.COGNITION_ENABLED or reaction not in {'answered', 'shushed', 'ignored'}:
+        if not config.COGNITION_ENABLED or reaction not in {'acted_on', 'answered', 'shushed', 'ignored'}:
             return
         if not context or not source or len(context) > 130 or not re.fullmatch(r'[a-z0-9 _|-]+', context):
             return
@@ -61,27 +61,28 @@ class LifeState:
                        '(SELECT id FROM life_reactions ORDER BY id DESC LIMIT 500)',
                        (now.timestamp() - HISTORY_SECONDS,))
 
-    def engagement(self, context, now):
+    def engagement(self, context, now, *, db=None):
         if not config.COGNITION_ENABLED:
             rows = []
         else:
-            with self._db() as db:
+            with (self._db() if db is None else nullcontext(db)) as db:
                 rows = db.execute('SELECT reaction,at FROM life_reactions WHERE context=? AND at BETWEEN ? AND ? '
                                   'ORDER BY at DESC,id DESC LIMIT 50',
                                   (context, now.timestamp() - HISTORY_SECONDS, now.timestamp())).fetchall()
         answers = sum(row['reaction'] == 'answered' for row in rows)
+        acted = sum(row['reaction'] == 'acted_on' for row in rows)
         declines = sum(row['reaction'] == 'shushed' for row in rows)
         unanswered = sum(row['reaction'] == 'ignored' for row in rows)
         good, bad = 2., 2.
         streak = []
         for row in rows:
             weight = .5 ** ((now.timestamp() - row['at']) / (3 * 86400))
-            if row['reaction'] == 'answered':
+            if row['reaction'] in {'answered', 'acted_on'}:
                 good += weight
             else:
                 bad += weight * (2 if row['reaction'] == 'shushed' else .25)
         for row in rows:
-            if row['reaction'] == 'answered' or now.timestamp() - row['at'] > 86400:
+            if row['reaction'] in {'answered', 'acted_on'} or now.timestamp() - row['at'] > 86400:
                 break
             streak.append(row)
         cooldown = 0
@@ -89,7 +90,8 @@ class LifeState:
             refused = sum(row['reaction'] == 'shushed' for row in streak)
             minutes = min(240, 60 * 2 ** min(2, max(0, refused - 1))) if refused else min(120, 15 * len(streak))
             cooldown = streak[0]['at'] + minutes * 60
-        return {'answers': answers, 'declines': declines, 'unanswered': unanswered,
+        return {'answers': answers, 'acted_on': acted, 'declines': declines, 'unanswered': unanswered,
+                'alpha': round(good, 4), 'beta': round(bad, 4),
                 'welcome_estimate': round(good / (good + bad), 2), 'cooldown_until': cooldown,
                 'meaning': 'Timing evidence only; an unanswered offer is not rejection or an obligation to reply.'}
 
@@ -172,7 +174,8 @@ class LifeState:
 life_state = LifeState(cognition)
 
 
-def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic=None, imminent=False, store=None):
+def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic=None, imminent=False, store=None,
+            attention=None, presence=None):
     """Read existing canonical adapters once; consumers may reuse their own snapshots."""
     now = now or datetime.now()
     try:
@@ -185,7 +188,7 @@ def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic
         busy = is_busy() if busy is None else busy
         mic = talk.mic_in_use() if mic is None else mic
         from services.activity.attention import where_is_attention
-        attention = where_is_attention(now, publish=False)
+        attention = where_is_attention(now, publish=False) if attention is None else attention
         result = (LifeState(store) if store is not None else life_state).assess(
             now, known, live, preferences, busy=busy, mic=mic, imminent=imminent)
         from services.mind.care_safeguard import active
@@ -195,7 +198,7 @@ def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic
             result['review_blocks'].append('care_pause')
             result['reason'] = 'Automatic nudges are paused.'
         from services.presence.engine import current as presence_now
-        presence = presence_now(now)
+        presence = presence_now(now) if presence is None else presence
         if presence['confidence'] >= .6 and presence['state'] in {'in_class', 'commuting', 'asleep', 'winding_down'}:
             result['can_initiate'] = False
             result['interruption_blocks'].append('presence_restraint')
@@ -215,6 +218,10 @@ def current(now=None, *, known=None, live=None, preferences=None, busy=None, mic
 
 def reaction(pending, event, now):
     """Feedback belongs to the ORIGINAL offered autonomous interruption, never a new activity."""
+    if pending.get('offered') and pending.get('speech_id'):
+        from services.mind.speech_budget import SpeechBudget
+        SpeechBudget(life_state.store).feedback(pending['speech_id'], event, datetime.fromtimestamp(now))
+        return
     if (not pending.get('offered') or pending.get('explicit') or not pending.get('behavior_context')
             or not pending.get('inquiry_id')):
         return

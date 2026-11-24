@@ -12,14 +12,14 @@ sys.path.insert(0, str(ROOT))
 async def main():
     import httpx
     from core.config import config
-    from providers.ollama.runtime import runtime
+    from providers.failover import close_local_model, local_model_session
     from services.screen_watch.inference import VISION_MODEL as MODEL
     base = config.OLLAMA_BASE_URL.rstrip("/")
     url = urlsplit(base)
     assert url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
     assert not (url.username or url.password or url.path or url.query or url.fragment)
-    try:
-        async with runtime.use(base), httpx.AsyncClient(timeout=30, trust_env=False, follow_redirects=False) as client:
+    async def provision():
+        async with httpx.AsyncClient(timeout=30, trust_env=False, follow_redirects=False) as client:
             version = (await client.get(base + "/api/version")).json().get("version")
             tags = (await client.get(base + "/api/tags")).json().get("models", [])
             if not any(m.get("name") == MODEL for m in tags):
@@ -49,8 +49,10 @@ async def main():
                       "local_only": True, "screen_captured": False}
             (ROOT / "tasks/screen-model-readiness.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
             print(json.dumps(result), flush=True)
+    try:
+        await local_model_session(base, provision, timeout=930)
     finally:
-        await runtime.close()
+        await close_local_model()
 
 
 if __name__ == "__main__":

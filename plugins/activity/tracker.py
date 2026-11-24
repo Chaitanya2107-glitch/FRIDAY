@@ -132,8 +132,18 @@ class Activity:
                     if (self.closed or self.idle or (self.sample and self.sample.private) or self.paused()
                             or 'game' in self.scenes.values() or generation != self.generation):
                         return
-                    self.api.notify('A small break?',
-                        'You have been at this for a while. A short break might feel good.', 'normal')
+                    from services.mind.speech_budget import budget
+                    at = self.clock.now()
+                    text = 'You have been at this for a while. A short break might feel good.'
+                    receipt = budget.decide(at, 'activity_break', text, reason='A continuous activity interval reached the break threshold.',
+                                            evidence=notification)
+                    if receipt is not None:
+                        try:
+                            self.api.notify('A small break?', text, 'normal')
+                        except Exception:
+                            budget.finish(receipt, False)
+                            raise
+                        budget.finish(receipt, True)
             self.api.run_background(notify)
 
     def current(self):

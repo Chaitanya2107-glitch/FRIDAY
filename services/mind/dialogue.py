@@ -11,7 +11,7 @@ from core.logger import logger
 from services.automation.results import ActionResult
 from services.mind.cognition import cognition
 from services.mind.reasoning_store import fingerprint
-from services.mind.temporal_memory import TemporalMemory, answer_date_phrase, anchored_dates
+from services.mind.temporal_memory import TemporalMemory, TemporalUpdate, answer_date_phrase, anchored_dates
 from services.mind import reference_context
 
 TTL_SECONDS = 15 * 60
@@ -289,6 +289,50 @@ class Dialogue:
                    '(SELECT id FROM owner_episodes ORDER BY id DESC LIMIT -1 OFFSET 500)')
         return BrainMemory._episode(row)
 
+    def propose_rule(self, ident):
+        from services.automation.intent import _ask_first
+
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM dialogue_clarifications WHERE id=?', (ident,)).fetchone()
+            payload = self._valid(db, row)
+            if row['state'] != 'answered' or clock().timestamp() >= row['expires']:
+                return ActionResult(False, 'The date proposal changed or expired.', repeatable=False)
+            noted = datetime.fromisoformat(payload['answer']['noted'])
+            dates = anchored_dates(payload['date_phrase'], noted)
+            if not dates or dates[0] != dates[1]:
+                return ActionResult(False, 'What exact date should I use?', repeatable=False)
+            target = next(item for item in payload['candidates'] if item['id'] == payload['target'])
+            db.execute("UPDATE dialogue_clarifications SET state='rule_proposed' WHERE id=?", (ident,))
+        return _ask_first({'type': 'system', 'action': 'confirm_dialogue_date', 'id': ident},
+                          f"Save the date for {target['subject']} as {dates[0]}? Reply yes or no.")
+
+    def confirm_rule(self, ident, accepted):
+        try:
+            with self._db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                row = db.execute('SELECT * FROM dialogue_clarifications WHERE id=?', (ident,)).fetchone()
+                payload = self._valid(db, row)
+                now = clock()
+                if row['state'] != 'rule_proposed' or now.timestamp() >= row['expires']:
+                    raise ValueError('The date proposal changed or expired')
+                if not accepted:
+                    db.execute("UPDATE dialogue_clarifications SET state='cancelled' WHERE id=?", (ident,))
+                    return ActionResult(True, 'Okay, cancelled the date change.', repeatable=False)
+                db.execute("UPDATE dialogue_clarifications SET state='answered' WHERE id=?", (ident,))
+                source = payload['answer']
+                target = next(item for item in payload['candidates'] if item['id'] == payload['target'])
+                source = {**source, 'date_clarification': self.answer_context(db, source)}
+                known = {source['id']: source, target['id']: target}
+                update = TemporalUpdate(source=source['id'], quote=source['text'], subject=target['subject'],
+                    status='planned', date_phrase=payload['date_phrase'], start=None, end=None, supersedes=[target['id']])
+                memory = TemporalMemory(self.store)
+                memory.save(db, memory.resolve([update], known), now, known)
+            return self.status(ident)
+        except (ValueError, OSError, sqlite3.Error):
+            return ActionResult(False, 'The date proposal changed or expired. Give me its current name and date.',
+                                repeatable=False)
+
     async def run(self, parsed):
         import asyncio
         from services.mind.dialogue_review import review
@@ -299,7 +343,8 @@ class Dialogue:
                     from services.mind import talk
                     await asyncio.to_thread(talk.retire_question)
                 return result
-            await review(self, result)
+            if config.FRIDAY_LLM == 'off' or await review(self, result) == 'model_unavailable':
+                return await asyncio.to_thread(self.propose_rule, result)
             return await asyncio.to_thread(self.status, result)
         except (ValueError, OSError, sqlite3.Error):
             return ActionResult(False, 'That conversation expired, changed or could not be saved. The date was not updated; repeat the update with its saved name.', repeatable=False)

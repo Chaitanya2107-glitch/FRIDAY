@@ -159,7 +159,8 @@ if __name__ == '__main__':
             try:
                 async with asyncio.timeout(45):
                     await asyncio.to_thread(embed.encode_local, ['Synthetic quality-probe warmup'])
-                    await runtime.prepare_model()
+                    from providers.failover import prepare_local_model
+                    await prepare_local_model()
                 warmup['seconds'] = round(time.perf_counter() - started, 3)
             except Exception as error:
                 warmup['error_type'] = type(error).__name__

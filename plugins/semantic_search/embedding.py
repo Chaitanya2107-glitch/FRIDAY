@@ -7,14 +7,12 @@ from typing import Protocol
 
 import numpy as np
 from numpy.typing import NDArray
+from core.errors import ModelUnavailable
+from providers.failover import run_embedding
 
 
 class Embedder(Protocol):
     def embed(self, texts: list[str]) -> NDArray[np.float32]: ...
-
-
-class ModelUnavailable(RuntimeError):
-    pass
 
 
 def normalized(values: np.ndarray, count: int) -> NDArray[np.float32]:
@@ -65,6 +63,13 @@ class LocalEmbedder:
                                    device='cpu', local_files_only=local_only, trust_remote_code=False)
 
     def prepare(self, *, download: bool = False) -> bool:
+        try:
+            return run_embedding("search-embeddings", lambda: self._prepare(download), timeout=45 if download else 2)
+        except ModelUnavailable as error:
+            self.error = str(error) + ' Keyword search still works.'
+            return False
+
+    def _prepare(self, download: bool) -> bool:
         if not self.lock.acquire(blocking=download):
             return False  # A local query must not wait behind a model download.
         try:
@@ -96,6 +101,9 @@ class LocalEmbedder:
             return np.empty((0, 0), dtype=np.float32)
         if not self.ready:
             raise ModelUnavailable(self.error)
+        return run_embedding("search-embeddings", lambda: self._embed(texts), timeout=8)
+
+    def _embed(self, texts: list[str]) -> NDArray[np.float32]:
         # Queries never queue behind an indexing batch.
         if not self.lock.acquire(blocking=False):
             raise ModelUnavailable('Search model is busy. Keyword search still works.')

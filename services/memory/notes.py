@@ -16,7 +16,7 @@ import re
 from datetime import date, datetime
 
 from core.config import config
-from services.settings_store import synchronized
+from services.settings_store import save, synchronized
 from services.automation.command_words import normalize_command
 from services.automation.system_control import AutomationError
 
@@ -62,17 +62,35 @@ def load(file=None) -> list[dict]:
         return []
 
 
+def _private_path():
+    return path.with_name('life_graph_notes.json')
+
+
+def has_private():
+    return bool(load(_private_path()))
+
+
+def _listed(include_private):
+    collections = [(path, load())]
+    if include_private:
+        collections.append((_private_path(), load(_private_path())))
+    return sorted(((file, i, note) for file, rows in collections for i, note in enumerate(rows)),
+                  key=lambda entry: entry[2]['at'])
+
+
 @synchronized
 def _save(notes: list[dict], file=None) -> None:
     (file or path).write_text(json.dumps(notes, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 @synchronized
-def add(text: str, now: datetime | None = None) -> str:
-    notes = load()
-    notes.append({"text": text, "at": (now or datetime.now()).isoformat(timespec="seconds")})
-    _save(notes)
-    return f"Noted. You have {len(notes)} note{'s' if len(notes) != 1 else ''}."
+def add(text: str, now: datetime | None = None, *, private=False) -> str:
+    file = _private_path() if private else path
+    rows = load(file)
+    rows.append({"text": text, "at": (now or datetime.now()).isoformat(timespec="seconds")})
+    save(file, rows)
+    count = len(rows) if not private else len(rows) + len(load())
+    return f"Noted. You have {count} note{'s' if count != 1 else ''}."
 
 
 @synchronized
@@ -83,41 +101,46 @@ def add_diary(text: str, now: datetime | None = None) -> str:
     return "Added to today's journal."
 
 
-def list_message() -> str:
-    notes = load()
-    if not notes:
+def list_message(*, include_private=False) -> str:
+    rows = [note for _, _, note in _listed(True)] if include_private else load()
+    if not rows:
         return "No notes."
-    return "\n".join(f"{i}. {n['text']} ({datetime.fromisoformat(n['at']):%d %b, %H:%M})" for i, n in enumerate(notes, 1))
+    return "\n".join(f"{i}. {n['text']} ({datetime.fromisoformat(n['at']):%d %b, %H:%M})" for i, n in enumerate(rows, 1))
 
 
 @synchronized
-def delete(number: int) -> str:
-    notes = load()
-    if not 1 <= number <= len(notes):
-        raise AutomationError(f"There's no note {number}." + (f" You have {len(notes)}." if notes else ""))
-    removed = notes.pop(number - 1)
-    _save(notes)
+def delete(number: int, *, include_private=False) -> str:
+    entries = _listed(True) if include_private else [(path, i, row) for i, row in enumerate(load())]
+    if not 1 <= number <= len(entries):
+        raise AutomationError(f"There's no note {number}." + (f" You have {len(entries)}." if entries else ""))
+    file, index, removed = entries[number - 1]
+    rows = load(file)
+    rows.pop(index)
+    save(file, rows)
     return f"Deleted: {removed['text']}"
 
 
 @synchronized
-def clear() -> str:
+def clear(*, include_private=False) -> str:
     count = len(load())
+    if include_private:
+        count += len(load(_private_path()))
+        save(_private_path(), [])
     _save([])
     return f"Cleared {count} note{'s' if count != 1 else ''}." if count else "No notes to clear."
 
 
-def run(parsed: dict) -> str:
+def run(parsed: dict, *, include_private=False) -> str:
     action = parsed["action"]
     if action == "add_note":
         return add(str(parsed["text"]))
     if action == "add_diary":
         return add_diary(str(parsed["text"]))
     if action == "list_notes":
-        return list_message()
+        return list_message(include_private=include_private)
     if action == "delete_note":
-        return delete(int(parsed["number"]))
-    return clear()
+        return delete(int(parsed["number"]), include_private=include_private)
+    return clear(include_private=include_private)
 
 
 def on_day(day: date, file=None) -> list[str]:

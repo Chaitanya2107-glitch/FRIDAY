@@ -1,5 +1,4 @@
 """One local model call; screen content never enters the chat/failover stack."""
-import asyncio
 import base64
 import json
 import re
@@ -10,7 +9,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import config
-from providers.ollama.runtime import runtime
+from providers.failover import local_model_session, require_enabled
 
 VISION_MODEL = "qwen3-vl:2b-instruct"
 SENSITIVE = re.compile(
@@ -84,9 +83,11 @@ async def analyze(app, text, image=None):
 
 async def local_chat(messages, *, vision=False, schema=None, max_tokens=280, num_ctx=4096, guard=None):
     """Private context has no provider fallback, proxy, redirect, tools or global history."""
+    require_enabled()
     base = local_url(config.OLLAMA_BASE_URL)
     model = local_model(VISION_MODEL if vision else config.OLLAMA_MODEL)
-    async with asyncio.timeout(55), runtime.use(base):
+
+    async def request():
         async with httpx.AsyncClient(timeout=50, trust_env=False, follow_redirects=False) as client:
             tags = await client.get(base + "/api/tags")
             tags.raise_for_status()
@@ -114,4 +115,11 @@ async def local_chat(messages, *, vision=False, schema=None, max_tokens=280, num
                 raise ValueError("Incomplete screen interpretation")
             if guard is not None and not guard():
                 raise InterruptedError("Private activity context changed")
+            content = data.get("message", {}).get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("Empty screen interpretation")
+            if schema is not None and not isinstance(json.loads(content), dict):
+                raise ValueError("Invalid screen interpretation")
             return data
+
+    return await local_model_session(base, request)

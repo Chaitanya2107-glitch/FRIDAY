@@ -60,6 +60,7 @@ class PluginManager:
         self._failure_lock = threading.RLock()
         self.stopped = threading.Event()
         self.thread: threading.Thread | None = None
+        self.discovery_error: str | None = None
 
     @staticmethod
     def fingerprint(folder: Path) -> str:
@@ -119,13 +120,17 @@ class PluginManager:
         if self.thread and self.thread.is_alive():
             return
         self.stopped.clear()
+        self.discovery_error = None
         self.scan()
         def watch():
             while not self.stopped.wait(self.poll_seconds):
                 try:
                     self.scan()
-                except Exception:
+                except Exception as error:
+                    self.discovery_error = type(error).__name__
                     logger.exception('Plugin discovery scan failed')
+                else:
+                    self.discovery_error = None
         self.thread = threading.Thread(target=watch, name='plugin-discovery', daemon=True)
         self.thread.start()
 

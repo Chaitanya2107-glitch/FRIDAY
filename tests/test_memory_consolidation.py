@@ -418,5 +418,8 @@ def test_mixed_model_output_defers_optional_grouping_without_losing_valid_commit
     result = asyncio.run(executive.ExecutiveControl(summary.store).review(NOW))
     assert result['status'] == 'completed' and len(calls) == 2
     assert [item['kind'] for item in calls[1]['check_items']] == ['temporal_interpretation']
+    assert not temporal.snapshot(NOW)['upcoming']
+    proposed, = reasoning.reasoning_store.date_proposals()
+    reasoning.reasoning_store.review_date_proposal(proposed['id'], True, NOW)
     assert temporal.snapshot(NOW)['upcoming'][0]['start'] == '2026-10-22'
     assert not summary.evidence() and not summary.source_evidence()

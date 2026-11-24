@@ -132,7 +132,7 @@ def test_automation_is_offered_only_after_confirmations_and_a_trained_model_that
     assert foresight.think(log, settle(log, model="chrome", monkeypatch=monkeypatch))[0][0] == "prediction"  # it disagrees
     ((kind, _, data, _),) = foresight.think(log, settle(log, model="spotify", monkeypatch=monkeypatch))
     assert kind == "automate" and data["the_boss_confirmed_it"] == "3 times"
-    assert "Shall I just open it myself" in wording.plain({"kind": kind, **data})
+    assert "Shall I offer to open it" in wording.plain({"kind": kind, **data})
 
 
 @pytest.fixture
@@ -159,11 +159,16 @@ def test_once_allowed_she_opens_it_herself_once_a_day_and_can_be_stopped(hands, 
     foresight.answered(kind, data, "yes do it", NOW)
 
     assert foresight.think(log, later, busy=True) == [] and opened == []   # never while gaming / fullscreen
-    assert foresight.think(log, later) == [] and opened == ["spotify"]
+    ((kind, _, opening, _),) = foresight.think(log, later)
+    assert wording.plain({"kind": kind, **opening}) == "Open spotify now?"
+    assert not opened
+    assert foresight.answered(kind, opening, "yes", later, log=log) == "yes"
+    assert opened == ["spotify"]
+    assert foresight.answered(kind, opening, "yes", later, log=log) is None
     assert "Opened spotify, Boss" in toasts[0] and log.commands == [{"action": "open_app", "app_name": "spotify", "origin": "automatic"}]
     foresight.think(log, later + timedelta(minutes=5))
     assert opened == ["spotify"]                                            # once a day
-    assert "I open by myself: spotify after VS Code" in foresight.summary(NOW)
+    assert "I offer to open: spotify after VS Code" in foresight.summary(NOW)
     assert foresight.stop("spotify") == "Okay, I won't open spotify by myself any more."
     assert foresight.think(log, later + timedelta(days=1)) == []           # and she doesn't ask again
 
@@ -218,7 +223,10 @@ def test_a_confirmed_habit_is_handed_over_and_done_at_its_time(hands, monkeypatc
 
     assert foresight.think(log, NOW) == [] and opened == []                # not before its time
     at_four = NOW.replace(hour=16, minute=2)
-    assert foresight.think(log, at_four) == [] and opened == ["spotify"]
+    ((kind, _, opening, _),) = foresight.think(log, at_four)
+    assert not opened
+    assert foresight.answered(kind, opening, "yes", at_four, log=log) == "yes"
+    assert opened == ["spotify"]
     assert "you usually do around 4:00 PM" in toasts[0]
     foresight.think(log, at_four + timedelta(minutes=3))
     assert opened == ["spotify"]

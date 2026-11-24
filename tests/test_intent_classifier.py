@@ -168,7 +168,9 @@ def test_one_failing_call_marks_the_reply_unsuccessful(providers, monkeypatch):
 
     # A partially recognized explicit batch is rejected before the AI. Keep
     # this an unfamiliar single request to exercise AI tool-result aggregation.
-    result = classify("open zzz with the sound cranked all the way up")
+    proposal = classify("open zzz with the sound cranked all the way up")
+    assert 'open app zzz' in proposal.message and 'Reply yes or no' in proposal.message
+    result = classify('yes')
 
     assert providers.calls == [CHEAP_OPENROUTER]
     assert result == ActionResult(False, "I don't know how to open zzz. Volume set to 100%.")
@@ -194,10 +196,19 @@ def test_ai_cannot_close_apps_the_user_did_not_name(providers, monkeypatch):
         ToolCall("close_app", {"app_name": "whatsapp"}),
     ]
 
-    result = classify("close the Spotify stuff please")
+    proposal = classify("close the Spotify stuff please")
+    assert closed == [] and 'close app spotify' in proposal.message and 'whatsapp' not in proposal.message
+    result = classify('yes')
 
     assert closed == ["spotify"]
     assert result == ActionResult(True, "Closed spotify.")
+
+
+def test_risky_tool_proposal_must_fit_the_confirmation_preview(providers):
+    providers.behaviour[CHEAP_OPENROUTER] = [ToolCall('type_text', {'text': 'x' * 2100})]
+    result = classify()
+    assert not result.success and 'full proposal' in result.message
+    assert not intent.is_awaiting_confirmation()
 
 
 def test_unknown_or_malformed_calls_are_ignored(providers):

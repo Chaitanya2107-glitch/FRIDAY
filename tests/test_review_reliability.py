@@ -335,7 +335,12 @@ def test_compact_native_response_runs_through_independent_critique_and_save(engi
     assert len(calls) == (1 if kind == 'silence' else 3 if kind == 'memories' else 2)
     assert not engine[1].facts()
     if kind == 'memories': assert Consolidation(store).evidence()
-    if kind == 'situations': assert TemporalMemory(store).snapshot(NOW)['upcoming'][0]['start'] == '2026-10-22'
+    if kind == 'situations':
+        temporal = TemporalMemory(store)
+        assert not temporal.snapshot(NOW)['upcoming']
+        proposed, = engine[1].date_proposals()
+        engine[1].review_date_proposal(proposed['id'], True, NOW)
+        assert temporal.snapshot(NOW)['upcoming'][0]['start'] == '2026-10-22'
 
 
 @pytest.mark.parametrize('wire', [

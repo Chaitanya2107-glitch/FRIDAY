@@ -11,11 +11,11 @@ one clear winner or no suggestion. Subjects go to Documents\\College\\<Subject>,
 """
 
 import re
-import shutil
 from pathlib import Path
 
 from core.logger import logger
 from services.activity import projects
+from services.automation import autonomy
 from services.automation.system_control import AutomationError
 from services.files.extract import extract_text
 from services.proactive import timetable
@@ -30,16 +30,17 @@ def _folder_name(subject: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "_", subject).strip(" .") or "Other"
 
 
-def suggest(path: Path) -> Path | None:
+def suggest(path: Path, *, name_only=False) -> Path | None:
     """The folder this download probably belongs in, or None. Blocking (reads the first page)."""
     if path.suffix.lower() not in DOC_EXTENSIONS:
         return None
     name = path.stem.replace("_", " ")
-    try:
-        text = (extract_text(path, path.stat().st_size) or "")[:PREVIEW_CHARS]
-    except Exception as e:  # a half-written or odd file: go by its name
-        logger.info(f"Filing: couldn't read {path.name}: {e}")
-        text = ""
+    text = ""
+    if not name_only:
+        try:
+            text = (extract_text(path, path.stat().st_size) or "")[:PREVIEW_CHARS]
+        except Exception as error:  # A half-written file can still have a useful name.
+            logger.info(f"Filing: couldn't read {path.name}: {error}")
     scores: dict[Path, int] = {}
     for subject in timetable.subjects():
         forms = timetable.aliases(subject)  # "DS" and "Data Structures"
@@ -75,17 +76,23 @@ def tidy_name(stem: str, subject: str | None) -> str:
     return _folder_name(stem)
 
 
-def move(source: str, folder: str, rename: bool = False) -> str:
+def move(source: str, folder: str, rename: bool = False, *, automatic=False) -> str:
     """The [Move it] / [Move & rename] buttons. Paths come from FRIDAY's own record of the notification."""
     src, dest_dir = Path(source), Path(folder)
-    if not src.is_file():
+    if not src.is_file() or src.is_symlink():
         raise AutomationError(f"{src.name} isn't in Downloads any more.")
     dest_dir.mkdir(parents=True, exist_ok=True)
     subject = dest_dir.name if dest_dir.parent == COLLEGE_DIR else None
     stem = tidy_name(src.stem, subject) if rename else src.stem
     target, n = dest_dir / f"{stem}{src.suffix}", 1
-    while target.exists():
+    while target.exists() or target.is_symlink():
         target, n = dest_dir / f"{stem} ({n}){src.suffix}", n + 1
-    shutil.move(str(src), str(target))
+    token = autonomy.move_token(src, target)
+    with autonomy.record('move_file', tokens=[token], origin='automatic' if automatic else None) as receipt:
+        autonomy.move_no_overwrite(src, target)
+        identity = autonomy.file_identity(target)
+        if identity != token['identity']:  # A cross-volume move creates a new file ID.
+            receipt.checkpoint([{**token, 'identity': identity}])
     logger.info(f"Filed {src.name} → {target}")
-    return f"Moved {src.name} to {describe(dest_dir)}" + (f" as {target.name}." if rename else ".")
+    text = f"Moved {src.name} to {describe(dest_dir)}" + (f" as {target.name}." if rename else ".")
+    return text if automatic else autonomy.offer_text('move_file', text)

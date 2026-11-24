@@ -59,13 +59,13 @@ def offered(monkeypatch, *, mark=True):
 def test_model_output_is_provisional_and_uses_only_app_identity(monkeypatch):
     calls = model(monkeypatch)
     asyncio.run(knowledge.look_up(app(), NOW))
-    assert calls[0][0][1][0].content == 'What is "mystery"? It is the name of a Windows program.'
+    assert calls[0][0][1][0].content == 'What is "mystery"?'
     assert "487391" not in str(calls)
     assert knowledge.get("app:mystery").about is None
     assert categories.app_category("mystery") == "other"
     row = app_learning.pending()[0]
     assert row["description"] == "A note-taking app."
-    assert "category: documents" in app_learning.question(row)
+    assert 'under documents' in app_learning.question(row) and 'via openrouter' in app_learning.question(row)
     assert "Unverified model suggestion" in knowledge.describe(knowledge.get("app:mystery"))
 
 

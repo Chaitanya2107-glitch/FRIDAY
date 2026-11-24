@@ -122,11 +122,51 @@ def announce(path: Path, slow: bool) -> str | None:
     folder = filing.suggest(path)
     if folder is None:
         return f"Downloaded {path.name} ({size})." if slow else None
+    from services.automation import autonomy
+    if (autonomy.action_level('move_file') != autonomy.ASK and filing.suggest(path, name_only=True) == folder
+            and _auto_file(path, folder)):
+        return None
     lead = f"Downloaded {path.name} ({size})." if slow else f"New download: {path.name}."
     asyncio.run(notifications.notify(f"{lead} Move it to {filing.describe(folder)}?",
                 buttons.offer("file_move", path=str(path), folder=str(folder)),
                 kind="filing", transport=show_toast, public=False))
     return None
+
+
+def _auto_file(path, folder):
+    from services import settings_store
+    from services.automation import autonomy
+    from services.files import filing
+    from services.presence import delivery
+    from services.proactive import buttons
+    from services.reminders.service import show_toast
+
+    try:
+        if path.resolve() != path.absolute() or folder.resolve() != folder.absolute():
+            return False
+        observed = autonomy.file_identity(path)
+    except OSError:
+        return False
+    completed = False
+
+    def apply():
+        nonlocal completed
+        with settings_store.lock:
+            permission = autonomy.action_level('move_file')
+            if (permission == autonomy.ASK or autonomy.file_identity(path) != observed
+                    or filing.suggest(path, name_only=True) != folder):
+                return False
+            text = filing.move(str(path), str(folder), automatic=True)
+            completed = True
+            run = autonomy.last_run()
+        if permission == autonomy.TELL and run is not None:
+            links = buttons.offer('autonomy_feedback', receipt=run['id'])
+            show_toast('FRIDAY', text, links, mirror_telegram=False, cognition_public=False,
+                       cognition_text='Automatically filed an owner-approved download.')
+        return True
+
+    asyncio.run(delivery.submit('File a reviewed download.', 'presence_rule', key='filing:' + str(observed), on_send=apply))
+    return completed
 
 
 async def run_watches() -> None:

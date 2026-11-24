@@ -6,6 +6,7 @@ import re
 import sys
 import threading
 import time
+from datetime import datetime
 from uuid import uuid4
 
 from services import settings_store
@@ -104,9 +105,20 @@ class Scenes:
     def _card(self, title, body, kind, **details):
         self.ensure_active()
         from services.automation.intent import cancel_pending_confirmation
+        from services.learning.origin import current_actor
+        from services.mind.speech_budget import budget, delivery_id
+        speech_id = delivery_id.get()
+        owns_receipt = speech_id is None and (kind == 'trigger' or current_actor() == 'automatic')
+        if owns_receipt:
+            speech_id = budget.decide(datetime.fromtimestamp(self.now()), 'scene_offer', body,
+                                      reason='A saved scene trigger matched.', evidence={'trigger': details.get('trigger')})
+            if speech_id is None:
+                return result('Scene prompt deferred.', ok=False, error='speaking_budget')
+        elif speech_id is not None:
+            budget.note_text(body)
         cancel_pending_confirmation()  # A scene's Yes must never approve an older system action.
         nonce = uuid4().hex
-        self.pending = dict(kind=kind, nonce=nonce, expires=self.now() + 120, **details)
+        self.pending = dict(kind=kind, nonce=nonce, expires=self.now() + 120, speech_id=speech_id, **details)
         choices = [('yes', 'Yes'), ('no', 'No')]
         if kind == 'trigger':
             choices = [('yes', 'Yes'), ('no', 'Not now'), ('disable', "Don't suggest again")]
@@ -114,8 +126,17 @@ class Scenes:
                     actions=[dict(id='answer', label=label, payload=dict(nonce=nonce, choice=value)) for value, label in choices])
         self.pending['card'] = card  # Authenticated status also delivers questions missed during startup/reconnect.
         self.sync_commands()
-        with origin_scope(self.remote_events or kind.startswith('presence_')):
-            self.api.publish('ui.card', card)
+        try:
+            with origin_scope(self.remote_events or kind.startswith('presence_')):
+                self.api.publish('ui.card', card)
+        except Exception:
+            self.pending = None
+            self.sync_commands()
+            if owns_receipt:
+                budget.finish(speech_id, False)
+            raise
+        if owns_receipt:
+            budget.finish(speech_id, True)
         return result(body + '\nAnswer yes or no.', data={'awaiting_confirmation': True})
 
     def offer_recovery(self):
@@ -161,6 +182,8 @@ class Scenes:
                 return result('Answer yes or no.', ok=False, error='invalid_answer')
             self.pending = None
             self.sync_commands()
+            from services.mind.speech_budget import feedback
+            feedback(pending.get('speech_id'), 'acted_on' if choice == 'yes' else 'shushed', datetime.fromtimestamp(self.now()))
             if pending['kind'].startswith('presence_'):
                 return self.presence.answer(pending, choice)
             if choice == 'disable' and pending['kind'] == 'trigger':
@@ -203,6 +226,21 @@ class Scenes:
         return self.answer(payload.get('choice'), payload['nonce'])
 
     def _start(self, scene):
+        from services.automation import autonomy
+        if self.presence.applying_owner:
+            return self._apply(scene)
+        risky = any(action['type'] not in self.presence.actions.safe_scene_actions
+                    for action in self.catalog.actions(scene))
+        with autonomy.record('run_scene', learn=not risky) as receipt:
+            value = self._apply(scene, receipt)
+            if not value['ok']:
+                receipt.status = 'failed'
+        if value['ok'] and not risky:
+            value['text'] = autonomy.offer_text('run_scene', value['text'])
+            value['speech'] = '' if autonomy.action_level('run_scene') == autonomy.SILENT else value['text']
+        return value
+
+    def _apply(self, scene, receipt=None):
         self.ensure_active()
         incoming_remote = transport_origin.get()
         actions = self.catalog.actions(scene)
@@ -222,6 +260,8 @@ class Scenes:
             self.active['presence_owner'] = self.presence.applying_owner
         if incoming_remote:
             self.active['remote_origin'] = True
+        if receipt is not None:
+            receipt.add(dict(type='scene', id=self.active['id']))
         self._save()
         self.api.publish('scene.started', dict(name=scene['name'], scene_id=self.active['id'], since=now))
         warnings = []

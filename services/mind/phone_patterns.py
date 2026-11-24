@@ -52,6 +52,28 @@ def observe_android(package, label, category, seconds, now, device):
         thoughts.add('unknown', knowledge.key_for('app', name), dict(name=package, phone_private=True, device=device), .6, now)
 
 
+def sleep_estimate(events, now):
+    """P3's completed overnight estimate for a single phone."""
+    unlocks = [e['timestamp'] for e in events if e['type'] == 'screen' and e['payload']['state'] == 'unlocked'
+               and datetime.fromtimestamp(e['timestamp'], now.tzinfo).date() == now.date()]
+    if not unlocks:
+        return None
+    wake = min(unlocks)
+    offs = [e['timestamp'] for e in events if e['type'] == 'screen' and e['payload']['state'] == 'off'
+            and datetime.fromtimestamp(e['timestamp'], now.tzinfo).hour >= 20 and e['timestamp'] < wake]
+    if not offs:
+        return None
+    off = max(offs)
+    if not 2*3600 <= wake-off <= 14*3600 or not any(
+            e['type'] == 'battery' and e['payload']['charging'] and off-300 <= e['timestamp'] <= wake for e in events):
+        return None
+    health = [e['payload']['minutes'] for e in events if e['type'] == 'sleep' and e['payload']['date'] == now.date().isoformat()]
+    estimate = wake-off
+    surprise = min(1., abs(estimate/60-health[-1])/240) if health else 0.
+    return dict(seconds=estimate, first_unlock=wake, last_screen_off=off, health_minutes=health[-1] if health else None,
+                surprise=surprise, uncertainty='Charging while the screen is off gives an approximate sleep window.')
+
+
 def findings(rows, events, now, context=None):
     result = []
     for device in {r['device'] for r in events}:
@@ -67,17 +89,8 @@ def findings(rows, events, now, context=None):
         if distraction >= 600:
             result.append((device, 'distraction', dict(category='leisure', seconds=distraction, context=context, uncertainty='May be a break or relevant work, not distraction.'), min(.95, .4+distraction/7200)))
         subset = [e for e in events if e['device'] == device]
-        unlocks = [e['timestamp'] for e in subset if e['type'] == 'screen' and e['payload']['state'] == 'unlocked' and datetime.fromtimestamp(e['timestamp']).date() == now.date()]
-        offs = [e['timestamp'] for e in subset if e['type'] == 'screen' and e['payload']['state'] == 'off' and datetime.fromtimestamp(e['timestamp']).hour >= 20]
-        charging = any(e['type'] == 'battery' and e['payload']['charging'] for e in subset)
-        if unlocks and offs and charging:
-            wake = min(unlocks); prior = [t for t in offs if t < wake]
-            night_charge = prior and any(e['type'] == 'battery' and e['payload']['charging'] and max(prior)-300 <= e['timestamp'] <= wake for e in subset)
-            if prior and night_charge and 2*3600 <= wake-max(prior) <= 14*3600:
-                health = [e['payload']['minutes'] for e in subset if e['type'] == 'sleep' and e['payload']['date'] == now.date().isoformat()]
-                estimate = wake-max(prior)
-                surprise = min(1., abs(estimate/60-health[-1])/240) if health else 0.
-                result.append((device, 'sleep', dict(seconds=estimate, first_unlock=wake, last_screen_off=max(prior), health_minutes=health[-1] if health else None, surprise=surprise, uncertainty='Charging/screen-off is not proof of sleep; unlock may be late.'), .3+.6*surprise))
+        if estimate := sleep_estimate(subset, now):
+            result.append((device, 'sleep', estimate, .3+.6*estimate['surprise']))
         places = [e for e in subset if e['type'] == 'places']
         counts = defaultdict(float)
         for a, b in zip(places, places[1:]):

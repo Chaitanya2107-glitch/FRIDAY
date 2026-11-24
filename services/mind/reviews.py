@@ -1,8 +1,8 @@
 """Owner-reviewed training data, independent of the live question/pending state.
 
-The app appends evidence; only the separate review CLI can approve/apply it.
-No network calls or model weight updates happen here. SQLite permits the CLI
-and FRIDAY's processes to use the same queue without rewriting each other's data.
+Evidence stays pending until owner review. The writer's room uses the same
+inbox with a separate wording approval path. SQLite permits FRIDAY's processes
+and local review tools to share the queue without overwriting each other's data.
 """
 from __future__ import annotations
 
@@ -127,7 +127,9 @@ class ReviewStore:
         if len(fields[1]) > 1000 or len(fields[2]) > 1000:
             raise ValueError("Keep each teaching statement/preferred response within 1000 characters")
         with self.db() as conn:
-            self._row(conn.execute("SELECT * FROM reviews WHERE id = ?", (item,)).fetchone())
+            row = self._row(conn.execute("SELECT * FROM reviews WHERE id = ?", (item,)).fetchone())
+            if row["kind"] == "line":
+                raise ValueError("Review wording drafts through the writer's room")
             conn.execute("""UPDATE reviews SET answer = ?, teaching = ?, preferred = ?, notes = ?,
                 state = ?, exportable = ?, reviewed_at = ?, trained_at = NULL WHERE id = ?""",
                          (*fields, "approved" if approve else "pending", int(approve and exportable), time.time(), item))
@@ -142,7 +144,7 @@ class ReviewStore:
         with self.db() as conn:
             # The write predicate also protects against another process revoking approval.
             changed = conn.execute("UPDATE reviews SET state = 'trained', trained_at = COALESCE(trained_at, ?) "
-                                   "WHERE id = ? AND state IN ('approved', 'trained')", (time.time(), item)).rowcount
+                                   "WHERE id = ? AND kind <> 'line' AND state IN ('approved', 'trained')", (time.time(), item)).rowcount
             if not changed:
                 raise ValueError("Only approved examples can be trained")
         logger.debug("Training review applied item %s", item)
@@ -151,7 +153,7 @@ class ReviewStore:
         if not self.path.exists():
             return []
         with self.db() as conn:
-            rows = conn.execute("SELECT * FROM reviews WHERE state = 'trained' ORDER BY trained_at DESC, id DESC LIMIT ?",
+            rows = conn.execute("SELECT * FROM reviews WHERE state = 'trained' AND kind <> 'line' ORDER BY trained_at DESC, id DESC LIMIT ?",
                                 (max(1, min(limit, 10000)),)).fetchall()
         return [self._row(row) for row in rows]
 
@@ -165,7 +167,7 @@ class ReviewStore:
         with self.db() as conn:
             return [dict(row) for row in conn.execute(
                 "SELECT id,kind,question,teaching,preferred,subject,pattern,trained_at FROM reviews "
-                "WHERE state='trained' ORDER BY trained_at DESC,id DESC LIMIT 10000")]
+                "WHERE state='trained' AND kind <> 'line' ORDER BY trained_at DESC,id DESC LIMIT 10000")]
 
     def facts(self) -> list[tuple[int, str]]:
         """Reviewed text stays in its source record, so revoke/edit takes effect immediately."""
@@ -177,13 +179,13 @@ class ReviewStore:
         return result
 
     def queue(self, state="pending", *, kind="all", grouped=False, limit=100) -> list[dict]:
-        if kind not in {"learning", "all", "question", "nudge", "example"}:
+        if kind not in {"learning", "all", "question", "nudge", "example", "line"}:
             raise ValueError("Unknown review kind")
         if state not in {"pending", "approved", "trained", "rejected", "all"}:
             raise ValueError("Unknown review state")
         with self.db() as conn:
             rows = [self._row(row) for row in conn.execute(
-                "SELECT * FROM reviews WHERE (?='all' OR state=?) AND (?='all' OR kind=? OR (?='learning' AND kind != 'nudge')) ORDER BY id DESC LIMIT 10000",
+                "SELECT * FROM reviews WHERE (?='all' OR state=?) AND (?='all' OR kind=? OR (?='learning' AND kind IN ('question','example'))) ORDER BY id DESC LIMIT 10000",
                 (state, state, kind, kind, kind))]
         if grouped:
             groups = {}
@@ -216,6 +218,9 @@ class ReviewStore:
                 review_id=excluded.review_id,updated_at=excluded.updated_at""",
                 (identity, rating, minutes, now + minutes * 60 if rating == "badly_timed" else 0, last_sent, item, now))
         logger.debug("Nudge feedback applied to review %s: %s", item, rating)
+        from datetime import datetime
+        from services.mind.speech_budget import feedback
+        feedback(row['context'].get('speech_id'), 'answered' if rating == 'useful' else 'shushed', datetime.fromtimestamp(now))
         return {"useful": "Normal delivery restored.", "badly_timed": f"This nudge type is snoozed for {minutes} minutes.",
                 "too_frequent": f"This nudge type has a {minutes}-minute minimum interval.",
                 "incorrect": "This nudge type is disabled until you mark it useful."}[rating]
@@ -301,7 +306,7 @@ class ReviewStore:
             raise FileExistsError("Choose a new dataset path; existing files are never overwritten")
         with self.db() as conn:
             rows = conn.execute("SELECT * FROM reviews WHERE state IN ('approved', 'trained') "
-                                "AND exportable = 1 ORDER BY id").fetchall()
+                                "AND exportable = 1 AND kind <> 'line' ORDER BY id").fetchall()
         if not rows:
             return 0
         records = []

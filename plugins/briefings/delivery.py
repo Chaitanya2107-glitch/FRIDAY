@@ -122,16 +122,22 @@ class Briefings:
         if kind not in {'morning', 'night'}:
             raise ValueError('Use morning or night')
         with self.lock:
-            today = day or self.now().date().isoformat()
-            explicit = reason in {'manual', 'snooze'}
+            now = self.now()
+            today = day or now.date().isoformat()
+            explicit = reason in {'manual', 'snooze', 'sleep'}
+            from services.mind.speech_budget import budget, current as speaking_state
+            if not explicit and today != now.date().isoformat():
+                self.state['pending'].pop(kind, None)
+                self._save()
+                return result('The automatic briefing window ended.')
             from services.mind.care_safeguard import active
             if reason != 'manual' and active(self.now()):
                 if self.state['pending'].pop(kind, None):
                     self._save()
                 return result('Automatic briefings are paused.')
-            if not explicit and self.state['delivered'].get(kind) == today:
+            if reason not in {'manual', 'snooze'} and self.state['delivered'].get(kind) == today:
                 return result('This brief was already delivered today.')
-            if not explicit and not self.api.settings.get('briefings.enabled', True):
+            if reason != 'manual' and not self.api.settings.get('briefings.enabled', True):
                 return result('Automatic briefings are off.')
             if kind == 'morning' and not explicit and not self.in_window():
                 self.state['pending'].pop(kind, None)
@@ -150,6 +156,15 @@ class Briefings:
                 lines[-1] += ' Start sleep mode?'
                 text = '\n'.join(lines)
             offer = dict(id=uuid.uuid4().hex, kind=kind, at=self.now().isoformat())
+            speech_id = None
+            if not explicit:
+                speech_id = budget.decide(self.now(), f'{kind}_briefing', text, reason='The daily briefing window opened.',
+                                          evidence={'trigger': reason, 'lines': len(text.splitlines())},
+                                          source=f'briefing:{kind}:{today}', input_observed=reason == 'activity')
+                if speech_id is None:
+                    self._queue(kind, reason, 10, today)
+                    return result('Brief deferred for 10 minutes.')
+                offer['speech_id'] = speech_id
             self.state['delivered'][kind] = today
             self.state['openers'][kind] = opener
             self.state['offer'] = offer
@@ -161,14 +176,21 @@ class Briefings:
             actions = [action('skip', 'Skip'), action('snooze', 'Snooze 30 min')]
             if sleep_offer:
                 actions += [action('sleep', 'Yes'), action('skip', 'Not now')]
-            self.api.publish('ui.card', dict(title='Morning brief' if kind == 'morning' else 'Night brief',
-                body=text, actions=actions, ttl_s=600, card_id=offer['id'],
-                urgency='critical' if reason in {'manual', 'sleep', 'snooze'} else 'normal'))
+            try:
+                self.api.publish('ui.card', dict(title='Morning brief' if kind == 'morning' else 'Night brief',
+                    body=text, actions=actions, ttl_s=600, card_id=offer['id'],
+                    urgency='critical' if explicit else 'normal'))
+            except Exception:
+                budget.finish(speech_id, False)
+                raise
+            budget.finish(speech_id, True)
             self.api.publish('briefing.ready', dict(kind=kind, text=text))
             self.api.set_mood('waving' if kind == 'morning' else 'sleepy', duration_s=3 if kind == 'morning' else 5, priority=2)
             if self._speaks(kind):
                 def speak(stop):
-                    if not stop.is_set() and not active(self.now()) and self.has_offer(offer['id']) and not self._blocked(reason):
+                    if (not stop.is_set() and not active(self.now()) and self.has_offer(offer['id']) and not self._blocked(reason)
+                            and reason != 'sleep' and (explicit or not speaking_state(self.now(),
+                                                                                     input_observed=reason == 'activity')[2])):
                         self.api.speak(text)
                 self.api.run_background(speak)
             if kind == 'morning':
@@ -198,6 +220,8 @@ class Briefings:
             offer = self.state['offer']
             if action == 'sleep' and offer['kind'] != 'night':
                 return result('Sleep mode belongs to the night brief.', False)
+            from services.mind.speech_budget import feedback
+            feedback(offer.get('speech_id'), 'acted_on' if action == 'sleep' else 'shushed', self.now())
             scenes = self.service('scenes') if action == 'sleep' else None
             self.state['offer'] = None
             self.state['pending'].pop(offer['kind'], None)
@@ -261,4 +285,6 @@ class Briefings:
                     self.request('morning', reason='activity')
             if ('night' not in self.state['pending'] and self.state['delivered'].get('night') != today
                     and now.time() >= self._time('night_time', '22:30')):
-                self.request('night', reason='clock')
+                from services.mind import rhythm
+                if rhythm.current(now)['phase'] == 'winding_down':
+                    self.request('night', reason='clock')

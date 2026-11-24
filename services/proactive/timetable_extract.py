@@ -1,5 +1,4 @@
 """Read timetable images through the established prompt/parser without saving."""
-import asyncio
 import json
 import re
 
@@ -23,7 +22,7 @@ def parse_classes(reply: str) -> list[dict]:
 
 async def extract_classes(images, provider_name, section='', *, approved_model=None):
     from providers.base_provider import Message
-    from providers.failover import complete_with_failover
+    from providers.failover import complete_exact, complete_with_failover
     from services.proactive import timetable
     section = section or config.TIMETABLE_SECTION.strip()
     prompt = timetable.READ_PROMPT.format(which=timetable.ONE_SECTION.format(section=section) if section else timetable.ALL_CLASSES)
@@ -32,17 +31,8 @@ async def extract_classes(images, provider_name, section='', *, approved_model=N
         result = await complete_with_failover(config.VISION_PROVIDER or provider_name, messages,
             prompt, timetable.MAX_REPLY_TOKENS, model_for=config.vision_model_for)
     else:
-        from providers.registry import get_provider
-        # Registry retains the existing purpose policy; no purpose relabeling.
-        provider = get_provider(provider_name, model=approved_model)
-        if provider_name == 'openrouter':
-            # Its ordinary complete() can choose backup models. Consent pins one.
-            wire = [{'role': 'system', 'content': prompt},
-                    {'role': 'user', 'content': messages[0].openai_content()}]
-            completion = provider._complete_with(approved_model, wire, timetable.MAX_REPLY_TOKENS, 0.7, None)
-        else:
-            completion = provider.complete(messages=messages, system_prompt=prompt, max_tokens=timetable.MAX_REPLY_TOKENS)
-        result = await asyncio.wait_for(completion, timeout=90)
+        result = await complete_exact(provider_name, messages, prompt, timetable.MAX_REPLY_TOKENS,
+                                      model=approved_model, pin_model=True)
     classes = timetable.parse_classes(result.content)
     if not classes:
         logger.warning('Timetable extraction returned no usable classes')

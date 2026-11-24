@@ -7,13 +7,27 @@ For the tray: the "Let FRIDAY talk on her own" switch, and her questions as they
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from services.mind import talk
 
 router = APIRouter()
 MAX_WAIT_SECONDS = 30
+
+
+@router.get('/mind/life-graph')
+async def get_life_graph(response: Response):
+    from services.automation.intent import remote_request
+    from services.remote.context import remote_origin
+    from services.screen_watch.commands import local_request
+    if remote_request.get() or remote_origin.get() or not local_request.get():
+        raise HTTPException(403, 'The life graph is available on this computer only.')
+    from services.mind import graph_commands, graph_sources
+
+    response.headers['Cache-Control'] = 'no-store'
+    view = await asyncio.to_thread(graph_sources.refresh)
+    return {'text': graph_commands.listing(view)}
 
 
 @router.get('/mind/development')
@@ -60,14 +74,14 @@ async def get_working_memory():
 
 @router.get('/mind/situation')
 async def get_situation():
-    from services.mind.temporal_memory import situation
-    return await asyncio.to_thread(situation)
+    from services.mind.state import as_json, snapshot
+    return as_json((await asyncio.to_thread(snapshot))['situation'])
 
 
 @router.get('/mind/life')
 async def get_life_state():
-    from services.mind.life_state import current
-    return await asyncio.to_thread(current)
+    from services.mind.state import as_json, snapshot
+    return as_json((await asyncio.to_thread(snapshot))['life_state'])
 
 
 @router.get('/mind/outcomes')

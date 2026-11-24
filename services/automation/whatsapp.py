@@ -128,7 +128,7 @@ def match_whatsapp_command(text: str, original: str | None = None) -> dict | Non
         return None
     body = _BODY_LEAD.sub("", body or "", count=1).strip()
     if original and body:  # take the message as it was said, punctuation and all
-        at = original.lower().rfind(body.lower())
+        at = original.lower().replace('’', "'").rfind(body.lower().replace('’', "'"))
         if at >= 0:
             body = original[at:].strip()
     return {"type": "system", "action": "send_whatsapp", "contact": who, "text": body}
@@ -180,7 +180,9 @@ def send(parsed: dict, foreground_app) -> str:
     time.sleep(CHAT_LOAD_SECONDS)
     if not (foreground_app() or "").startswith("whatsapp"):  # the user clicked away meanwhile: don't press Enter there
         return f"The message to {name} is typed in WhatsApp — press Enter there to send it."
-    keyboard.press_keys("enter")
+    from services.automation import autonomy
+    with autonomy.record('send_message', tokens=[{'type': 'unavailable'}]):
+        keyboard.press_keys("enter")
     logger.info(f"WhatsApp message sent to {name}")
     return f"Sent to {name} on WhatsApp."
 

@@ -4,7 +4,8 @@ from uuid import uuid4
 
 from services.presence.rules import digest, eligible, matches, validate
 from services.presence.rule_store import RuleStore
-from services.presence.trust import can_offer
+from services.automation import autonomy
+from services.automation.autonomy import can_offer
 from services.remote.context import origin_scope
 
 from .engine import result
@@ -14,7 +15,7 @@ from .presence_actions import RuleActions
 class PresenceRules:
     def __init__(self, engine):
         self.engine = engine
-        self.store = RuleStore(engine.api.data_dir / 'presence-rules.json')
+        self.store = RuleStore(autonomy.file_path(), engine.api.data_dir / 'presence-rules.json')
         self.actions = RuleActions(engine)
         self.previous = None
         self.latest = None
@@ -69,8 +70,8 @@ class PresenceRules:
             for row in self.store.load()['rules']:
                 if not row.get('enabled', True):
                     continue
-                if can_offer(row, self.actions.risky(row['definition'])):
-                    slot = 'promotion:' + now.date().isoformat()
+                if can_offer(row, self.actions.risky(row['definition']), skill='presence_rule'):
+                    slot = self._promotion_slot(row, now)
                     if row.get('promotion_attempt') != slot:
                         self.proposal = dict(rule=row['id'], slot=slot, definition=digest(row['definition']),
                                              binding=row['binding'], kind='promote', expires=now.timestamp() + 120)
@@ -86,12 +87,13 @@ class PresenceRules:
                 binding = self.actions.binding(definition)
                 if row.get('binding') != binding:
                     row = self.store.patch(row['id'], binding=binding, confirmed=None, level='ask', streak=0,
-                                           promotion_offered=False)
+                                           promotion_offered=False, silence_offered=False)
                 risky = self.actions.risky(definition)
                 if risky and row['level'] != 'ask':
-                    row = self.store.decline(row['id'])
+                    row = self.store.patch(row['id'], level='ask', streak=0)
                 self.proposal = dict(rule=row['id'], slot=slot, definition=digest(definition), binding=binding,
-                                     kind='review' if not row.get('confirmed') else 'ask' if row['level'] == 'ask' else 'run',
+                                     kind='review' if not row.get('confirmed') else 'ask'
+                                     if autonomy.capped_level('presence_rule', row) == 'ask' else 'run',
                                      expires=now.timestamp() + 120)
                 return
 
@@ -132,10 +134,15 @@ class PresenceRules:
             if proposal['kind'] != 'promote':
                 self.store.patch(row['id'], last_slot=proposal['slot'])
             if proposal['kind'] == 'promote':
-                self.store.patch(row['id'], promotion_offered=True)
-                self.engine._card('Do this and tell you next time?', self.actions.preview(row['definition']) +
-                                  '\nYou accepted three times in a row. Switch this rule to Do and tell?',
-                                  'presence_promote', rule=row['id'], definition=proposal['definition'], binding=proposal['binding'])
+                if (not can_offer(row, self.actions.risky(row['definition']), skill='presence_rule')
+                        or proposal['slot'] != self._promotion_slot(row, now)):
+                    return False
+                target = autonomy.next_level(row)
+                self.store.patch(row['id'], **autonomy.mark_offer(row))
+                self.engine._card('Change autonomy for this rule?', self.actions.preview(row['definition']) +
+                                  f'\nYou accepted three times in a row. Switch this rule to {autonomy.LABELS[target]}?',
+                                  'presence_promote', rule=row['id'], definition=proposal['definition'],
+                                  binding=proposal['binding'], target=target)
             elif proposal['kind'] == 'review':
                 self.engine._card('Confirm presence rule?', self.actions.preview(row['definition']), 'presence_review',
                                   rule=row['id'], definition=proposal['definition'], binding=proposal['binding'])
@@ -143,9 +150,12 @@ class PresenceRules:
                 self.engine._card('Presence rule — run now?', self.actions.preview(row['definition']), 'presence_run',
                                   rule=row['id'], definition=proposal['definition'], binding=proposal['binding'])
             else:
-                if not row.get('confirmed') or self.actions.risky(row['definition']):
+                if (not row.get('confirmed') or self.actions.risky(row['definition'])
+                        or autonomy.capped_level('presence_rule', row) == autonomy.ASK):
                     return False
-                self.run(row, now)
+                from services.learning.origin import action_scope
+                with action_scope('automatic'):
+                    self.run(row, now, accepted=False)
             return True
 
     async def drain(self, now=None, *, submit=None):
@@ -181,26 +191,29 @@ class PresenceRules:
         if not row or digest(row['definition']) != pending['definition'] or self.actions.binding(row['definition']) != pending['binding']:
             return result('That rule changed. Review it again before running.', ok=False, error='rule_changed')
         if choice != 'yes':
-            self.store.decline(row['id'])
-            return result('No action taken. This rule is at Ask.')
+            updated = self.store.decline(row['id'])
+            return result(f'No action taken. This rule is at {autonomy.LABELS[updated["level"]]}.')
         if pending['kind'] == 'presence_review':
             self.store.patch(row['id'], confirmed=digest(row['definition']), binding=pending['binding'], level='ask', streak=0)
             return result('Rule confirmed at Ask. It will ask at its next occurrence.')
         if pending['kind'] == 'presence_promote':
             if self.actions.risky(row['definition']):
-                self.store.decline(row['id'])
+                self.store.patch(row['id'], level='ask', streak=0)
                 return result('This rule includes a confirm-risk effect and must stay at Ask.')
-            self.store.patch(row['id'], level='do_and_tell')
-            return result('This rule will do and tell you next time. Undo or No returns it to Ask.')
+            target = pending.get('target')
+            if target != autonomy.next_level(row) or row['streak'] < 3 or autonomy.capped_level('presence_rule', row, target) != target:
+                return result('That promotion expired. The rule was left alone.', ok=False, error='stale_promotion')
+            self.store.patch(row['id'], level=target, streak=0, silence_offered=row.get('silence_offered', False))
+            return result(f'This rule is at {autonomy.LABELS[target]}. Undo or No drops it one level.')
         if not self.still_matches(row, datetime.fromtimestamp(self.engine.now())):
             return result('That presence condition no longer matches. No action was taken.', ok=False, error='rule_stale')
         return self.run(row, datetime.fromtimestamp(self.engine.now()))
 
-    def run(self, row, now, *, skip_scene=False, tokens=None, owner=None, receipt_id=None):
+    def run(self, row, now, *, skip_scene=False, tokens=None, owner=None, receipt_id=None, accepted=True):
         if row.get('confirmed') != digest(row['definition']):
             return result('This rule has not been confirmed.', ok=False, error='rule_unconfirmed')
         owner, tokens = owner or 'presence:' + uuid4().hex, list(tokens or [])
-        receipt_id = receipt_id or self.store.begin(row['id'], now.timestamp(), owner)['id']
+        receipt_id = receipt_id or self.store.begin(row['id'], now.timestamp(), owner, accepted=accepted)['id']
         actions = row['definition']['actions']
         try:
             for index, action in enumerate(actions):
@@ -222,9 +235,10 @@ class PresenceRules:
             self._promotion(row['id'], now)
             with origin_scope(True):
                 self.engine.api.publish('presence.rule_ran', dict(rule=row['id'], run=receipt['id'], at=now.timestamp()))
-                if row['level'] == 'do_and_tell':
+                if autonomy.capped_level('presence_rule', row) == autonomy.TELL:
                     self.engine.api.show_card('Presence rule ran', self.actions.preview(row['definition']),
-                                             actions=[dict(id='presence_undo', label='Undo', payload=dict(run=receipt['id']))], ttl_s=30)
+                                             actions=[dict(id='presence_accept', label='Good', payload=dict(run=receipt['id'])),
+                                                      dict(id='presence_undo', label='Undo', payload=dict(run=receipt['id']))], ttl_s=30)
             return result('Presence rule completed. Say undo that to restore reversible changes.', data={'run': receipt['id']})
         except (ValueError, OSError, RuntimeError) as error:
             existing = self.store.last_run()
@@ -234,11 +248,28 @@ class PresenceRules:
                                          actions=[dict(id='presence_undo', label='Undo', payload=dict(run=receipt['id']))], ttl_s=30)
             return result('Presence rule could not complete; reversible changes can be undone.', ok=False, error='rule_failed')
 
+    @staticmethod
+    def _promotion_slot(row, now):
+        return f'promotion:{autonomy.next_level(row)}:{now.date().isoformat()}'
+
     def _promotion(self, identity, now):
         row = self.store.get(identity)
-        if can_offer(row, self.actions.risky(row['definition'])):
-            self.proposal = dict(rule=identity, slot='promotion:' + now.date().isoformat(), definition=digest(row['definition']), binding=row['binding'],
+        if can_offer(row, self.actions.risky(row['definition']), skill='presence_rule'):
+            self.proposal = dict(rule=identity, slot=self._promotion_slot(row, now),
+                                 definition=digest(row['definition']), binding=row['binding'],
                                  kind='promote', expires=now.timestamp() + 120)
+
+    def accept(self, payload=None):
+        with self.engine.lock:
+            self.engine.ensure_active()
+            run = self.store.last_run()
+            if not run or not isinstance(payload, dict) or payload.get('run') != run['id'] or self.engine.now() - run['at'] > 120:
+                return result('That presence action has expired.', ok=False, error='feedback_expired')
+            row = self.store.accept_run(run['id'])
+            if row is None:
+                return result('That presence action was already reviewed.')
+            self._promotion(row['id'], datetime.fromtimestamp(self.engine.now()))
+            return result('I’ll remember that timing worked.')
 
     def permit_scene_answer(self):
         if self.scene_waiting is None:
@@ -280,7 +311,7 @@ class PresenceRules:
     def can_decline_auto(self):
         run = self.store.last_run()
         row = self.store.get(run['rule']) if run else None
-        return bool(self.can_undo() and row and row['level'] == 'do_and_tell' and self.engine.now() - run['at'] <= 120)
+        return bool(self.can_undo() and row and row['level'] != autonomy.ASK and self.engine.now() - run['at'] <= 120)
 
     def release_scene(self, active):
         """Scene exit also releases phone modes owned by that reviewed rule run."""
@@ -318,9 +349,9 @@ class PresenceRules:
                 identities = {row['id'] for row in data['rules'] if row['definition']['trigger']['type'] == 'presence'}
                 for row in data['rules']:
                     if row['id'] in identities:
-                        row.update(level='ask', streak=0, promotion_offered=False, last_slot=None)
+                        row.update(level='ask', streak=0, promotion_offered=False, silence_offered=False, last_slot=None)
                         row.pop('promotion_attempt', None)
-                data['runs'] = [run for run in data['runs'] if run['rule'] not in identities]
+                data['runs'] = [run for run in data['runs'] if run.get('rule') not in identities]
                 return identities
             identities = self.store.update(clear)
             self.previous = self.latest = None
@@ -343,9 +374,11 @@ class PresenceRules:
             if not run or (payload is None and not self.can_undo()) or payload is not None and payload.get('run') != run['id']:
                 return result('No current presence action can be undone.', ok=False, error='undo_unavailable')
             try:
+                autonomy.demote(run)
                 note = self.actions.undo(run['tokens'])
                 self.store.undone(run['id'])
                 self.proposal = None
-                return result('Presence action undone. The rule is back at Ask. ' + note)
+                level = self.store.get(run['rule'])['level']
+                return result(f'Presence action undone. The rule is at {autonomy.LABELS[level]}. ' + note)
             except (ValueError, OSError, RuntimeError):
                 return result('Restoration needs another try. The receipt was kept.', ok=False, error='undo_failed')

@@ -56,18 +56,42 @@ async def lifespan(app: FastAPI):
             await asyncio.to_thread(learning_service.refresh, activity_log)
         except Exception as error:
             logger.warning("Learning-data startup refresh unavailable: %s", type(error).__name__)
-    from services.mind import cognitive_runtime
+    from services.mind import cognitive_runtime, emotion, writers_room
     from services.screen_watch import service as screen_watch
     from services.friday_island_server.server import run_integrated_bridge
+    from services.health import report
+    from services.health.watchdog import CHECK_SECONDS, watchdog, watch_model
+    from services import plugin_runtime
+    from services.voice.stt import stt
+
+    async def voice_worker():
+        if await preload_speech_model() is False:
+            raise RuntimeError('Speech recognizer failed to load')
+        while stt.ready:
+            watchdog.heartbeat('voice')
+            await asyncio.sleep(CHECK_SECONDS)
+        raise RuntimeError('Speech recognizer stopped')
+
+    async def phone_worker():
+        try:
+            await app.state.remote.monitor()
+        finally:
+            app.state.remote.fence_off()
+
     background_loops = [
-        asyncio.create_task(app.state.remote.monitor()),
+        asyncio.create_task(watchdog.supervise('phone', phone_worker)),
+        asyncio.create_task(watchdog.supervise('plugins', plugin_runtime.run_monitored)),
+        asyncio.create_task(watch_model()),
+        asyncio.create_task(report.run()),
         asyncio.create_task(development.run()),
         asyncio.create_task(run_integrated_bridge()),
         asyncio.create_task(screen_watch.watch.run()),
         asyncio.create_task(cognitive_runtime.run()),
+        asyncio.create_task(emotion.run()),
+        asyncio.create_task(writers_room.run()),
         asyncio.create_task(run_scheduler(reminders)),
         asyncio.create_task(watch_clipboard(clipboard_history)),
-        asyncio.create_task(preload_speech_model()),
+        asyncio.create_task(watchdog.supervise('voice', voice_worker)),
         asyncio.create_task(tts.prewarm()),
         asyncio.create_task(run_indexer()),  # file search: index, then rescan now and then
         asyncio.create_task(watch_activity(activity_log)),  # which app is in use, for learning habits
@@ -90,8 +114,8 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.gather(*background_loops, return_exceptions=True)
             finally:
-                from providers.ollama.runtime import runtime
-                await runtime.close()
+                from providers.failover import close_local_model
+                await close_local_model()
     logger.info("F.R.I.D.A.Y API shutting down")
 
 
@@ -198,11 +222,13 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["System"])
     async def health():
         from services.friday_island_server.server import transport_state
+        from services.health.watchdog import watchdog
         return {
             "status": "online",
             "service": "F.R.I.D.A.Y",
             "version": "0.2.0",
             "island": dict(transport_state),
+            "subsystems": watchdog.snapshot(),
         }
 
     app.add_middleware(BridgeSecurity, service=remote, allowed_hosts=allowed_hosts)

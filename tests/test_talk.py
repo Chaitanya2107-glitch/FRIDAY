@@ -134,9 +134,11 @@ def test_delivery_speaks_saves_and_hands_the_question_to_the_tray(monkeypatch):
     spoken, toasts = [], []
     monkeypatch.setattr("interfaces.api.routes.voice._speak_in_background", spoken.append)
     monkeypatch.setattr("services.reminders.service.show_toast", lambda title, text, *a, **kw: toasts.append(text))
+    text = "How's the assignment going?"
+    talk._record({'say': text}, 'coding', NOW.timestamp())
 
     async def go():
-        await talk.deliver("How's the assignment going?")
+        await talk.deliver(text, now=NOW)
         return await mind_route.next_ask(wait=1), await mind_route.next_ask(wait=0)
     first, second = asyncio.run(go())
     assert spoken == toasts == ["How's the assignment going?"]

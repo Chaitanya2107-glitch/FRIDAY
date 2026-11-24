@@ -57,27 +57,24 @@ PLAIN = (
 
 QUIPS = {
     "study_mode": ["Bold choice, with {subject}study mode on.", "Ah yes, {app}. A core part of the {subject}syllabus.",
-                   "Opening {app} in study mode. I'll log it as research.",
-                   "{app}, Boss? In {subject}study mode? I'll just write that down."],
-    "class": ["Isn't {subject} on right now?", "{subject} is happening as we speak. But sure, {app}.",
-              "Attendance is 75%, not optional. Just saying."],
+                   "{app} enters the syllabus as an elective."],
+    "class": ["Isn't {subject} on right now?", "{app} and {subject}. A crossover episode."],
     "deadline": ["{deadline} is due {when}. But {app}, sure.", "Nothing says '{deadline} due {when}' like {app}.",
                  "Future you, finishing {deadline} {when}, sends their regards."],
     "repeat": ["That's {n} times this hour. {app} must be really important.",
                "{app} again. {n} times this hour. I'm not judging. I'm counting."],
     "short_study": ["{minutes} minutes of studying. A new personal record.",
                     "{minutes} minutes. Truly, the scholars will write about this."],
-    "start_study": ["Studying. Voluntarily. I'll alert the press.", "Let's see how long this lasts.",
-                    "Phone face down. I'm watching the apps.", "Study mode engaged, Boss. Try not to look so surprised.",
-                    "Brace yourselves. The Boss is working."],
-    "late": ["It's {clock}. Sleep is also an option.", "{clock} and still going. Your 8:30 class sends its regards.",
-             "{clock}, Boss. Even I'd log off by now, and I don't sleep.", "It's {clock}. I'll pretend I didn't notice."],
+    "start_study": ["Study mode engaged. Cue the montage.", "The syllabus has the floor, Boss.",
+                    "Study mode on. Opening credits complete."],
+    "late": ["It's {clock}. The clock is doing overtime.", "{clock}, Boss. The graveyard shift is officially staffed."],
     "everyday": ["Done. You're welcome.", "Easy. Next?", "Consider it handled. As usual.", "Another triumph.",
-                 "On it, Boss. Well — done it, actually.", "Systems nominal. Your ego, slightly less so.",
-                 "Done, Boss. Try to contain your gratitude.", "Handled. I'd take a bow, but no body.",
-                 "That's done. Anything that actually challenges me today?", "Consider it sorted, Boss."],
+                 "On it, Boss. Well — done it, actually.", "Systems nominal. No fanfare required.",
+                 "Handled. I'd take a bow, but no body.", "Consider it sorted, Boss."],
     "game_toast": ["{subject}study mode is on… and so is {app}. Interesting study technique.",
                    "{app} during {subject}? The syllabus must have changed."],
+    "roast": ["The tabs could form a committee.", "The pie chart is practising its dramatic entrance.",
+              "A day with more genres than a streaming menu.", "The spreadsheet could use an intermission."],
 }
 
 _OFF = re.compile(r"^(?:be serious|sarcasm off|no (?:more )?(?:jokes|sarcasm)|turn off (?:the |your )?(?:sarcasm|jokes|humou?r)"
@@ -112,6 +109,12 @@ def match_personality_command(text: str) -> dict | None:
 def run(parsed: dict) -> str:
     off = parsed["action"] == "sarcasm_off"
     path.write_text(json.dumps({"off": off}), encoding="utf-8")
+    from services.automation.intent import remote_request
+    from services.mind import character
+    from services.remote.context import remote_origin
+
+    if not remote_request.get() and not remote_origin.get():
+        character.serious(off)
     return "Fine. Serious mode. No jokes." if off else "Sarcasm back online. You asked for this."
 
 
@@ -179,8 +182,16 @@ def now_line(now: datetime | None = None) -> str:
 
 # ── Quips on command replies ──────────────────────────────────────────────────
 
-def _say(kind: str, **fields) -> str:
-    return random.choice(QUIPS[kind]).format(**fields)
+def _say(kind: str, now: datetime, **fields) -> str | None:
+    from services.mind.expression import claim
+
+    choices = QUIPS[kind]
+    first = random.choice(choices)
+    for template in (first, *(line for line in choices if line != first)):
+        line = template.format(**fields)
+        if claim(f"quip:{kind}:{choices.index(template)}", line, now=now, joke=True):
+            return line
+    return None
 
 
 def _target(parsed: dict) -> tuple[str | None, str | None]:
@@ -206,12 +217,18 @@ def _times_this_hour(parsed: dict, now: datetime) -> int:
                                    [parsed.get("action"), f"%{target}%", (now - timedelta(hours=1)).isoformat()]))
 
 
-def _joke(kind: str, where: str, weight: float, **fields) -> str | None:
+def _joke(kind: str, where: str, weight: float, now: datetime, **fields) -> str | None:
     """The line, if FRIDAY's learned sense of humour says a joke fits here (services/mind/humour.py)."""
-    if not humour.should_joke(where, weight):
+    from services.mind import character
+
+    if not humour.allowed(now):
         return None
-    humour.told(where, kind)  # the Boss's next message says whether it landed
-    return _say(kind, **fields)
+    traits = character.snapshot(now)["traits"]
+    weight *= (.6 + traits["humour"]) * (.5 + traits["sass"])
+    if humour.should_joke(where, weight) and (line := _say(kind, now, **fields)):
+        humour.told(where, kind)
+        return line
+    return None
 
 
 def quip(ran: list[tuple[dict, bool]], now: datetime) -> str | None:
@@ -224,24 +241,24 @@ def quip(ran: list[tuple[dict, bool]], now: datetime) -> str | None:
     if category in DISTRACTING:  # an obvious opening: counts more (weight), but still learned
         study, klass, deadline = _study_mode(), _class_now(now), _deadline_soon(now)
         if study:
-            return _joke("study_mode", "study", OPENING, app=app, subject=f"{study['subject']} " if study.get("subject") else "")
+            return _joke("study_mode", "study", OPENING, now, app=app, subject=f"{study['subject']} " if study.get("subject") else "")
         if klass:
-            return _joke("class", "study", OPENING, app=app, subject=klass["subject"])
+            return _joke("class", "study", OPENING, now, app=app, subject=klass["subject"])
         if deadline:
             from services.proactive import deadlines
-            return _joke("deadline", "deadline", OPENING, app=app, deadline=deadline["what"],
+            return _joke("deadline", "deadline", OPENING, now, app=app, deadline=deadline["what"],
                          when=deadlines.when(datetime.fromisoformat(deadline["due"]), now))
         if (n := _times_this_hour(parsed, now)) >= REPEAT_LIMIT:
-            return _joke("repeat", humour.situation(now), OPENING, app=app, n=n)
+            return _joke("repeat", humour.situation(now), OPENING, now, app=app, n=n)
     if action == "end_mode" and parsed.get("routine") == "study" and parsed.get("minutes") is not None \
             and parsed["minutes"] < SHORT_STUDY:
-        return _joke("short_study", "study", OPENING, minutes=max(1, parsed["minutes"]))
+        return _joke("short_study", "study", OPENING, now, minutes=max(1, parsed["minutes"]))
     if action == "start_mode" and parsed.get("routine") == "study":
-        return _joke("start_study", "study", 1.5)
+        return _joke("start_study", "study", 1.5, now)
     if 1 <= now.hour < 5:
-        return _joke("late", "late", 1.0, clock=now.strftime("%I:%M %p").lstrip("0"))
+        return _joke("late", "late", 1.0, now, clock=now.strftime("%I:%M %p").lstrip("0"))
     if action in EVERYDAY:
-        return _joke("everyday", humour.situation(now), 0.8)
+        return _joke("everyday", humour.situation(now), 0.8, now)
     return None
 
 
@@ -261,7 +278,7 @@ def season(result, ran: list | None, now: datetime | None = None):
 
 def game_toast(app: str | None, now: datetime) -> str | None:
     """A game in front during study mode or a class: one toast per game and study session / class."""
-    if not app or not is_on() or categorize("app", app) != "gaming":
+    if not app or not humour.allowed(now) or categorize("app", app) != "gaming":
         return None
     study, klass = _study_mode(), _class_now(now)
     if study:
@@ -273,17 +290,12 @@ def game_toast(app: str | None, now: datetime) -> str | None:
     if key in _toasted:
         return None
     _toasted.add(key)
-    return _say("game_toast", app=app, subject=subject)
+    return _say("game_toast", now, app=app, subject=subject)
 
 
 # ── Roast me ──────────────────────────────────────────────────────────────────
 
-async def roast_me(provider_name: str, now: datetime | None = None, week: bool = False) -> str:
-    """Today's (or the last 7 days') numbers, roasted by the chat AI (a plain version if no AI answers)."""
-    from providers.base_provider import Message
-    from providers.failover import complete_with_failover
-
-    now = now or datetime.now()
+def _roast_facts(now: datetime, week: bool) -> str:
     mins = _minutes_today(now, 7 if week else 1)
     span = "The last 7 days" if week else "Today so far"
     facts = (f"{span}: {mins.get('gaming', 0)} min gaming, {mins.get('entertainment', 0)} min videos, "
@@ -291,6 +303,26 @@ async def roast_me(provider_name: str, now: datetime | None = None, week: bool =
              f"{mins.get('coding', 0) + mins.get('project', 0)} min coding. It's {now:%I:%M %p}.")
     if d := _deadline_soon(now, 72):
         facts += f" '{d['what']}' is due {d['due']}."
+    return facts
+
+
+def roast_reply(now: datetime | None = None, week: bool = False) -> str:
+    now = now or datetime.now()
+    facts = _roast_facts(now, week)
+    if not humour.allowed(now):
+        return facts
+    line = _say("roast", now)
+    if line:
+        humour.told(humour.situation(now), "roast")
+    return f"{facts} {line}" if line else facts
+
+
+async def roast_me(provider_name: str, now: datetime | None = None, week: bool = False) -> str:
+    """Legacy model roast preview for review. Live commands use roast_reply()."""
+    from providers.base_provider import Message
+    from providers.failover import complete_with_failover
+
+    facts = _roast_facts(now or datetime.now(), week)
     if config.AI_ASSIST_ONLY:
         from services.mind.wording import enhance
         return await enhance(f"{facts} Honestly? I've seen better time management from a screensaver.", provider_name)

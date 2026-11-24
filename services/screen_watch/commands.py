@@ -43,8 +43,8 @@ def match(text):
     return None
 
 
-def _result(text, success=True):
-    return ActionResult(success, text, PRIVATE_MEMORY, False)
+def _result(text, success=True, *, preview=False):
+    return ActionResult(success, text, PRIVATE_MEMORY, False, speech="" if preview else None)
 
 
 async def handle(text, *, remote=False):
@@ -83,11 +83,11 @@ async def handle(text, *, remote=False):
         return _result("No screen summaries are saved." if not rows else
                        "Provisional screen interpretations, not confirmed tasks:\n" + "\n".join(
                            f'{r["at"]}: {r["summary"]} Activity guess: {r["activity"] or "unknown"}.'
-                           for r in rows))
+                           for r in rows), preview=bool(rows))
     row = await watch.current()
     if row:
         return _result(f'Last screen check at {row["at"]}: {row["summary"]}\n'
                        f'My activity interpretation: {row["activity"] or "unknown"}. '
-                       "This is a model interpretation; your exact intent and progress aren't verified.")
+                       "This is a model interpretation; your exact intent and progress aren't verified.", preview=True)
     state = watch.status()["state"].replace("_", " ")
     return _result(f"Screen awareness is {state}. I don't have a safe, recent screen interpretation for this window yet.")

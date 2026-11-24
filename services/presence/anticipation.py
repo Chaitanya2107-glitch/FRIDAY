@@ -1,8 +1,9 @@
 """Evidence-backed local suggestions. Owner-confirmed routines remain estimates."""
 from datetime import datetime, timedelta
+from pathlib import Path
 
 
-def candidates(now, presence, *, classes=(), deadlines=(), commute=None, study=None, planned=False):
+def candidates(now, presence, *, classes=(), deadlines=(), commute=None, study=None, planned=False, prepare=None):
     if presence.get('confidence', 0) < .6 or presence['state'] in {'asleep', 'winding_down', 'in_class'}:
         return []
     result = []
@@ -20,13 +21,42 @@ def candidates(now, presence, *, classes=(), deadlines=(), commute=None, study=N
         for row in deadlines:
             if not row.get('done') and datetime.fromisoformat(row['due']).date() == (now + timedelta(days=1)).date():
                 name = row.get('what', row.get('title', 'A recorded task'))
-                result.append(dict(key='deadline:' + str(row.get('id', name)) + ':' + now.date().isoformat(),
-                    text=f'{name} is due tomorrow. Reason: you appear to be at home and no timed plan is recorded for now.'))
+                item = dict(key='deadline:' + str(row.get('id', name)) + ':' + now.date().isoformat(),
+                            text=f'{name} is due tomorrow. Reason: you appear to be at home and no timed plan is recorded for now.')
+                if prepare and (preparation := prepare(row)):
+                    item['preparation'] = preparation
+                    item['text'] += ' ' + preparation
+                result.append(item)
                 break
     if study and study.get('confirmed') and abs(now.hour * 60 + now.minute - study['minute']) <= 10:
         result.append(dict(key='study:' + now.date().isoformat(), text='This is around a study time you previously accepted. '
                            'Reason: the existing learned routine falls within ten minutes of now; it may not fit today.'))
     return result
+
+
+def prepare_work(row):
+    import sqlite3
+    from services.mind.graph import graph, normalized
+    from services.mind.graph_sources import project_rows, refresh, work_node, work_projects
+
+    if not graph.path.is_file():
+        return ''
+    try:
+        view = refresh()
+        item = work_node(view, row.get('id'), row.get('what', ''))
+        if not item:
+            return ''
+        for project, _ in work_projects(view, item):
+            matching = [p for p in project_rows() if normalized(p['name']) == normalized(project['name'])
+                        and not p.get('conflict')]
+            if len(matching) == 1 and Path(matching[0]['value']['path']).is_dir():
+                return f"Your {project['name']} project folder is ready when you need it."
+        courses = view.neighbors(item['id'], ('due_for',), kinds=('course',))
+        if len(courses) == 1:
+            return f"To prepare notes, say “make a revision pack for {courses[0][0]['name']}”."
+    except (OSError, sqlite3.Error, ValueError, KeyError):
+        pass
+    return ''
 
 
 def observed_candidates(now, presence):
@@ -48,4 +78,4 @@ def observed_candidates(now, presence):
             study = dict(minute=habit.minute, confirmed=True)
             break
     return candidates(now, presence, classes=classes, deadlines=work.snapshot()['items'], commute=commute,
-                      study=study, planned=planned)
+                      study=study, planned=planned, prepare=prepare_work)

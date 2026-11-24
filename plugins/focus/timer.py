@@ -165,9 +165,20 @@ class Focus:
                               ok=False, error='already_running', data=self._status())
             now = self.clock.now().timestamp()
             state = self._new(minutes, label, owner, schedule, now, pomodoro=pomodoro)
-            self._save(dict(self.data, active=state))
-            self.api.publish('focus.started', self._payload(state))
-            return result(f'{label} started for {minutes:g} minutes.', data=self._status())
+            from contextlib import nullcontext
+            from services.automation import autonomy
+            nested = owner.startswith('scenes:')
+            token = dict(type='focus', id=state['session_id'])
+            with (nullcontext() if nested else autonomy.record('set_timer', tokens=[token],
+                   origin='remote' if owner == 'remote' else None)):
+                self._save(dict(self.data, active=state))
+                self.api.publish('focus.started', self._payload(state))
+            line = f'{label} started for {minutes:g} minutes.'
+            text = line if owner else autonomy.offer_text('set_timer', line)
+            value = result(text, data=self._status())
+            if not owner and text == line and autonomy.action_level('set_timer') == autonomy.SILENT:
+                value['speech'] = ''
+            return value
 
     def tick(self):
         with self.lock:
@@ -275,10 +286,14 @@ class Focus:
                     label=state['label'], phase=state['phase'], round=state['round'], pomodoro=state['pomodoro'],
                     minutes=state['duration_s']/60, end_at=state['end_at'])
 
-    def status(self):
-        self.tick()
+    def snapshot(self):
+        """Read timer state without delivering a completion alert."""
         with self.lock:
             return self._status()
+
+    def status(self):
+        self.tick()
+        return self.snapshot()
 
     def stats(self, period='today'):
         if period not in {'today', 'yesterday', 'this week'}:

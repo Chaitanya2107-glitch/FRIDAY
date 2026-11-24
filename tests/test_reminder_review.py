@@ -188,3 +188,21 @@ def test_provider_contract_constrains_ids_and_leaves_time_for_fallback(brain, mo
     monkeypatch.setattr(failover, "complete_with_failover", decide)
     assert asyncio.run(reminder_review.review(Reminder(7, "Drink water", NOW.timestamp()), NOW)).action == "send"
 
+
+def test_delivery_and_recheck_use_the_owner_request_without_advisory_context(monkeypatch):
+    from services import body_state
+    from services.proactive import watcher
+
+    monkeypatch.setattr(reminder_review, "review", REAL_REVIEW)
+    monkeypatch.setattr(reminder_review, "recheck", REAL_RECHECK)
+    monkeypatch.setattr(reminder_review, "_memories", lambda: pytest.fail("Advisory context read"))
+    monkeypatch.setattr(watcher, "is_busy", lambda: False)
+    body = {"speaking": False, "listening": False}
+    monkeypatch.setattr(body_state, "snapshot", lambda at: body)
+    reminder = Reminder(7, "Drink water", NOW.timestamp())
+    decision = asyncio.run(reminder_review.scheduled_review(reminder, NOW))
+    assert decision.action == "send" and decision.allow_speech
+    assert asyncio.run(reminder_review.recheck(reminder, decision, NOW)).action == "send"
+    body["listening"] = True
+    assert asyncio.run(reminder_review.recheck(reminder, decision, NOW)).action == "defer"
+

@@ -5,15 +5,20 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 
 from core.config import config
+from core.errors import ModelUnavailable
 from core.logger import logger
 from services.mind.cognition import cognition, redact
 from services.mind.reasoning_store import fingerprint
 from services.mind.inquiry_models import AnswerBranch, Purpose, Decision
 
-GAP_SECONDS, DAILY_LIMIT, REVIEW_LIMIT, LEASE_SECONDS = 45 * 60, 3, 4, 90
+from services.mind.speech_budget import DAILY_LIMIT
+
+GAP_SECONDS, REVIEW_LIMIT, LEASE_SECONDS = 45 * 60, 4, 90
+local_delivery = ContextVar("local_inquiry_delivery", default=False)
 
 
 class RepeatedQuestion(ValueError):
@@ -244,6 +249,38 @@ class Inquiry:
             content = content[8:-3].strip()
         return Decision.model_validate_json(content)
 
+    @staticmethod
+    def local_decision(data):
+        gaps = data.get('curiosity', {}).get('gaps', [])
+        eligible = [gap for gap in gaps if gap['missing'] in {
+            'commitment_date_if_known', 'verify_app_explanation', 'blocker_identity', 'blocker_status_or_timing'}]
+        silence = Decision(ask=False, question='', topic='', basis=[],
+                           reason='No single supported question is available.', purpose=None)
+        if not eligible or len(eligible) > 1 and eligible[0]['rank'] == eligible[1]['rank']:
+            return silence
+        gap = eligible[0]
+        subject = ' '.join(gap['subject'].replace('?', '').split())
+        if not subject:
+            return silence
+        if gap['missing'] == 'commitment_date_if_known':
+            question = f"Do you know the date for {subject}?"
+            action = ('A definite date', 'Offer to save the date you give.', 'The date is unknown', 'Keep the date open.')
+        elif gap['missing'] == 'verify_app_explanation':
+            question = f"Can you verify my description of {subject}?"
+            action = ('Yes, it is right', 'Confirm the reviewed app description.',
+                      'No, it is wrong', 'Discard the unverified description.')
+        else:
+            question = f"Is {subject} still blocked?"
+            action = ('Still blocked', 'Keep the recorded blocker in focus.',
+                      'The blocker cleared', 'Ask whether to update the saved task status.')
+        return Decision.model_validate({
+            'ask': True, 'question': question, 'topic': subject[:80], 'basis': gap['basis'],
+            'reason': 'A current record has one concrete missing detail.',
+            'purpose': {'gap': gap['id'], 'decision': f'How to follow up on {subject}'[:200],
+                        'if_answer_a': {'answer': action[0], 'next_step': action[1]},
+                        'if_answer_b': {'answer': action[2], 'next_step': action[3]},
+                        'usefulness': 'changes_decision'}})
+
     def _validate(self, decision, data, now):
         if not self._normal(decision.reason):
             raise ValueError('An inquiry decision needs a readable reason')
@@ -316,7 +353,12 @@ class Inquiry:
                 await asyncio.to_thread(self.finish, job, 'silent',
                     'No open decision-relevant evidence gap remains; no question or model call is needed.', now)
                 return None
-            decision = await self.think(data)
+            local = config.FRIDAY_LLM == 'off'
+            try:
+                decision = self.local_decision(data) if local else await self.think(data)
+            except (ModelUnavailable, TimeoutError):
+                local = True
+                decision = self.local_decision(data)
             from services.mind import app_learning
             selected_gap = next((gap for gap in data['curiosity']['gaps']
                                  if decision.purpose and gap['id'] == decision.purpose.gap), None)
@@ -326,10 +368,27 @@ class Inquiry:
                 decision = decision.model_copy(update={'question': app_learning.question(proposal),
                                                        'topic': 'app explanation ' + proposal['key']})
             self._validate(decision, data, now)
+            if local_delivery.get() and decision.ask and not local and not proposal:
+                from services.mind import wording
+
+                subject = ' '.join(selected_gap['subject'].replace('?', '').split())
+                template = {
+                    'commitment_date_if_known': 'Do you know the date for {subject}?',
+                    'blocker_identity': 'What is blocking {subject}?',
+                    'blocker_status_or_timing': 'Is {subject} still blocked?',
+                }[selected_gap['missing']]
+                question = wording.render({'kind': 'question', 'ask': template.format(subject=subject)}, now=now)
+                decision = decision.model_copy(update={'question': question})
+                self._validate(decision, data, now)
             line = {'say': decision.question, 'inquiry_id': job['id'], 'basis': decision.basis,
                     'reason': decision.reason, 'explicit': explicit,
                     'purpose': decision.purpose.model_dump() if decision.purpose else None,
-                    'behavior_context': data.get('life_state', {}).get('context')}
+                    'behavior_context': data.get('life_state', {}).get('context'),
+                    'cause_numbers': {ref: {key: value for key, value in data['evidence'][ref].items()
+                                             if key in {'confidence', 'strength', 'count', 'due_at'} and type(value) in (int, float)}
+                                      for ref in decision.basis}}
+            if local:
+                line['local_decision'] = True
             if proposal:
                 line['app_verification'] = app_learning.identity(proposal)
             linked = [data['evidence'][ref].get('thought_id') for ref in decision.basis if ref in data['evidence']]

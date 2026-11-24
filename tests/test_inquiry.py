@@ -83,7 +83,7 @@ def test_app_verification_uses_exact_local_candidate_and_survives_recording(brai
     thinker(monkeypatch, control, chosen)
     line = asyncio.run(control.propose(NOW))
     assert line["say"] == app_learning.question(proposal)
-    assert "category: documents" in line["say"] and "game" not in line["say"]
+    assert 'under documents' in line['say'] and 'game' not in line['say']
     assert line["app_verification"] == app_learning.identity(proposal)
     talk._record(line, "chill", NOW.timestamp())
     pending = talk.load()["pending"]

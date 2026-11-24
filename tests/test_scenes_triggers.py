@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,7 +9,7 @@ from services import quiet_mode
 
 @pytest.fixture
 def host(tmp_path):
-    value = make_scenes(tmp_path)
+    value = make_scenes(tmp_path, now=SimpleNamespace(value=datetime(2026, 11, 6, 14).timestamp()))
     yield value
     value.engine.close(); value.api.stop(); value.manager.bus.close()
 
@@ -39,6 +40,17 @@ def test_auto_trigger_requires_opt_in_and_still_obeys_first_run_confirmation(hos
     assert host.engine.awaiting() and host.desktop.audio['scalar'] == .734
 
 
+def test_auto_trigger_with_p0_effect_still_requires_one_fresh_yes(host):
+    now = datetime.fromtimestamp(host.clock.value).astimezone()
+    put_scene(host, actions=[dict(type='open_app', name='calculator')],
+              triggers=[dict(type='time', at=now.strftime('%H:%M'), auto=True)])
+    host.engine.tick()
+    assert host.engine.pending['kind'] == 'trigger'
+    assert not host.desktop.calls
+    assert host.engine.answer('yes')['ok']
+    assert host.desktop.calls == ['open:calculator']
+
+
 def test_process_start_and_near_class_event_are_local_suggestions(host):
     put_scene(host, triggers=[dict(type='process', process='steam.exe'),
                              dict(type='event', topic='schedule.class_soon', within_minutes=5)])
@@ -48,6 +60,7 @@ def test_process_start_and_near_class_event_are_local_suggestions(host):
     host.engine.tick()
     assert host.engine.pending['kind'] == 'trigger'
     host.engine.answer('no')
+    host.clock.value += 3601
     far = datetime.fromtimestamp(host.clock.value + 600).astimezone().isoformat()
     host.engine.event(dict(topic='schedule.class_soon', plugin_id='schedule', payload={'starts_at': far}))
     assert not host.engine.pending

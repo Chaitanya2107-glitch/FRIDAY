@@ -299,16 +299,14 @@ async def check_host(connection, request):
 
 
 async def run_integrated_bridge():
-    from services import plugin_runtime
-    await asyncio.to_thread(plugin_runtime.start, asyncio.get_running_loop())
-    try:
-        await _run_integrated_bridge()
-    finally:
-        await asyncio.to_thread(plugin_runtime.stop)
+    from services.health.watchdog import watchdog
+
+    await watchdog.supervise('bridge', _run_integrated_bridge)
 
 
 async def _run_integrated_bridge():
     from .runtime import FridayRuntime
+    from services.health.watchdog import watchdog
     bridge = Bridge(runtime=FridayRuntime())
     migrated = False
     while True:
@@ -325,17 +323,16 @@ async def _run_integrated_bridge():
                     migrated = True
                 transport_state.update(ready=True, port=config.connection.port, error='')
                 while True:
+                    watchdog.heartbeat('bridge')
                     await asyncio.sleep(1)
                     current = await asyncio.to_thread(load_config)
                     if current.connection.port != config.connection.port:
                         break
-        except asyncio.CancelledError:
-            raise
         except Exception as error:
             kind = type(error).__name__
             if transport_state['error'] != kind:
                 logger.error('FRIDAY Island transport unavailable (%s)', kind)
             transport_state.update(error=kind)
-            await asyncio.sleep(2)
+            raise
         finally:
             transport_state.update(ready=False)

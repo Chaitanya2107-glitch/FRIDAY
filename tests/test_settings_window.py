@@ -16,6 +16,7 @@ from test_tray import friday, api, events
 class FakeClient:
     def __init__(self):
         self.calls, self.failure = [], None
+        self.model, self.report_at = 'on', ''
         self.data = {
             'contacts': [{'name': 'alice', 'value': {'number': '+447700900123'}},
                          {'name': 'dad', 'value': {'number': '+919876543210'}}],
@@ -43,6 +44,16 @@ class FakeClient:
         self.calls.append(('delete', section, name))
         self.data[section] = [item for item in self.data[section] if item['name'] != name]
         return self.load(section)
+
+    def model_mode(self, mode=None):
+        if mode is not None:
+            self.model = mode
+        return {'mode': self.model}
+
+    def status_report_time(self, time=None):
+        if time is not None:
+            self.report_at = time
+        return {'time': self.report_at}
 
 
 def spin(window, predicate, timeout=4):
@@ -161,6 +172,17 @@ def test_cancel_selection_from_a_new_draft_clears_highlight(window, monkeypatch)
     window.root.update()
     assert editor.original is None and not editor.list.selection()
     assert editor.form.read()[0] == 'unsaved'
+
+
+def test_model_switch_and_daily_time_use_the_settings_client(window):
+    spin(window, lambda: window.model_mode == 'on')
+    assert window.model_enabled.get()
+    window.model_option.invoke()
+    spin(window, lambda: window.model_mode == 'off')
+    assert window.client.model == 'off' and not window.model_enabled.get()
+    window.report_at.set('19:30')
+    window.report_save.invoke()
+    spin(window, lambda: window.client.report_at == '19:30')
 
 
 def test_background_request_does_not_block_tk_event_processing(window):

@@ -2,7 +2,8 @@
 import asyncio
 
 from core.config import config, PERSONAL_ASSISTANT_ROLE
-from providers.base_provider import Message
+from core.errors import ModelUnavailable
+from providers.base_provider import Message, ProviderResponse
 from providers.failover import complete_with_failover
 from .security import Denied
 
@@ -15,11 +16,16 @@ async def answer(text):
     from services.mind.coaching_commands import try_command
     private = await try_command(text, conversation=True)
     if private is not None:
-        from providers.base_provider import ProviderResponse
         return ProviderResponse(private.message, 'local', 'coaching', metadata={'allow_speech': False})
-    async with asyncio.timeout(35):
-        result = await complete_with_failover(config.ACTIVE_PROVIDER, [Message('user', text)], PROMPT,
-                                              500, purpose='conversation', attempt_timeout=10)
+    try:
+        async with asyncio.timeout(35):
+            result = await complete_with_failover(config.ACTIVE_PROVIDER, [Message('user', text)], PROMPT,
+                                                  500, purpose='conversation', attempt_timeout=10)
+    except (ModelUnavailable, TimeoutError):
+        from services.mind.replies import REMARKS
+        reply = (REMARKS['greeting'] if text.strip(' .!?').casefold() in {'hi', 'hello', 'hey'} else
+                 "Which phone command do you want, Boss? Use the phone command controls.")
+        return ProviderResponse(reply, 'local', 'friday')
     if result.tool_calls or not result.content.strip():
         raise Denied('conversation_refused')
     return result

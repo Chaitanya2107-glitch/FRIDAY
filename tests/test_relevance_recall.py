@@ -244,8 +244,8 @@ def test_conversation_rechecks_forgetting_after_async_context_assembly(memory, m
     from services.mind import brain_memory, language, life_state, temporal_memory
     memory.remember('The spectrometer uses the amber reference sample.', now=NOW)
     monkeypatch.setattr(brain_memory, 'brain_memory', memory)
-    monkeypatch.setattr(temporal_memory, 'situation', lambda: {})
-    def forget_during_context():
+    monkeypatch.setattr(temporal_memory, 'situation', lambda now: {})
+    def forget_during_context(*args, **kwargs):
         memory.store.clear()
         return {}
     monkeypatch.setattr(life_state, 'current', forget_during_context)
@@ -265,8 +265,8 @@ def test_conversation_does_not_wait_for_cold_recall(memory, monkeypatch):
     from services.mind import brain_memory, language, life_state, temporal_memory
     monkeypatch.setattr(brain_memory, 'brain_memory', memory)
     monkeypatch.setattr(language, 'RECALL_WAIT_SECONDS', .001)
-    monkeypatch.setattr(temporal_memory, 'situation', lambda: {})
-    monkeypatch.setattr(life_state, 'current', lambda: {'priorities': 'still supplied'})
+    monkeypatch.setattr(temporal_memory, 'situation', lambda now: {})
+    monkeypatch.setattr(life_state, 'current', lambda *args, **kwargs: {'priorities': 'still supplied'})
     original_thread = asyncio.to_thread
     cancelled = []
     async def thread(function, *args, **kwargs):

@@ -165,7 +165,7 @@ def uncommitted_summary() -> str | None:
 
 async def commit_message(name: str) -> str:
     from providers.base_provider import Message
-    from providers.registry import get_provider
+    from providers.failover import complete_exact
     from services.automation import clipboard
 
     if not name:  # fine without a name only when there's one project
@@ -180,19 +180,20 @@ async def commit_message(name: str) -> str:
         return f"There's nothing to commit in {name}."
     if untracked:
         diff += "\nNew files: " + ", ".join(untracked[:20])
-    if config.AI_ASSIST_ONLY:
+    def local():
         changed, ahead = status(folder)
         return _describe(name, changed, ahead) + "\nWrite the commit summary from these changes, Boss."
+    if config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on":
+        return local()
     if not config.provider_is_configured("ollama"):
         raise AutomationError("Commit messages are written by the local model (your code stays on this PC), "
                               "and Ollama isn't set up.")
     try:
-        result = await get_provider("ollama").complete(
-            messages=[Message(role="user", content=diff[:MAX_DIFF_CHARS])],
-            system_prompt=COMMIT_PROMPT, max_tokens=150, temperature=0.2,
-        )
-    except Exception as e:
-        raise AutomationError(f"The local model couldn't write it (is Ollama running?): {e}")
+        result = await complete_exact("ollama", [Message(role="user", content=diff[:MAX_DIFF_CHARS])],
+                                      COMMIT_PROMPT, 150, temperature=0.2)
+    except Exception as error:
+        logger.debug("Using staged changes for the commit summary (%s)", type(error).__name__)
+        return local()
     message = result.content.strip().strip("`").strip()
     try:
         clipboard.set_text(message)

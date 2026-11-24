@@ -57,9 +57,9 @@ from urllib.parse import quote
 from typing import NamedTuple
 
 from core.config import config
-from core.errors import ProviderError
+from core.errors import ModelUnavailable, ProviderError
 from core.logger import logger
-from providers.registry import get_provider
+from providers.failover import complete_provider, get_provider
 from providers.base_provider import Message
 from services.automation.command_tools import COMMAND_ROUTER_PROMPT, build_tools, tool_call_to_action
 from services.automation.clipboard_history import clipboard_history
@@ -200,11 +200,22 @@ async def _handle_pending_reply(message: str, provider_name: str) -> ActionResul
             False,
             "That request timed out, so I didn't do anything. Ask again if you still want it.",
         )
+    if pending.parsed.get("action") == "confirm_dialogue_date":
+        from services.mind.dialogue import dialogue
+        return await asyncio.to_thread(dialogue.confirm_rule, pending.parsed["id"], is_yes)
     if is_no:
         logger.info(f"User cancelled pending action: {pending.parsed.get('action')}")
         return ActionResult(True, "Okay, cancelled. Nothing was changed.")
 
     logger.info(f"User confirmed pending action: {pending.parsed.get('action')}")
+    if pending.parsed.get("action") == "confirm_reported_date":
+        from services.mind import date_rules
+        return await asyncio.to_thread(date_rules.confirm, pending.parsed["state"])
+    if pending.parsed.get("action") == "confirm_language_command":
+        return await _run_language_command(pending.parsed["command"], pending.parsed["source"], provider_name)
+    if pending.parsed.get('action') == 'confirm_native_commands':
+        actions = await writer.resolve_writing(pending.parsed['commands'], provider_name)
+        return await _run_multi_plan(actions)
     if pending.parsed.get("action") == "resume_project":
         return await _resume_project(pending.parsed["name"], provider_name,
                                      expected=pending.parsed.get('_project_snapshot', ...))
@@ -331,6 +342,66 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     Returns an ActionResult if it was a system command, None otherwise.
     The reply may get one of FRIDAY's quips (personality.py) — once, not for each step of a routine.
     """
+    from services.mind import character, emotion, writers_room
+    from services.remote.context import remote_origin
+
+    remote = remote_request.get() or remote_origin.get()
+    if commands_run.get() is None:
+        from services.mind import graph_commands
+        if graph_result := await graph_commands.try_command(message, remote=remote):
+            cancel_pending_confirmation()
+            return graph_result
+        command = normalize_command(message).strip().rstrip('!?.')
+        original = words.strip_leading_filler(message).strip().rstrip('!?.')
+        why = re.fullmatch(r'why did you say (?:that(?:\s+(.+))?|(.+))', original, re.I)
+        if why or command.casefold() == 'what are you good at':
+            mark_introspection()
+            cancel_pending_confirmation()
+            if remote:
+                return ActionResult(False, 'Review my local behavior on this laptop, Boss.', repeatable=False)
+            if why:
+                from services.mind.speech_budget import budget
+                description = await asyncio.to_thread(budget.describe, why[1] or why[2] or '')
+            else:
+                from services.mind import self_model
+                description = await asyncio.to_thread(self_model.describe)
+            return ActionResult(True, description, repeatable=False)
+        if review := await writers_room.handle(message, remote=remote):
+            return review
+        text = message.strip(" .!?").casefold()
+        if text in {"show your character", "reset your character"}:
+            if remote:
+                return ActionResult(False, "Character settings stay on this laptop, Boss.", repeatable=False)
+            try:
+                result = await asyncio.to_thread(character.show if text.startswith("show") else character.reset)
+            except OSError:
+                return ActionResult(False, "I couldn't save the character reset.", repeatable=False)
+            return ActionResult(True, result, repeatable=False)
+    if model := re.fullmatch(r"turn the model (on|off)", normalize_command(message).strip(" .!?"), re.I):
+        if remote_request.get():
+            return ActionResult(False, "Change model assistance on this laptop, Boss.", repeatable=False)
+        from providers.failover import set_mode
+        cancel_pending_confirmation()
+        try:
+            mode = await asyncio.to_thread(set_mode, model[1].lower())
+        except OSError:
+            return ActionResult(False, "I couldn't save the model setting. Try again, Boss.", repeatable=False)
+        return ActionResult(True, f"Model assistance is {mode}, Boss.", repeatable=False)
+    from services.health.report import handle as health_command
+    if report := await health_command(message, remote=remote_request.get()):
+        cancel_pending_confirmation()
+        return report
+    if match := re.fullmatch(r"review reminder ([1-9][0-9]{0,4})", normalize_command(message), re.I):
+        if remote_request.get():
+            return ActionResult(False, "Review reminders on this laptop, Boss.", repeatable=False)
+        from services.mind import reminder_review
+        from services.reminders.service import reminders
+        items = await asyncio.to_thread(reminders.pending)
+        number = int(match[1])
+        if number > len(items):
+            return ActionResult(False, "Which reminder? Say list reminders to see their numbers.", repeatable=False)
+        decision = await reminder_review.review(items[number - 1], datetime.now())
+        return ActionResult(True, f"Reminder review: {decision.reason}", repeatable=False, speech="")
     from services.mind.coaching_commands import try_command as try_coaching_command
     if coaching := await try_coaching_command(message):
         return coaching
@@ -358,7 +429,7 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     if local_activity := await activity_plugin.try_command(message, remote=remote_request.get()):
         return local_activity
     if commands_run.get() is not None:  # a routine / mode step inside a request: seasoned at the top
-        return await _try_system_action(message, provider_name)
+        return await _try_system_action(message, provider_name, _allow_teacher=False)
     from services.phone import commands as phone_commands
     from services.activity import phone_commands as activity_phone
     if activity_phone.match_command(message):
@@ -372,6 +443,13 @@ async def try_system_action(message: str, provider_name: str) -> ActionResult | 
     if aware := await app_verification.handle(message, activity_log, remote=remote_request.get()):
         app_verification.mark_returned(aware.message, remote=remote_request.get())
         return aware
+    if not remote:
+        event = await asyncio.to_thread(emotion.note_owner, message)
+        if event == "owner_stressed" and emotion.is_standalone_stress(message) and not is_awaiting_confirmation():
+            return ActionResult(True, await asyncio.to_thread(wording.render, {"kind": "stress_ack"}), repeatable=False)
+        from services.mind.replies import remark_kind
+        if remark_kind(message) and not is_awaiting_confirmation():
+            return None
     token = commands_run.set([])
     from services.plugin_runtime import plugin_result, note_builtin
     plugin_token = plugin_result.set(None)
@@ -409,7 +487,8 @@ async def _try_correction(message: str, provider_name: str) -> ActionResult | No
     return result
 
 
-async def _try_system_action(message: str, provider_name: str, *, _allow_typo: bool = True) -> ActionResult | None:
+async def _try_system_action(message: str, provider_name: str, *, _allow_typo: bool = True,
+                             _allow_teacher: bool = True) -> ActionResult | None:
     from services.briefing_runtime import try_command as try_briefing_command
     if local_brief := await try_briefing_command(message, remote=remote_request.get()):
         return local_brief
@@ -479,7 +558,11 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         if config.AI_ASSIST_ONLY and typing_match["action"] == "write_text":
             return ActionResult(False, 'Give me the exact text, Boss: "type <text>". Drafting new content is disabled.')
         logger.info(f"Typing command match: {typing_match['action']}")
-        return _execute_all(await writer.resolve_writing([typing_match], provider_name))
+        try:
+            return _execute_all(await writer.resolve_writing([typing_match], provider_name))
+        except ModelUnavailable:
+            return ActionResult(False, 'What exact text should I type, Boss? Say "type" followed by the text.',
+                                repeatable=False)
 
     from services.mind import workspace_commands
     from services.mind import reasoning_commands
@@ -604,7 +687,7 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
     if personality_match:
         logger.info(f"Personality command match: {personality_match['action']}")
         if personality_match["action"] == "roast_me":
-            return ActionResult(True, await personality.roast_me(provider_name, week=personality_match["week"]),
+            return ActionResult(True, await asyncio.to_thread(personality.roast_reply, week=personality_match["week"]),
                                 repeatable=False)
         return _execute(personality_match)
 
@@ -659,7 +742,7 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
     if timetable_match:
         logger.info(f"Timetable command match: {timetable_match['action']}")
         if timetable_match["action"] == "import_timetable":
-            if config.AI_ASSIST_ONLY:
+            if config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on":
                 return ActionResult(False, 'Image timetable import needs AI interpretation. Add classes with "add class <subject> on <day> at <time>" instead.')
             try:
                 return ActionResult(True, await timetable.import_timetable(
@@ -726,7 +809,8 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
 
     talk_match = talk.match_talk_command(text)
     if talk_match and talk_match["action"] == "talk_ask":  # "ask me something": she asks from her list
-        return ActionResult(True, await talk.ask_now(activity_log, datetime.now()), repeatable=False)
+        question = await talk.ask_now(activity_log, datetime.now())
+        return ActionResult(True, question, repeatable=False, speech=talk.question_speech(question))
     if talk_match:
         return _execute(talk_match)
 
@@ -736,10 +820,14 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
 
     if life.match_life_command(text):  # "how are you feeling": her mood and her day, worded like anything she says
         now = datetime.now()
-        return ActionResult(True, await wording.say(life.feeling(now, brain.away_minutes(now))), repeatable=False)
+        raw = await asyncio.to_thread(life.feeling, now, brain.away_minutes(now))
+        raw["include_day"] = bool(re.search(r"\b(?:day|learn)\b", text, re.I))
+        return ActionResult(True, await asyncio.to_thread(wording.render, raw, now=now, private=remote_request.get()),
+                            repeatable=False)
     if evening_command := evening.match_evening_command(text):
         first = await evening.start(activity_log, datetime.now(), extended=evening_command.get("extended", False))
-        return ActionResult(True, first or "I don't have a useful new question right now, Boss. You can inspect brain status for the reason.", repeatable=False)
+        return ActionResult(True, first or "I don't have a useful new question right now, Boss. You can inspect brain status for the reason.",
+                            repeatable=False, speech=talk.question_speech(first))
     foresight_match = foresight.match_foresight_command(text)
     if foresight_match:
         return _execute(foresight_match)
@@ -794,6 +882,9 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
         logger.info(f"System stats match: {stats_match.get('part', 'everything')}")
         return await asyncio.to_thread(_execute, stats_match)  # sampling takes a moment
 
+    from services.automation.command_slots import clarification
+    if question := clarification(message):
+        return ActionResult(False, question, repeatable=False)
     first = first_word(text)
 
     if first in DEVICE_STARTERS:
@@ -810,11 +901,18 @@ async def _try_system_action(message: str, provider_name: str, *, _allow_typo: b
 
     if _allow_typo:
         if candidate := _correct_local_typo(message):
-            return await _try_system_action(candidate, provider_name, _allow_typo=False)
+            return await _try_system_action(candidate, provider_name, _allow_typo=False, _allow_teacher=_allow_teacher)
 
     from services.plugin_runtime import try_command as try_plugin_command
     if plugin_result := await try_plugin_command(message):
         return plugin_result
+
+    if _allow_teacher and not _language_proposal.get():
+        from services.mind import app_verification
+        from services.remote.context import remote_origin
+        if explanation := await app_verification.general(message, remote=remote_request.get() or remote_origin.get()):
+            app_verification.mark_returned(explanation.message)
+            return explanation
 
     # Natural language need not begin with a known command verb.
     if config.AI_ASSIST_ONLY and config.AI_LANGUAGE_ENABLED and not _language_proposal.get():
@@ -846,35 +944,49 @@ async def _understand_command(message: str, provider_name: str) -> ActionResult 
     if normalize_command(command) in AFFIRMATIVE_REPLIES | NEGATIVE_REPLIES:
         return ActionResult(False, "Please confirm or cancel the original request yourself, Boss.")
     # A language model cannot name additional apps to close.
-    parsed = _match_local_step(command)
+    parsed = _match_local_step(command, batch=False)
     proposal_plan = _local_multi_plan(command)
     if proposal_plan == []:
         return None  # An invented command batch must not swallow ordinary conversation.
     steps = proposal_plan or [parsed]
+    if missing := next((step for step in steps if isinstance(step, ActionResult) and not step.success), None):
+        return missing
     if any(isinstance(step, dict) and step.get("action") == "search_chrome" for step in steps) and not re.search(
             r"\b(?:search|google|bing|look\s+(?:up|for)|find|research)\b", message, re.I):
         return None  # Conversation and contextual suggestions do not authorize a browser search.
-    if isinstance(parsed, dict) and not _close_target_was_named(parsed, message):
+    if any(isinstance(step, dict) and not _close_target_was_named(step, message) for step in steps):
         return ActionResult(False, "Which app do you want me to close, Boss?")
+    if remote_request.get() and any(isinstance(step, dict) and step.get("action") in NOT_OVER_TELEGRAM for step in steps):
+        return ActionResult(False, REMOTE_REFUSAL, repeatable=False)
+    if parsed is None and not proposal_plan:
+        return None  # Leave an unsupported translation to the local reply layer.
+    return _ask_first({"type": "system", "action": "confirm_language_command", "command": command, "source": message},
+                      f'I understood "{command}". Run it? Reply yes or no.')._replace(speech="")
+
+
+async def _run_language_command(command, source, provider_name):
     token = _language_proposal.set(True)
-    source_token = _language_source.set(message)
+    source_token = _language_source.set(source)
     try:
         result = await _try_system_action(command, provider_name)
+        return result or ActionResult(False, "I couldn't verify that proposed command, Boss.", repeatable=False)
     finally:
         _language_source.reset(source_token)
         _language_proposal.reset(token)
-    # An unsupported model proposal is still conversation; the reply layer can clarify.
-    return result
 
 
 def _match_local_deadline(text: str) -> dict | None:
     try:
-        return deadlines.match_deadline_command(text)
+        parsed = deadlines.match_deadline_command(text)
+        if parsed and parsed['action'] == 'move_deadline':
+            from services.proactive import deadline_changes
+            parsed = deadline_changes.match_turn(text, remote=remote_request.get()) or parsed
+        return parsed
     except AutomationError:
         return None  # The dedicated route reports invalid dates for single requests.
 
 
-def _match_local_step(message: str) -> dict | _WorkspaceStep | None:
+def _match_local_step(message: str, *, batch=True) -> dict | _WorkspaceStep | None:
     """Parse direct native actions without executing, learning or asking a model.
 
     Async orchestration (running modes/projects/routines, login entry and image
@@ -901,7 +1013,7 @@ def _match_local_step(message: str) -> dict | _WorkspaceStep | None:
               or journal.match_journal_command(text) or match_memory_command(text)
               or match_device_command(raw) or match_stats_command(text)
               or match_media_command(raw, media.has_player) or match_app_command(raw))
-    if parsed and parsed["action"] in {
+    if batch and parsed and parsed["action"] in {
         "write_text", "run_routine", "start_mode", "end_mode", "resume_project", "suggest_resume_project",
         "import_timetable", "save_login", "log_in",
     }:
@@ -928,10 +1040,11 @@ def _preserve_search_query(parsed: dict | None, raw: str) -> dict | None:
 
 def _correct_local_typo(message: str) -> str | None:
     from services.automation.command_typos import correct_command_typo
+    from services.automation.command_slots import clarification
 
     if candidate := correct_command_typo(words.strip_leading_filler(message)):
         candidate = words.rephrase_command(candidate)
-        if _match_local_step(candidate):
+        if _match_local_step(candidate) or clarification(candidate):
             return candidate
     return None
 
@@ -989,6 +1102,7 @@ def _local_multi_plan(text: str) -> list[dict | _WorkspaceStep | ActionResult] |
         start = text.find(part, search_from)
         located.append((part, start))
         search_from = start + len(part)
+    from services.automation.command_slots import clarification
     plan, target_verb, cursor, unknown = [], "", 0, False
     now = datetime.now()
     for part, start in located:
@@ -1022,10 +1136,17 @@ def _local_multi_plan(text: str) -> list[dict | _WorkspaceStep | ActionResult] |
             expanded = f"{target_verb} {part}"
             action = match_device_command(expanded) or match_app_command(expanded)
         if not action:
+            if question := clarification(part):
+                return [ActionResult(False, question, repeatable=False)]
             unknown = True
             target_verb = ""
             continue
         plan.append(action)
+        if isinstance(action, dict) and action['action'] == 'move_deadline' and action.get('when'):
+            try:
+                deadlines.parse_due(action['when'], now)
+            except (AutomationError, ValueError, OverflowError):
+                return [ActionResult(False, f"When should {action['reference']} be due? Give a date and optional time.", repeatable=False)]
         # "open chrome and notepad": only opening/closing targets inherit the verb.
         if isinstance(action, dict) and action["action"] in {"open_app", "open_folder", "open_url", "close_app"}:
             target_verb = "close" if action["action"] == "close_app" else "open"
@@ -1040,6 +1161,9 @@ async def _run_multi_plan(plan: list[dict | _WorkspaceStep | ActionResult]) -> A
     if remote_request.get():
         if any(isinstance(step, dict) and step["action"] in NOT_OVER_TELEGRAM | {"read_aloud"} for step in plan):
             return ActionResult(False, REMOTE_REFUSAL)
+    for step in plan:
+        if isinstance(step, dict) and step['action'] == 'move_deadline' and not step.get('when'):
+            return await asyncio.to_thread(_execute, step)
     results = []
     for index, step in enumerate(plan):
         if isinstance(step, _WorkspaceStep):
@@ -1050,6 +1174,8 @@ async def _run_multi_plan(plan: list[dict | _WorkspaceStep | ActionResult]) -> A
         if is_awaiting_confirmation():
             if index + 1 < len(plan):
                 results.append(ActionResult(False, "The remaining commands were not run. Ask for them again after confirming."))
+            break
+        if isinstance(step, dict) and step['action'] == 'move_deadline' and (not result or not result.success):
             break
     return _combine(results)
 
@@ -1070,6 +1196,20 @@ async def _run_ai_tools(message: str, provider_name: str) -> ActionResult | None
     actions = await _classify_with_ai(message, provider_name)
     if not actions:
         return None
+    from services.automation.autonomy import CONFIRM_ACTIONS
+    risks = CONFIRM_ACTIONS | {'close_app', 'open_url', 'type_text', 'write_text', 'press_keys', 'write_clipboard',
+                               'clear_clipboard_history', 'restore_clipboard_item', 'cancel_reminder',
+                               'cancel_all_reminders', 'set_reminder', 'take_screenshot', 'connect_spotify'}
+    if any(action['action'] in risks for action in actions):
+        from services.mind.cognition import redact
+        summary = ', '.join(action['action'].replace('_', ' ') + ' ' +
+                            ' '.join(str(value) for key, value in action.items() if key not in {'action', 'type'})
+                            for action in actions)
+        if len(summary) > 2000 or summary != redact(summary):
+            return ActionResult(False, 'I could not show the full proposal for review. Give me the local command directly.',
+                                repeatable=False)
+        return _ask_first({'action': 'confirm_native_commands', 'commands': actions},
+                          f'I understood "{summary}". Run it? Reply yes or no.')._replace(speech='')
     return await asyncio.to_thread(_execute_all, await writer.resolve_writing(actions, provider_name))
 
 
@@ -1282,9 +1422,10 @@ async def _classify_with_ai(message: str, chat_provider_name: str) -> list[dict]
     Returns the actions to run in order; None means "treat as chat".
     Decisions are cached, so a message the AI has seen before is answered instantly.
     """
-    if config.AI_ASSIST_ONLY:
+    if config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on":
         return None
     tools = build_tools(system.list_apps(), list(FOLDER_MAP))
+    allowed_tools = {tool.name for tool in tools}
     attempts = _classifier_attempts(chat_provider_name)
     cache_fp = _cache_fp()
     cached = command_cache.get(message, cache_fp)
@@ -1292,18 +1433,17 @@ async def _classify_with_ai(message: str, chat_provider_name: str) -> list[dict]
         cached = await asyncio.to_thread(command_cache.similar, message, cache_fp)
     if cached is not None:
         logger.info(f"Command cache hit: {[a.get('action') for a in cached] or 'chat'}")
-        return cached or None
+        return [action for action in cached if action['action'] in allowed_tools] or None
 
     tried = set()
     for name, model in attempts:
-        provider = get_provider(name, model=model)
-        attempt = (name, provider.get_model_name())
-        if attempt in tried:
-            continue
-        tried.add(attempt)
-
         try:
-            result = await provider.complete(
+            provider = get_provider(name, model=model)
+            attempt = (name, provider.get_model_name())
+            if attempt in tried:
+                continue
+            tried.add(attempt)
+            result = await complete_provider(name, provider, attempt_timeout=6,
                 messages=[Message(role="user", content=message)],
                 system_prompt=COMMAND_ROUTER_PROMPT,
                 max_tokens=300,
@@ -1311,12 +1451,12 @@ async def _classify_with_ai(message: str, chat_provider_name: str) -> list[dict]
                 tools=tools,
             )
         except Exception as e:
-            logger.warning(f"Intent classifier {name}/{attempt[1]} failed: {e}")
+            logger.warning(f"Intent classifier {name} failed: {e}")
             continue
 
         # No tool call means the model decided it's chat — no need to ask again
         logger.info(f"Intent classifier {name}/{attempt[1]} called: {[c.name for c in result.tool_calls] or 'nothing'}")
-        actions = [tool_call_to_action(call, FOLDER_MAP) for call in result.tool_calls]
+        actions = [tool_call_to_action(call, FOLDER_MAP) for call in result.tool_calls if call.name in allowed_tools]
         actions = [a for a in actions if _close_target_was_named(a, message)]
         command_cache.put(message, cache_fp, actions)
         return actions or None

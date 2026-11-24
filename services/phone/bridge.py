@@ -170,7 +170,9 @@ class PhoneBridge:
             if not selected or any(target.get(k) != selected.get(k) for k in ("device", "owner", "bus_id", "id", "fingerprint")):
                 raise PhoneError("That phone reply is no longer current. Select the notification again.")
             current = self._current(connection, selected)
-            connection.reply(target["device"], current["properties"]["replyId"], target["message"])
+            from services.automation import autonomy
+            with autonomy.record('send_message', tokens=[{'type': 'unavailable'}]):
+                connection.reply(target["device"], current["properties"]["replyId"], target["message"])
             return "Reply submitted to your phone. The messaging app hasn't confirmed delivery."
 
     def ring(self):

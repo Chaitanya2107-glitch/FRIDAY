@@ -20,14 +20,14 @@ from pydantic import BaseModel, Field
 
 from core.config import config
 from core.logger import logger
-from core.errors import MemoryError
+from core.errors import MemoryError, ModelUnavailable
 from providers.base_provider import Message
 from providers.failover import complete_with_failover, is_quick_chat
 from providers.registry import list_providers
 from services.memory.sqlite_memory import MemoryService
 from services.memory.semantic import semantic_memory
 from services.memory.notes import is_note
-from services.mind import humour, talk
+from services.mind import humour, replies, talk
 from services.automation.intent import (
     cancel_pending_confirmation,
     is_awaiting_confirmation,
@@ -115,12 +115,24 @@ async def chat(request: ChatRequest):
         return ChatResponse(response=coaching.message, provider='local', model='coaching', tokens_used=0,
                             private=True, allow_speech=bool(coaching.speech), action_success=coaching.success,
                             awaiting_reply=coaching_commands.pending())
+    from services.mind import graph_commands
+    if graph_result := await graph_commands.try_command(request.message, remote=remote_request.get()):
+        cancel_pending_confirmation()
+        cognition_service.reply(graph_result.message, safe_text=graph_commands.PRIVATE_MEMORY)
+        if request.speak and graph_result.speech != '':
+            _speak_in_background(graph_result.message, cache=False, local_only=True)
+        return ChatResponse(response=graph_result.message, provider='local', model='life_graph', tokens_used=0,
+                            private=True, allow_speech=graph_result.speech != '', action_success=graph_result.success)
     from services.remote.context import conversation_only
     if conversation_only.get():
         from services.remote.conversation import answer
         result = await answer(request.message)
         return ChatResponse(response=result.content, provider=result.provider, model=result.model,
-                            tokens_used=result.tokens_used, private=True)
+                            tokens_used=result.tokens_used, private=True, allow_speech=replies.speech_allowed(result))
+    from services.mind import writers_room
+    if review := await writers_room.handle(request.message, remote=remote_request.get()):
+        return ChatResponse(response=review.message, provider="local", model="writers_room", tokens_used=0,
+                            private=True, allow_speech=False, action_success=review.success)
     from services.presence.commands import try_command as presence_command
     presence_result = await presence_command(request.message)
     if presence_result is not None:
@@ -193,20 +205,21 @@ async def chat(request: ChatRequest):
     result = await screen_commands.handle(request.message, remote=remote_request.get())
     if result is not None:
         cognition_service.reply(result.message, safe_text=screen_commands.PRIVATE_MEMORY)
-        if request.speak:
-            _speak_in_background(result.message, cache=False, local_only=True)
+        if request.speak and result.speech != "":
+            _speak_in_background(result.speech or result.message, cache=False, local_only=True)
         return ChatResponse(response=result.message, provider="local", model="system_control", tokens_used=0, private=True,
-                            action_success=result.success)
+                            action_success=result.success, allow_speech=result.speech != "")
     from services.mind import app_verification
     from services.activity.log import activity_log
     result = await app_verification.handle(request.message, activity_log, remote=remote_request.get())
     if result is not None:
         app_verification.mark_returned(result.message, remote=remote_request.get())
-        cognition_service.reply(result.message)
-        if request.speak:
-            _speak_in_background(result.message, cache=False)
+        cognition_service.reply(result.message, safe_text=result.memory_message)
+        if request.speak and result.speech != "":
+            _speak_in_background(result.speech or result.message, cache=False)
         return ChatResponse(response=result.message, provider="local", model="system_control", tokens_used=0,
-                            action_success=result.success, awaiting_reply=app_verification.awaiting())
+                            action_success=result.success, awaiting_reply=app_verification.awaiting(),
+                            allow_speech=result.speech != "")
     from services.browser.commands import match_command as automation_command
     if automation_command(request.message):
         from services.browser.service import automation
@@ -287,24 +300,24 @@ async def chat(request: ChatRequest):
         system_result = await try_system_action(request.message, provider_name)
     if system_result is not None and scene_runtime.private_turn():
         cognition_service.reply(system_result.message, safe_text=scene_runtime.PRIVATE_MEMORY)
-        if request.speak:
+        if request.speak and system_result.speech != "":
             _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
         return ChatResponse(response=system_result.message, provider='local', model='focus_scenes', tokens_used=0,
                             private=True, action_success=system_result.success, awaiting_reply=scene_runtime.pending())
     if system_result is not None and activity_plugin.private_turn():
         cognition_service.reply(system_result.message, safe_text=activity_plugin.PRIVATE_MEMORY)
-        if request.speak:
+        if request.speak and system_result.speech != "":
             _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
         return ChatResponse(response=system_result.message, provider='local', model='activity', tokens_used=0,
                             private=True, action_success=system_result.success)
     if system_result is not None:
         app_verification.mark_returned(system_result.message, remote=remote_request.get())
         success, message = system_result.success, system_result.message
-        if (config.AI_ASSIST_ONLY and success and not is_awaiting_confirmation()
+        if (success and not is_awaiting_confirmation()
                 and system_result.memory_message is None and not system_result.keyboard
                 and system_result.speech is None and system_result.repeatable):
-            from services.mind.wording import enhance
-            message = await enhance(message, provider_name)
+            from services.mind.wording import command_reply
+            message = await command_reply(message, provider_name)
         cognition_service.reply(message, safe_text=system_result.memory_message)
         # Forwarding is a delivery operation: its confirmation must not replace
         # the answer that a repeated request should send. Voice does not save
@@ -325,8 +338,10 @@ async def chat(request: ChatRequest):
             model="computation_engine" if calculation else "system_control",
             tokens_used=0,
             action_success=success,
+            allow_speech=system_result.speech != "",
             private=system_result.memory_message is not None,
-            awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get()),
+            awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get())
+            or (not remote_request.get() and app_verification.awaiting()),
             keyboard=list(system_result.keyboard),
         )
 
@@ -336,33 +351,46 @@ async def chat(request: ChatRequest):
                                                 max_tokens=request.max_tokens)
         if private_reply is not None:
             cognition_service.reply(private_reply.content, safe_text=companion.PRIVATE_MEMORY)
+            allow_speech = replies.speech_allowed(private_reply)
             if request.speak:
-                _speak_in_background(private_reply.content, cache=False, local_only=True)
+                text = private_reply.content if allow_speech else "The screen interpretation is in chat."
+                _speak_in_background(text, cache=False, local_only=True)
             return ChatResponse(response=private_reply.content, provider=private_reply.provider,
-                                model=private_reply.model, tokens_used=private_reply.tokens_used, private=True)
+                                model=private_reply.model, tokens_used=private_reply.tokens_used, private=True,
+                                allow_speech=allow_speech)
     if not remote_request.get() and not (cognition_command or screen_question or search_context):
         talk.hear(request.message)
     # 4. Call the AI — other configured providers are tried if this one fails
-    if config.AI_ASSIST_ONLY:
-        if config.AI_LANGUAGE_ENABLED and not screen_question:
+    if not (screen_question or search_context) and replies.remark_kind(request.message):
+        result = await replies.answer(request.message, provider_name, model_assist=False)
+    elif config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on":
+        if config.FRIDAY_LLM == "on" and config.AI_LANGUAGE_ENABLED and not screen_question:
             from services.mind.language import answer
             result = await answer(request.message, provider_name, messages[:-1], request.max_tokens, search_context)
         else:
             from services.mind.replies import answer
             result = await answer(request.message, provider_name, search_context, bool(screen_question))
     elif screen_question:
-        result = await ask_about_screen(screen_question, messages[:-1], provider_name, request.max_tokens)
+        try:
+            result = await ask_about_screen(screen_question, messages[:-1], provider_name, request.max_tokens)
+        except ModelUnavailable:
+            from services.mind.replies import answer
+            result = await answer(request.message, provider_name, screen=True, model_assist=False)
     else:
         from services.mind import reasoning
         reasoned = await reasoning.analyze(request.message, provider_name)
-        system_prompt = config.SYSTEM_PROMPT + await semantic_memory.prompt_section(request.message)
+        system_prompt = config.SYSTEM_PROMPT + replies.tone_instruction() + await semantic_memory.prompt_section(request.message)
         system_prompt += reasoning.questions_section(reasoned)
         if search_context:
             system_prompt += "\n\n" + search_context
-        result = await complete_with_failover(
-            provider_name, messages, system_prompt, request.max_tokens,
-            prefer_local=is_quick_chat(request.message, provider_name, bool(search_context)),
-        )
+        try:
+            result = await complete_with_failover(
+                provider_name, messages, system_prompt, request.max_tokens,
+                prefer_local=is_quick_chat(request.message, provider_name, bool(search_context)),
+            )
+        except ModelUnavailable:
+            from services.mind.replies import answer
+            result = await answer(request.message, provider_name, search_context, model_assist=False)
         semantic_memory.learn_in_background(request.message, provider_name)
         humour.after_chat_reply()
     logger.info(
@@ -378,13 +406,15 @@ async def chat(request: ChatRequest):
         # Don't fail the whole request if memory save fails — just log it
         logger.warning(f"Could not save messages to memory: {e}")
 
-    if request.speak:
+    allow_speech = replies.speech_allowed(result)
+    if request.speak and allow_speech:
         _speak_in_background(result.content)
     return ChatResponse(
         response=result.content,
         provider=result.provider,
         model=result.model,
         tokens_used=result.tokens_used,
+        allow_speech=allow_speech,
     )
 
 

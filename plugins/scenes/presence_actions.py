@@ -9,6 +9,8 @@ SAFE_SCENE_ACTIONS = {'quiet_mode', 'set_mood', 'start_focus', 'set_activity_thr
 
 
 class RuleActions:
+    safe_scene_actions = SAFE_SCENE_ACTIONS
+
     def __init__(self, engine):
         self.engine = engine
 

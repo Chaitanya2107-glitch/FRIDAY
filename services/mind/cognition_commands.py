@@ -6,7 +6,7 @@ from datetime import datetime
 from services.automation.command_words import normalize_command
 from services.automation.results import ActionResult
 from services.mind.cognition import cognition, mark_introspection
-from services.mind.cognition_context import live_state
+from services.mind.state import snapshot
 
 _QUERIES = {
     'working_memory': r'working memory|working memory status|show (?:your |my )?working memory|what is in (?:your |my )?working memory',
@@ -67,7 +67,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
         from services.mind.inquiry import inquiry
         from services.mind.brain_memory import brain_memory
         from services.mind import cognitive_runtime
-        from services.mind.temporal_memory import temporal_memory
+        present = snapshot()
         status = inquiry.status()
         last = status['last_decision']
         text = (f"Local brain reasoning: {'enabled' if status['enabled'] else 'disabled'}. "
@@ -84,14 +84,15 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
                          f"if {purpose['if_answer_a']['answer']}: {purpose['if_answer_a']['next_step']}; "
                          f"if {purpose['if_answer_b']['answer']}: {purpose['if_answer_b']['next_step']}. "
                          "These are proposals, not assumed answers or actions.")
-        view = temporal_memory.snapshot(limit=4)
+        view = present['situation']
+        remaining = 4
         for group in ('current', 'upcoming', 'unresolved'):
-            entries = view[group]
+            entries = view.get(group, ())[:remaining]
+            remaining -= len(entries)
             if entries:
                 text += f" {group.title()} owner-reported commitments: " + '; '.join(
                     f"{row['subject']} ({row['start'] or 'date unresolved'}; {row['status']})" for row in entries) + '.'
-        from services.mind.life_state import current
-        behavior = current()
+        behavior = present['life_state']
         text += (f" Behavioral state: {behavior['posture']}. Attention permits silent review: "
                  f"{'yes' if behavior['can_review'] else 'no'}; optional interruptions: "
                  f"{'yes' if behavior['can_initiate'] else 'no'}. {behavior['reason']}")
@@ -133,7 +134,7 @@ def run(kind: str, *, remote: bool = False) -> ActionResult:
         from services.mind.layers import describe
         return ActionResult(True, describe(), repeatable=False)
     if kind == "state":
-        state = live_state()
+        state = snapshot()['live']
         active = state.get("active_operations", [])
         text = (f"My shared cognition is tracking {state.get('activity', 'unknown activity')}. "
                 f"Mood: {state.get('mood', 'unknown')}. "

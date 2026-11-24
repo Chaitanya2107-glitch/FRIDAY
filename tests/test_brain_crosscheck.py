@@ -29,7 +29,7 @@ def test_dialogue_handoff_rechecks_whole_brain_context(tmp_path, monkeypatch, ch
     monkeypatch.setattr(brain_memory, 'brain_memory', memory)
     monkeypatch.setattr(temporal_memory, 'temporal_memory', temporal)
     monkeypatch.setattr('services.mind.cognition_context.operational_state', lambda: {})
-    def during_context():
+    def during_context(*args, **kwargs):
         if change == 'forget':
             memory.store.clear()
         elif change == 'revision':

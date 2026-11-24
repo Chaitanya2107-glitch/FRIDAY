@@ -1,4 +1,4 @@
-"""Model explanations are proposals. Only the owner can confirm app knowledge."""
+"""Versioned explanations for unknown things, pending until the owner confirms."""
 
 import hashlib
 import json
@@ -55,21 +55,21 @@ def stage(conn, key, expected, description, category, provider, now):
     return True
 
 
-def pending(key=None):
+def pending(key=None, limit=8):
     from services.mind import knowledge
     with knowledge.db() as conn:
         rows = conn.execute(
             "SELECT p.*,t.name,t.kind FROM app_explanations p JOIN things t ON t.key=p.key "
             "JOIN thing_revisions r ON r.key=p.key AND r.token=p.revision "
             "WHERE p.state='pending' AND t.about IS NULL AND (? IS NULL OR p.key=?) "
-            "ORDER BY p.proposed_at DESC LIMIT 8", (key, key)).fetchall()
+            "ORDER BY p.proposed_at DESC,p.rowid DESC LIMIT ?", (key, key, limit)).fetchall()
     from services.mind.training import teaching_for
     return [dict(row) for row in rows if not teaching_for("subject", row["key"])]
 
 
 def evidence():
-    return {"app-explanation:" + row["token"]: {**row, "kind": "app_verification"} for row in pending()
-            if row["kind"] == "app" and not row['key'].startswith('app:phone:')}
+    return {"app-explanation:" + row["token"]: {**row, "entity_kind": row["kind"], "kind": "app_verification"}
+            for row in pending() if row['provider'] != 'waiting for model' and not row['key'].startswith('app:phone:')}
 
 
 def identity(row):
@@ -81,12 +81,16 @@ def current(offer):
 
 
 def question(row):
-    name = row["name"]
+    name = row["name"].replace('?', '')
+    kind = row.get('entity_kind', row['kind'])
     if row["description"]:
         # Fixed wording binds approval to the actual stored candidate, not a model paraphrase.
         description = " ".join(row["description"].split()).replace("?", ".")
-        return f'The model suggests {name} is: "{description}" (category: {row["category"]}). Is that right?'
-    return f"I tried asking the model about {name}, but couldn't identify it reliably. What is this app for?"
+        category = f' and puts it under {row["category"]}' if kind == 'app' else ''
+        return f'The model suggests {name} is "{description}"{category} (via {row["provider"]}). Is that right?'
+    status = ('The question is in the learning inbox.' if row['provider'] == 'waiting for model'
+              else "I tried asking the model and didn't get a reliable answer.")
+    return f'{status} What is {name}?'
 
 
 def resolve(offer, answer, now=None):
@@ -103,13 +107,13 @@ def resolve(offer, answer, now=None):
     no = normal in {"no", "nope", "incorrect", "wrong", "that's wrong", "that is wrong"}
     no = no or bool(re.fullmatch(r"(?:no )?(?:that's|that is|it's|it is) "
                                 r"(?:wrong|incorrect|not right|not correct|not that app)", normal))
-    correction = (re.match(r"^(?:actually[, ]+|(?:no[, ]+)?(?:it's |it is |this app is ))(.{4,300})$",
+    correction = (re.match(r"^(?:actually[, ]+|(?:no[, ]+)?(?:it's |it is |this (?:app|course|term|place) is ))(.{4,300})$",
                            answer.strip(), re.I)
                   or re.match(r"^no[, ]+(an? .{4,300})$", answer.strip(), re.I))
     no = no or (bool(re.match(r"^no\b", normal)) and correction is None)
     with knowledge.db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT p.*,t.source,t.about FROM app_explanations p JOIN things t ON t.key=p.key "
+        row = conn.execute("SELECT p.*,t.source,t.about,t.kind FROM app_explanations p JOIN things t ON t.key=p.key "
                            "JOIN thing_revisions r ON r.key=p.key AND r.token=p.revision "
                            "WHERE p.token=? AND p.key=? AND p.revision=? AND p.state='pending'",
                            (offer.get("token"), offer.get("key"), offer.get("revision"))).fetchone()
@@ -138,11 +142,30 @@ def resolve(offer, answer, now=None):
         conn.execute("UPDATE app_explanations SET state=?,resolved_at=? WHERE token=? AND state='pending'",
                      (state, now.isoformat(timespec="seconds"), offer["token"]))
         if text:
-            conn.execute("UPDATE things SET about=?,source=?,category=? WHERE key=?",
-                         (text, source, category, offer["key"]))
+            from services.mind.cognition import redact
+            conn.execute("UPDATE things SET about=?,source=?,category=?,looked_up=? WHERE key=?",
+                         (redact(text), source, category, now.isoformat(timespec='seconds'), offer["key"]))
         supersede(conn, offer["key"])
     knowledge.refresh_learned()
     return state
+
+
+def week(now):
+    from datetime import timedelta
+    from services.mind import knowledge
+    from services.mind.training import teaching_for
+
+    start = (now.date() - timedelta(days=6)).isoformat()
+    with knowledge.db() as conn:
+        rows = conn.execute("SELECT key,name,about FROM things WHERE source IN ('confirmed','boss') "
+                            "AND about IS NOT NULL AND looked_up>=? ORDER BY looked_up DESC,name", (start,)).fetchall()
+    confirmed = [f"{row['name']} — {teaching_for('subject', row['key']) or row['about']}" for row in rows
+                 if not row['key'].startswith('app:phone:')]
+    pending_lines = [f"{row['name']} — {row['description']} ({row['provider']})" if row['description']
+                     else f"{row['name']} — waiting for an answer" for row in pending(limit=-1)
+                     if not row['key'].startswith('app:phone:')]
+    return ('Confirmed in the past seven days\n' + ('\n'.join(confirmed) or 'None yet.') +
+            '\n\nPending in the learning inbox\n' + ('\n'.join(pending_lines) or 'None.'))
 
 
 def version(row):
@@ -160,8 +183,8 @@ def forget():
     with knowledge.db() as conn:
         count = conn.execute("SELECT COUNT(*) FROM things WHERE about IS NOT NULL AND source IN ('boss','confirmed')").fetchone()[0]
         conn.execute("DELETE FROM app_explanations")
-        conn.execute("UPDATE things SET about=NULL,source='rule',category=CASE WHEN kind='app' THEN 'other' "
-                     "ELSE 'browsing' END WHERE source IN ('boss','confirmed')")
+        conn.execute("UPDATE things SET about=NULL,source='rule',category=CASE WHEN kind='topic' THEN 'browsing' "
+                     "ELSE 'other' END WHERE source IN ('boss','confirmed')")
         for row in conn.execute("SELECT key FROM thing_revisions").fetchall():
             supersede(conn, row[0])
     knowledge.refresh_learned()

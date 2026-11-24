@@ -8,6 +8,7 @@ from pathlib import Path
 from core.config import config
 from core.errors import MemoryError
 from core.logger import logger
+from services.automation import autonomy
 from services.automation.command_words import RESULT_NUMBERS, TRAILING_FILLER, normalize_command, strip_leading_filler
 from services.automation.results import ActionResult
 from services.files import assistant
@@ -144,16 +145,19 @@ def run(parsed: dict) -> ActionResult:
         if parsed["action"] == "telegram_message":
             if not parsed["text"].strip():
                 return ActionResult(False, "What text should I send through Telegram?", repeatable=False)
-            client.send_long(config.TELEGRAM_USER_ID, parsed["text"])
+            with autonomy.record('send_message'):
+                client.send_long(config.TELEGRAM_USER_ID, parsed["text"])
             return ActionResult(True, "Sent your message through my Telegram bot.", repeatable=False)
         if parsed["action"] == "telegram_answer":
             answer = MemoryService().get_last_assistant_message()
             if not answer or not answer.strip():
                 return ActionResult(False, "I don't have a saved answer to send yet. Ask me a question first.", repeatable=False)
-            client.send_long(config.TELEGRAM_USER_ID, answer)
+            with autonomy.record('send_message'):
+                client.send_long(config.TELEGRAM_USER_ID, answer)
             return ActionResult(True, "Sent your previous answer exactly as written through my Telegram bot.", repeatable=False)
         if parsed["action"] == "telegram_summary":
-            summaries.deliver(parsed["kind"])
+            with autonomy.record('send_message'):
+                summaries.deliver(parsed["kind"])
             return ActionResult(True, f"Sent your {parsed['kind']} summary through my Telegram bot.", repeatable=False)
         # Explorer supplies a structured path; preserve filename punctuation.
         path = Path(parsed["path"]) if "path" in parsed else _file(parsed["reference"])
@@ -161,7 +165,8 @@ def run(parsed: dict) -> ActionResult:
             raise ValueError("That file is no longer available. Find it again or give its current path.")
         if path.stat().st_size > client.MAX_UPLOAD_BYTES:
             raise ValueError("That file is over Telegram's 50 MB upload limit.")
-        client.send_file(config.TELEGRAM_USER_ID, path)
+        with autonomy.record('send_message'):
+            client.send_file(config.TELEGRAM_USER_ID, path)
         assistant.last_results.selected = next((hit for hit in assistant.last_results.get()
                                                 if Path(hit.path) == path), None)
         return ActionResult(True, f"Sent {path.name} through my Telegram bot.",

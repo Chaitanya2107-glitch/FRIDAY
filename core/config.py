@@ -11,6 +11,7 @@ To add a new setting:
   3. That's it — no other file should need changing
 """
 
+import json
 import os
 import re
 from pathlib import Path
@@ -81,6 +82,7 @@ class Config:
     ACTIVE_PROVIDER: str = os.getenv("ACTIVE_PROVIDER", "openrouter")
     # Local execution; models understand language and provide conversational replies.
     AI_ASSIST_ONLY: bool = os.getenv("AI_ASSIST_ONLY", "true").lower() == "true"
+    FRIDAY_LLM: str = os.getenv("FRIDAY_LLM", "on").strip().lower()
     AI_LANGUAGE_ENABLED: bool = os.getenv("AI_LANGUAGE_ENABLED", "true").lower() == "true"
     # Explicit owner-started tasks; generated inputs always require step approval.
     BROWSER_AUTOMATION_ENABLED: bool = os.getenv("BROWSER_AUTOMATION_ENABLED", "true").lower() == "true"
@@ -369,20 +371,23 @@ class Config:
         Call this at startup before doing anything else.
         """
         errors = []
+        if self.FRIDAY_LLM not in {"on", "off"}:
+            errors.append("FRIDAY_LLM must be on or off")
+        model_configuration_required = self.FRIDAY_LLM == "on" and not self.AI_ASSIST_ONLY
 
         # ── Provider key checks ──────────────────────────────────────────────
-        if not self.AI_ASSIST_ONLY and self.ACTIVE_PROVIDER == "openrouter" and not self.OPENROUTER_API_KEY:
+        if model_configuration_required and self.ACTIVE_PROVIDER == "openrouter" and not self.OPENROUTER_API_KEY:
             errors.append("OPENROUTER_API_KEY is missing — get your free key at openrouter.ai")
 
-        if not self.AI_ASSIST_ONLY and self.ACTIVE_PROVIDER == "anthropic" and not self.ANTHROPIC_API_KEY:
+        if model_configuration_required and self.ACTIVE_PROVIDER == "anthropic" and not self.ANTHROPIC_API_KEY:
             errors.append("ANTHROPIC_API_KEY is missing — add it to your .env file")
 
-        if not self.AI_ASSIST_ONLY and self.ACTIVE_PROVIDER == "openai" and not self.OPENAI_API_KEY:
+        if model_configuration_required and self.ACTIVE_PROVIDER == "openai" and not self.OPENAI_API_KEY:
             errors.append("OPENAI_API_KEY is missing — add it to your .env file")
 
         # ── Ollama checks ────────────────────────────────────────────────────
         # Ollama doesn't need an API key, but the base URL must be set
-        if not self.AI_ASSIST_ONLY and self.ACTIVE_PROVIDER == "ollama":
+        if model_configuration_required and self.ACTIVE_PROVIDER == "ollama":
             if not self.OLLAMA_BASE_URL:
                 errors.append(
                     "OLLAMA_BASE_URL is missing — add it to .env (default: http://localhost:11434)"
@@ -409,7 +414,7 @@ class Config:
             errors.append(
                 "INTENT_MODEL is set but INTENT_PROVIDER isn't — set both, or leave both blank"
             )
-        if not self.AI_ASSIST_ONLY and self.INTENT_PROVIDER in ("openrouter", "anthropic", "openai") and not self.provider_is_configured(self.INTENT_PROVIDER):
+        if model_configuration_required and self.INTENT_PROVIDER in ("openrouter", "anthropic", "openai") and not self.provider_is_configured(self.INTENT_PROVIDER):
             errors.append(
                 f"INTENT_PROVIDER={self.INTENT_PROVIDER} needs its API key in .env — "
                 "add it, or leave INTENT_PROVIDER blank"
@@ -425,7 +430,7 @@ class Config:
             errors.append(
                 "VISION_MODEL is set but VISION_PROVIDER isn't — set both, or leave both blank"
             )
-        if not self.AI_ASSIST_ONLY and self.VISION_PROVIDER in ("openrouter", "anthropic", "openai") and not self.provider_is_configured(self.VISION_PROVIDER):
+        if model_configuration_required and self.VISION_PROVIDER in ("openrouter", "anthropic", "openai") and not self.provider_is_configured(self.VISION_PROVIDER):
             errors.append(
                 f"VISION_PROVIDER={self.VISION_PROVIDER} needs its API key in .env — "
                 "add it, or leave VISION_PROVIDER blank"
@@ -439,7 +444,7 @@ class Config:
                         f"FALLBACK_PROVIDERS has '{name}', which isn't a provider. "
                         "Use: openrouter | anthropic | openai | ollama — or 'none'"
                     )
-                elif not self.AI_ASSIST_ONLY and not self.provider_is_configured(name):
+                elif model_configuration_required and not self.provider_is_configured(name):
                     errors.append(
                         f"FALLBACK_PROVIDERS lists {name}, but it isn't set up in .env — "
                         "add its API key or remove it from the list"
@@ -479,3 +484,11 @@ class Config:
 # ── Singleton ────────────────────────────────────────────────────────────────
 # Import this everywhere. Never instantiate Config() yourself.
 config = Config()
+
+if "FRIDAY_LLM" not in os.environ:
+    try:
+        saved_model = json.loads((config.MEMORY_DIR / "model-settings.json").read_text(encoding="utf-8"))
+        if saved_model.get("mode") in ("on", "off"):
+            config.FRIDAY_LLM = saved_model["mode"]
+    except (OSError, ValueError, AttributeError):
+        pass

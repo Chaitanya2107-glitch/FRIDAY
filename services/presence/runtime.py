@@ -101,7 +101,8 @@ def _refresh_policy(now, context, *, force=False):
             return
         _watch_policy_changes()
         _start_policy_worker(service)
-        vip, urgent = caps.get('vip', []), caps.get('urgent', [])
+        from services.mind.graph_sources import priority_packages
+        vip, urgent = priority_packages(caps.get('vip', [])), caps.get('urgent', [])
         blocked = triage.store().blocked(device['id'], context, now, vip=vip, urgent=urgent) if context in triage.BUSY else []
         until = now.timestamp() + 90
         if context == 'study':
@@ -172,7 +173,10 @@ async def tick(now=None):
         except (ValueError, OSError):
             candidates = []
         for candidate in candidates:
-            await delivery.submit(candidate['text'], 'presence_anticipation', now, key=candidate['key'])
+            if candidate.get('preparation'):
+                await delivery.submit(candidate['text'], 'presence_anticipation', now, key=candidate['key'], local_only=True)
+            else:
+                await delivery.submit(candidate['text'], 'presence_anticipation', now, key=candidate['key'])
 
 
 def forget(device, path=None):

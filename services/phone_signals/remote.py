@@ -13,12 +13,13 @@ def receive(service, device, args):
     acknowledged, inserted = store(service).ingest(device['id'], args['events'], args['generation'])
     from services.presence.triage import store as triage_store
     from services.presence.phone import capabilities
+    from services.mind.graph_sources import priority_packages
     from datetime import datetime
     caps = capabilities(service, device)
     try:
         triage_store(service.directory.parent / 'phone' / 'triage.db').ingest(
             [dict(row, device=device['id']) for row in inserted], datetime.fromtimestamp(service.clock()),
-            vip=caps.get('vip', []), urgent=caps.get('urgent', []))
+            vip=priority_packages(caps.get('vip', [])), urgent=caps.get('urgent', []))
     except (ValueError, OSError, sqlite3.Error):
         from core.logger import logger
         logger.debug('Private notification triage deferred; source events remain stored.')
@@ -29,7 +30,10 @@ def receive(service, device, args):
 
 
 def heartbeat(service, device, args):
-    return dict(generation=store(service).heartbeat(device['id'], args))
+    generation = store(service).heartbeat(device['id'], args)
+    from services.health.watchdog import watchdog
+    watchdog.handset_contact(service.clock())
+    return dict(generation=generation)
 
 
 def status(service, device, args):

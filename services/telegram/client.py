@@ -63,7 +63,12 @@ def send(chat_id: int, text: str, buttons: list[tuple[str, str]] | None = None) 
     from services.mind.cognition import cognition
 
     with cognition.operation("telegram_chunk" if _chunked.get() else "telegram_message", "telegram", params["text"]):
-        call("sendMessage", **params)
+        sent = call("sendMessage", **params)
+    from services.automation import autonomy
+    if (receipt := autonomy.current_receipt('send_message')) and isinstance(sent, dict):
+        identity = sent.get('message_id')
+        if type(identity) is int and identity > 0:
+            receipt.add(autonomy.telegram_token(chat_id, [identity]))
 
 
 def send_file(chat_id: int, path, photo: bool = False, caption: str = "") -> None:
@@ -71,7 +76,12 @@ def send_file(chat_id: int, path, photo: bool = False, caption: str = "") -> Non
 
     method, field = ("sendPhoto", "photo") if photo else ("sendDocument", "document")
     with cognition.operation("telegram_file", "telegram", "File upload"), open(path, "rb") as f:
-        call(method, http_timeout=120, files={field: (getattr(path, "name", str(path)), f)}, chat_id=chat_id, caption=caption)
+        sent = call(method, http_timeout=120, files={field: (getattr(path, "name", str(path)), f)}, chat_id=chat_id, caption=caption)
+    from services.automation import autonomy
+    if (receipt := autonomy.current_receipt('send_message')) and isinstance(sent, dict):
+        identity = sent.get('message_id')
+        if type(identity) is int and identity > 0:
+            receipt.add(autonomy.telegram_token(chat_id, [identity]))
 
 
 def send_long(chat_id: int, text: str) -> None:

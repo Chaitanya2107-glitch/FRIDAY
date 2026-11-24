@@ -20,6 +20,9 @@ def delivery(tmp_path, monkeypatch):
     async def review(*args):
         return decision
     gate = SimpleNamespace(review=review, recheck=review)
+    async def scheduled_review(*args):
+        return await gate.review(*args)
+    gate.scheduled_review = scheduled_review
     import services.mind
     monkeypatch.setitem(sys.modules, "services.mind.reminder_review", gate)
     monkeypatch.setattr(services.mind, "reminder_review", gate, raising=False)

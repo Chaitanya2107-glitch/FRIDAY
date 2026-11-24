@@ -29,6 +29,7 @@ from contextlib import closing
 import numpy as np
 
 from core.config import config
+from core.errors import ModelUnavailable
 from core.logger import logger
 from services.automation.command_words import normalize_command
 
@@ -149,7 +150,7 @@ def similar(message: str, fp: str, allow_load: bool = True) -> list[dict] | None
     allow_load=False: only if the embedding model is already loaded (loading takes a few seconds)."""
     from services.files import embed
 
-    if not SEMANTIC or (not allow_load and embed._model is None):
+    if not SEMANTIC or config.FRIDAY_LLM != "on" or (not allow_load and embed._model is None):
         return None
     key = _key(message)
     try:
@@ -164,12 +165,15 @@ def similar(message: str, fp: str, allow_load: bool = True) -> list[dict] | None
                                      [(v.tobytes(), rowid) for v, (rowid, _) in zip(vectors, missing)])
                 filled = {rowid: v.tobytes() for v, (rowid, _) in zip(vectors, missing)}
                 rows = [(r, t, a, v if v is not None else filled[r]) for r, t, a, v in rows]
-    except sqlite3.Error as e:
+    except (sqlite3.Error, ModelUnavailable) as e:
         logger.warning(f"Command cache unavailable: {e}")
         return None
     if not rows:
         return None
-    query = embed.encode([key])[0]
+    try:
+        query = embed.encode([key])[0]
+    except ModelUnavailable:
+        return None
     scored = sorted(((float(np.frombuffer(v, dtype=np.float32) @ query), text, json.loads(a)) for _, text, a, v in rows),
                     reverse=True)
     for score, text, actions in scored[:5]:

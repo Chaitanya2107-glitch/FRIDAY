@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 import time
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
@@ -9,6 +10,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.config import config
+from core.errors import ModelUnavailable
 from core.logger import logger
 from providers.base_provider import Message
 from services.mind.cognition import cognition, redact
@@ -568,7 +570,37 @@ def validate(report, text, known, now):
                     raise ValueError("Rereading evidence cannot roll its class date window forward")
 
 
+async def _local_date_review(now, evidence, save, ready):
+    from services.mind.temporal_memory import answer_date_phrase, answer_target
+
+    unavailable = {'status': 'unavailable', 'model_unavailable': True}
+    if not evidence or save is None or not (config.COGNITION_ENABLED and config.REASONING_ENABLED
+                                           and config.COGNITIVE_REVIEW_ENABLED):
+        return unavailable
+    try:
+        updates = []
+        for source_id, source in evidence.items():
+            if not source.get('inquiry_id'):
+                continue
+            target = answer_target(source, evidence)
+            phrase = answer_date_phrase(source)
+            if target and phrase:
+                updates.append(TemporalUpdate(source=source_id, quote=source['text'], subject=evidence[target]['subject'],
+                    status='planned', date_phrase=phrase, start=None, end=None, supersedes=[target]))
+        if not updates:
+            return unavailable
+        if ready:
+            await asyncio.to_thread(ready)
+        report = CognitiveReport(conclusions=[], questions=[], situations=TemporalMemory.resolve(updates[:3], evidence))
+        await asyncio.to_thread(save, report, now or datetime.now(), evidence)
+        return {'status': 'completed', 'questions': [], 'conclusions': [], 'outcomes': []}
+    except (ValueError, OSError, sqlite3.Error):
+        return unavailable
+
+
 async def analyze(text, provider=None, now=None, *, cognitive=False, evidence=None, save=None, deadline=None, ready=None):
+    if config.FRIDAY_LLM == 'off':
+        return await _local_date_review(now, evidence, save, ready)
     if (not config.REASONING_ENABLED or (config.AI_ASSIST_ONLY and not cognitive)
             or (cognitive and (not config.COGNITIVE_REVIEW_ENABLED or not config.COGNITION_ENABLED))):
         return {"status": "disabled"}
@@ -583,14 +615,14 @@ async def analyze(text, provider=None, now=None, *, cognitive=False, evidence=No
     token = review_metrics.active.set(trace)
     try:
         if trace and deadline is not None:
-            from providers.ollama.runtime import runtime
+            from providers.failover import prepare_local_model
             trace.phase = 'startup'
             remaining = max(0, deadline - time.monotonic())
             trace.lease_budget_ms = round(remaining * 1000, 2)
             startup_at = time.monotonic()
             try:
                 async with asyncio.timeout(remaining - min(4, remaining / 10)):
-                    trace.startup = await runtime.prepare_model()
+                    trace.startup = await prepare_local_model(timeout=remaining)
             finally:
                 trace.startup['wall_ms'] = round((time.monotonic() - startup_at) * 1000, 2)
             if not config.COGNITION_ENABLED or not config.COGNITIVE_REVIEW_ENABLED or not config.REASONING_ENABLED:
@@ -731,6 +763,8 @@ async def analyze(text, provider=None, now=None, *, cognitive=False, evidence=No
                 trace.reason = review_metrics.reason(error, trace.phase)
         logger.warning("Reasoning pass unavailable: %s", type(error).__name__)
         cognition.record("reasoning", "brain", "No valid reasoning result; no new changes confirmed.", status="unavailable", public=True)
+        if isinstance(error, (ModelUnavailable, TimeoutError)):
+            return await _local_date_review(now, evidence, save, ready)
         return {"status": "unavailable"}
     finally:
         try:
@@ -824,5 +858,8 @@ def suggestion(now):
         marker = str(claim["id"])
         if marker in seen: continue
         cognition.record("reasoning_offer", "proactive", marker, status="nominated", public=True)
-        return {"id": claim["id"], "text": f"Proposed: {claim['text']} To apply it, say apply reasoning proposal {marker}."}
+        from services.mind.self_model import qualify, suggestion_kind
+        skill = suggestion_kind(claim)
+        return {"id": claim["id"], "text": qualify(skill, f"Proposed: {claim['text']} To apply it, say apply reasoning proposal {marker}."),
+                'evidence': {'confidence': claim['confidence'], 'sources': claim['evidence']}}
     return None

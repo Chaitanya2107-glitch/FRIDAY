@@ -149,6 +149,35 @@ def test_accept_three_offer_once_promote_then_undo_and_down(host):
     assert host.engine.presence.store.get(rule['id'])['promotion_offered'] is True
 
 
+def test_three_reviewed_automatic_runs_earn_one_silent_offer(host):
+    rule = save(host)
+    for index in range(3):
+        arrive(host, f'ask-{index}')
+        assert drain(host) and host.engine.answer('yes')['ok']
+        host.engine.end()
+    assert drain(host) and host.engine.answer('yes')['ok']
+
+    for index in range(3):
+        arrive(host, f'tell-{index}')
+        assert drain(host) and host.engine.active
+        receipt = host.engine.presence.store.last_run()
+        assert host.engine.presence.store.get(rule['id'])['streak'] == index
+        assert host.engine.presence.accept({'run': receipt['id']})['ok']
+        assert host.engine.presence.accept({'run': receipt['id']})['ok']
+        assert host.engine.presence.store.get(rule['id'])['streak'] == index + 1
+        host.engine.end()
+    assert drain(host)
+    assert host.engine.pending['target'] == 'just_do'
+    assert host.engine.answer('yes')['ok']
+
+    arrive(host, 'silent-run')
+    assert drain(host) and host.engine.active
+    from services.presence import commands
+    assert asyncio.run(commands.try_command('undo that')).success
+    assert host.engine.active is None
+    assert host.engine.presence.store.get(rule['id'])['level'] == 'do_and_tell'
+
+
 def test_risky_scene_and_phone_mode_never_promote(host):
     rule = save(host, 'when I reach college start class mode')
     assert host.engine.presence.actions.risky(rule['definition'])

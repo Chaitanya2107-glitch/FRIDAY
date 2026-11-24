@@ -42,7 +42,9 @@ BUTTONS = {
     "reminder": [(f"Snooze {SNOOZE_MINUTES} min", "snooze")],
     "mode": [("Yes", "start"), ("No", "no")],   # "Looks like you're working. Start work mode?"
     "mode_end": [("End mode", "end")],          # on a session summary while its mode is still on
-    "file_move": [("Move it", "move"), ("Move & rename", "rename"), ("Leave it", "leave")],  # a download (filing.py)
+    "file_move": [("Move it", "move"), ("Move & rename", "rename"), ("Leave it", "leave")],
+    "autonomy_feedback": [("Good", "yes"), ("Undo", "undo"), ("Ask next time", "no")],
+    "foresight_open": [("Open it", "yes"), ("Stop asking", "no")],
     "attendance": [("Attended", "yes"), ("Missed", "no")],    # after a class (proactive/attendance.py)
     "join": [("Join", "join")],                               # a class warning with a saved Meet link (college.py)
     "explain": [("Explain", "explain")],                      # a failed terminal command (watch/done.py)
@@ -52,11 +54,12 @@ HANDLER = Path(__file__).resolve().parents[2] / "interfaces" / "protocol_handler
 _offers: dict[str, dict] = {}  # token → {"kind", "at", …what the notification was about}
 
 
-def bind_decision(offered, event_id):
+def bind_decision(offered, event_id, *, speech_id=None):
     for _, link in offered or []:
         token = parse_qs(urlparse(link).query).get("token", [None])[0]
         if token in _offers:
             _offers[token]["decision_id"] = event_id
+            _offers[token]['speech_id'] = speech_id
 
 
 def offer(kind: str, **about) -> list[tuple[str, str]]:
@@ -65,7 +68,8 @@ def offer(kind: str, **about) -> list[tuple[str, str]]:
     for token in [t for t, o in _offers.items() if now - o["at"] > TOKEN_HOURS * 3600]:
         del _offers[token]
     token = secrets.token_urlsafe(16)
-    _offers[token] = {"kind": kind, "at": now, **about}
+    from services.mind.speech_budget import delivery_id
+    _offers[token] = {"kind": kind, "at": now, 'speech_id': delivery_id.get(), **about}
     return [(label, f"{PROTOCOL}://{kind}?token={token}&answer={answer}") for label, answer in BUTTONS[kind]]
 
 
@@ -80,6 +84,10 @@ def respond(token: str, answer: str) -> str:
     from services.mind.cognition import cognition
     cognition.record("reaction", "notification", json.dumps({"kind": about["kind"], "answer": answer,
                      "decision_id": about.get("decision_id")}), public=True)
+    from services.mind.speech_budget import feedback
+    feedback(about.get('speech_id'), 'shushed' if answer in {'pause', 'stop', 'later', 'leave', 'undo'}
+             or answer == 'no' and about['kind'] != 'attendance' else
+             'answered' if about['kind'] == 'attendance' else 'acted_on')
     logger.info(f"Notification button: {about['kind']} → {answer}")
 
     if about["kind"] == "reminder":
@@ -109,8 +117,22 @@ def respond(token: str, answer: str) -> str:
         except ValueError as error:
             raise FridayError(str(error)) from error
 
+    if about["kind"] == "foresight_open":
+        from datetime import datetime
+        from services.mind import foresight
+        accepted = foresight.answered('automate', about['opening'], answer, datetime.now())
+        return {'yes': 'Opening the approved app.', 'no': 'Okay, I’ll stop asking.'}.get(accepted, 'That approval expired or the situation changed.')
+
+    if about["kind"] == "autonomy_feedback":
+        from services.automation import autonomy
+        if answer == 'undo':
+            return autonomy.undo_latest(expected=about['receipt'])[1]
+        return autonomy.automatic_feedback(about['receipt'], answer == 'yes') or 'That action has already been reviewed.'
+
     if about["kind"] == "file_move":
         if answer == "leave":
+            from services.automation import autonomy
+            autonomy.reject('move_file')
             return "Okay, left it in Downloads."
         from services.files import filing
         try:

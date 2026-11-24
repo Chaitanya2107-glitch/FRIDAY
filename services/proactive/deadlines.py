@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 
 from core.config import config
 from services.automation.system_control import AutomationError
+from services.automation.command_slots import calendar, has_command_tail
 from services.proactive import deadline_store
 
 path = config.MEMORY_DIR / "deadlines.json"  # tests point this elsewhere
@@ -26,17 +27,20 @@ SOON = timedelta(days=3)
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
-_QUESTION = re.compile(r"^(?:what|why|when|how|is|are|was|do|does|did|can|could|should|who|which|whose|will|if)\b", re.I)
+_QUESTION = re.compile(r"^(?:what|whast|why|when|how|is|are|was|do|does|did|can|could|should|who|which|whose|will|if)\b", re.I)
 _ADD = re.compile(r"^(?:add (?:a )?deadline(?: for)?:?\s+)?(?P<what>.+?)\s+(?:is\s+|are\s+)?due\s+(?:on\s+|by\s+)?(?P<when>.+)$", re.I)
 _LIST = re.compile(r"^(?:what(?:'s|s| is| are)? (?:due|my deadlines)(?: soon| this week)?|(?:list|show)(?: me)? (?:all )?(?:my |the )?"
                    r"deadlines|(?:any|my) deadlines|what do i have due)$", re.I)
+_DUE_ON = re.compile(r"^(?:(?:tell me |show me )?what(?:'s| is| do i have) due|"
+                     r"(?:list|show)(?: me)? (?:my |the )?deadlines) (?:on |for |by )?(?P<day>.+)$", re.I)
 _FINISH = re.compile(r"^(?:done with|finished|i finished|i've finished|i have finished|submitted|i submitted|i've submitted)"
                      r"\s+(?:the |my )?(?P<what>.+)$|^(?:mark )?(?:the |my )?(?P<what2>.+?) (?:as )?(?:done|submitted|finished)$", re.I)
 _REMOVE = re.compile(r"^(?:remove|delete|cancel) (?:the )?deadline (?:number )?(?P<n>\d+)$", re.I)
 _CLEAR = re.compile(r"^(?:clear|delete|remove) (?:all )?(?:of )?(?:my |the )?deadlines$", re.I)
 _MOVE = re.compile(r"^(?:(?:actually[, ]+)?(?:my |the )?(?P<what>.+?) deadline (?:has )?(?:moved|changed|was moved)"
-                   r"|(?:move|change|reschedule) (?:the |my )?deadline (?P<name>.+?))"
-                   r"(?: from (?P<old>.+?))? to (?P<when>.+)$", re.I)
+                   r"|(?:move|change|push(?: back)?|shift|postpone|reschedule) (?:the |my )?"
+                   r"(?:deadline (?P<name>.+?)|(?P<work>.+?\s(?:homework|assignment|deadline|report|project|exam))))"
+                   r"(?:(?: from (?P<old>.+?))? (?:to|until|for) (?P<when>.+))?$", re.I)
 _RECALL = re.compile(r"^(?:when is|what is the due date for) (?:my |the )?(?P<what>.+?) deadline$", re.I)
 _HISTORY = re.compile(r"^(?:show |list )?deadline history for (?P<what>.+)$", re.I)
 _LINK = re.compile(r"^link reminder (?P<number>\d+) to (?:the |my )?deadline (?P<what>.+)$", re.I)
@@ -67,10 +71,15 @@ def _time(text: str) -> tuple[int, int] | None:
 
 def parse_due(text: str, now: datetime) -> datetime:
     """ "Friday 11:59pm", "tomorrow", "5 Oct at 5", "5/10", "tonight" → when it's due. Raises AutomationError."""
-    text = " ".join(text.lower().replace(",", " ").split())
+    text = calendar(text.lower().replace(",", " "))
     day: date | None = None
     by_weekday = False
-    for pattern in (_DATE_DM, _DATE_MD, _DATE_NUM):
+    if iso := re.fullmatch(r'(\d{4}-\d{2}-\d{2})(?: (.+))?', text):
+        try:
+            day, text = date.fromisoformat(iso[1]), iso[2] or ''
+        except ValueError:
+            raise AutomationError('Give a valid calendar date.') from None
+    for pattern in (() if day else (_DATE_DM, _DATE_MD, _DATE_NUM)):
         if m := pattern.search(text):
             month = MONTHS.index(m["m"][:3]) + 1 if not m["m"].isdigit() else int(m["m"])
             year = int(m["y"]) + (2000 if len(m["y"]) == 2 else 0) if pattern is _DATE_NUM and m["y"] else now.year
@@ -83,7 +92,9 @@ def parse_due(text: str, now: datetime) -> datetime:
             text = (text[:m.start()] + text[m.end():]).strip()
             break
     if day is None:
-        if m := re.search(r"\b(?:today|tonight)\b", text):
+        if m := re.search(r'\b(?:the )?day after tomorrow\b', text):
+            day, text = now.date() + timedelta(days=2), (text[:m.start()] + text[m.end():]).strip()
+        elif m := re.search(r"\b(?:today|tonight)\b", text):
             day, text = now.date(), (text[:m.start()] + text[m.end():]).strip()
         elif m := re.search(r"\btomorrow\b", text):
             day, text = now.date() + timedelta(days=1), (text[:m.start()] + text[m.end():]).strip()
@@ -172,8 +183,16 @@ def list_message(now: datetime) -> str:
 
 def match_deadline_change(text):
     text = text.strip()
+    if has_command_tail(text):
+        return None
     if m := _MOVE.fullmatch(text):
-        return {"action": "move_deadline", "reference": m["what"] or m["name"], "when": m["when"], "old": m["old"], "quote": text}
+        reference = m['what'] or m['name'] or m['work']
+        if reference.casefold().startswith(('to ', 'until ', 'for ')):
+            return None
+        if m['work'] and re.fullmatch(r'(?:my |the )?(?:homework|assignment|deadline|report|project|exam)', reference, re.I):
+            return None
+        return {"action": "move_deadline", "reference": reference, "when": calendar(m['when']) if m['when'] else None,
+                "old": m["old"], "quote": text}
     if m := _RECALL.fullmatch(text):
         return {"action": "recall_deadline", "reference": m["what"]}
     if m := _HISTORY.fullmatch(text):
@@ -192,6 +211,12 @@ def match_deadline_command(text: str, now: datetime | None = None) -> dict | Non
         return change
     if _LIST.match(text):
         return {"type": "system", "action": "list_deadlines"}
+    if (m := _DUE_ON.fullmatch(text)) and not has_command_tail(text):
+        phrase = calendar(m['day'])
+        if re.match(r'^(?:today|tonight|tomorrow|day after tomorrow|the day after tomorrow|(?:next |this )?(?:' +
+                    '|'.join(DAYS) + r')\b|\d|(?:' + '|'.join(MONTHS) + r'))', phrase, re.I):
+            day = parse_due(phrase, now or datetime.now()).date()
+            return {'type': 'system', 'action': 'list_deadlines', 'day': day.isoformat()}
     if _CLEAR.match(text):
         return {"type": "system", "action": "clear_deadlines"}
     if m := _REMOVE.match(text):
@@ -216,9 +241,18 @@ def run(parsed: dict, now: datetime | None = None) -> str:
     if action == "add_deadline":
         return add(parsed["what"], datetime.fromisoformat(parsed["due"]), now)
     if action == "list_deadlines":
+        if parsed.get('day'):
+            day = date.fromisoformat(parsed['day'])
+            rows = [row for row in load() if datetime.fromisoformat(row['due']).date() == day]
+            return (f'Due {day:%A, %d %b}\n' + '\n'.join(f"{row['what']} at {_clock_due(row['due'])}" for row in rows)
+                    if rows else f'No deadlines due {day:%A, %d %b}.')
         return list_message(now)
     with edit():
         return _run_mutation(parsed, now)
+
+
+def _clock_due(value):
+    return datetime.fromisoformat(value).strftime('%I:%M %p').lstrip('0')
 
 
 def _run_mutation(parsed, now):

@@ -33,6 +33,16 @@ class Delete(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
+class ModelSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["on", "off"]
+
+
+class StatusReportSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    time: str = Field(max_length=5)
+
+
 def call(operation, *args, **kwargs):
     try:
         return operation(*args, **kwargs)
@@ -44,6 +54,30 @@ def call(operation, *args, **kwargs):
         raise HTTPException(400, 'Check the fields and value types for this tab.') from error
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+
+
+@router.get('/model')
+def model_setting():
+    from core.config import config
+    return {"mode": config.FRIDAY_LLM}
+
+
+@router.put('/model')
+def write_model_setting(body: ModelSetting):
+    from providers.failover import set_mode
+    return {"mode": call(set_mode, body.mode)}
+
+
+@router.get('/status-report')
+def status_report_setting():
+    from services.health.report import report_time
+    return {"time": call(report_time)}
+
+
+@router.put('/status-report')
+def write_status_report_setting(body: StatusReportSetting):
+    from services.health.report import set_report_time
+    return {"time": call(set_report_time, body.time)}
 
 
 @router.get('/{section}')

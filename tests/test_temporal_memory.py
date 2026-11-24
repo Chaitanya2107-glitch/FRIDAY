@@ -159,6 +159,11 @@ def test_real_executive_path_validates_critiques_and_saves_temporal_report(memor
     result = asyncio.run(executive.ExecutiveControl(temporal.store).review(NOW))
     assert result['status'] == 'completed' and len(calls) == 2
     assert all(call[1]['purpose'] == 'cognitive_review' for call in calls)
+    assert not temporal.snapshot(NOW)['upcoming']
+    current = ReasoningStore(temporal.store)
+    proposal, = current.date_proposals()
+    assert proposal['start'] == '2026-10-21' and proposal['quote'] == 'My exam is tomorrow'
+    assert current.review_date_proposal(proposal['id'], True, NOW) == 'exam'
     assert temporal.snapshot(NOW)['upcoming'][0]['start'] == '2026-10-21'
     assert not ReasoningStore(temporal.store).facts()
 

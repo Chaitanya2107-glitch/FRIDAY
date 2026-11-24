@@ -116,6 +116,13 @@ def due(now: datetime, idle: float, busy: bool) -> bool:
 async def start(log, now: datetime, extended: bool = False) -> str | None:
     """An explicit request permits one fresh brain decision, never a saved queue."""
     stop()
+    from services.mind.graph_commands import evening_review
+    from services.automation.intent import remote_request
+    from services.remote.context import remote_origin
+    from services.screen_watch.commands import local_request
+    if local_request.get() and not remote_request.get() and not remote_origin.get():
+        if proposal := evening_review():
+            return proposal
     line = await talk.compose(log, 'learning' if extended else 'day_review', talk.load(), now)
     _save({'day': now.date().isoformat(), 'active': bool(line), 'queue': [],
            'total': int(bool(line)), 'session_id': time.time_ns(), 'extended': extended})
@@ -123,6 +130,24 @@ async def start(log, now: datetime, extended: bool = False) -> str | None:
         return None
     talk._record(line, WHERE, now.timestamp())
     return line['say']
+
+
+async def offer_graph(now):
+    import asyncio
+    import sqlite3
+    from services.mind.graph import graph
+    from services.mind.graph_commands import proposal_text
+    from services.presence.delivery import submit
+
+    try:
+        proposals = await asyncio.to_thread(graph.proposals, 1)
+    except (OSError, sqlite3.Error):
+        return False
+    if not proposals:
+        return False
+    proposal = proposals[0]
+    return await submit(proposal_text(proposal), 'graph_question', now,
+                        key=f"proposal:{proposal['id']}", local_only=True)
 
 
 async def _ask_next() -> str | None:

@@ -8,6 +8,8 @@ purpose = ContextVar("ai_purpose", default=None)
 
 
 def check_allowed(task=None):
+    from providers.execution import require_enabled
+    require_enabled()
     task = task or purpose.get()
     if task == "automation_proposal" and not (config.BROWSER_AUTOMATION_ENABLED and config.AI_LANGUAGE_ENABLED):
         raise ProviderError("Supervised automation proposals require enabled automation and language assistance.")

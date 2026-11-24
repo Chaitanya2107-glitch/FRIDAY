@@ -4,6 +4,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import messagebox, ttk
+from tkinter.scrolledtext import ScrolledText
 
 from core.logger import logger
 from interfaces.control_center.catalog import CAPABILITIES, GUIDES
@@ -46,7 +47,8 @@ class ControlCenter:
                  font=('Segoe UI', 9)).pack(anchor='w', padx=25, pady=(0, 33))
         for key, label in (('home', '01   Overview'), ('library', '02   Capabilities'),
                            ('chat', '03   Command chat'), ('guides', '04   How to use'),
-                           ('tools', '05   Tools & controls'), ('status', '06   Live status')):
+                           ('tools', '05   Tools & controls'), ('status', '06   Live status'),
+                           ('life_graph', 'Life graph')):
             button = tk.Button(sidebar, text=label, anchor='w', bg='#080f1c', fg=MUTED,
                                activebackground=PANEL, activeforeground=ACCENT, relief='flat', bd=0,
                                font=('Segoe UI Semibold', 10), padx=14, pady=14, cursor='hand2',
@@ -85,6 +87,9 @@ class ControlCenter:
         self.pages['guides'] = Guides(self.content, self)
         self.build_tools()
         self.build_status()
+        self.graph_text = ScrolledText(self.frame('life_graph'), wrap='word', bg=PANEL, fg=TEXT,
+                                       relief='flat', padx=12, pady=12, state='disabled')
+        self.graph_text.pack(fill='both', expand=True)
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky='nsew')
         self.view = 'home'
@@ -209,9 +214,12 @@ class ControlCenter:
                 page.grid_remove()
         self.heading.configure(text={'home': 'Your FRIDAY, at a glance.', 'library': 'What can FRIDAY do?',
             'chat': 'Let’s get something done.', 'guides': 'A guide for everything.',
-            'tools': 'Your tools, in one place.', 'status': 'What’s connected right now.'}[key])
+            'tools': 'Your tools, in one place.', 'status': 'What’s connected right now.',
+            'life_graph': 'Life graph'}[key])
         for name, button in self.nav.items():
             button.configure(bg=PANEL if name == key else '#080f1c', fg=ACCENT if name == key else MUTED)
+        if key == 'life_graph':
+            self.refresh_graph()
 
     def prepare(self, command):
         if self.pages['chat'].busy:
@@ -255,6 +263,17 @@ class ControlCenter:
 
     def refresh(self):
         self.work('status', self.client.snapshot, self.render_status)
+        if self.view == 'life_graph':
+            self.refresh_graph()
+
+    def refresh_graph(self):
+        self.work('life_graph', lambda: self.client.request('GET', '/api/v1/mind/life-graph'), self.render_graph)
+
+    def render_graph(self, result, error):
+        self.graph_text.configure(state='normal')
+        self.graph_text.delete('1.0', 'end')
+        self.graph_text.insert('1.0', str(error) if error else result['text'])
+        self.graph_text.configure(state='disabled')
 
     def render_status(self, state, error):
         if error:

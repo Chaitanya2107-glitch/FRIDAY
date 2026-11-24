@@ -81,5 +81,7 @@ async def review(dialogue, ident):
                                          deadline=started + executive.LEASE_SECONDS - 1, ready=ready)
         finished = datetime.fromtimestamp(now.timestamp() + time.monotonic() - started)
         await asyncio.to_thread(control.finish, job, 'completed' if result['status'] == 'completed' else 'unavailable', finished)
+        if result.get('model_unavailable'):
+            return 'model_unavailable'
     except (ValueError, OSError):
         return  # The retained answer is still eligible for the normal background review.

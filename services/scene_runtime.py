@@ -42,7 +42,8 @@ def services():
 
 def pending():
     _, scenes, _ = services()
-    return bool(scenes and scenes.awaiting())
+    from services.automation.autonomy import active_offer
+    return bool(scenes and scenes.awaiting() or active_offer())
 
 
 def owns(text):

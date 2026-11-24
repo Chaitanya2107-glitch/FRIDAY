@@ -14,6 +14,8 @@ _COMMAND_TYPOS = {
     "brighness": "brightness", "brightnes": "brightness",
     "screenshto": "screenshot", "screnshot": "screenshot", "shwo": "show",
     "paus": "pause", "resuem": "resume",
+    "poen": "open", "whast": "what's", "whastapp": "whatsapp",
+    "reshedule": "reschedule", "posptone": "postpone", "psuh": "push", "lsit": "list",
 }
 _FIRST_WORD = re.compile(r"[a-z]+(?=\s|$)", re.I)
 

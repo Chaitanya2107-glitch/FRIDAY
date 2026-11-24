@@ -54,6 +54,9 @@ def workflow(monkeypatch):
 
     monkeypatch.setattr(failover, "complete_with_failover", decide)
     monkeypatch.setattr(service, "show_toast", lambda *args, **kwargs: notices.append(args) or True)
+    async def speak(*args):
+        return None
+    monkeypatch.setattr(service.tts, "speak", speak)
     store = service.ReminderService()
     store.add_from_message("remind me in 1 minute to attend DBMS class", datetime.now() - timedelta(minutes=2))
     return SimpleNamespace(store=store, calls=calls, notices=notices, decide=decide)
@@ -69,6 +72,9 @@ def test_cancelled_class_reminder_is_retained_then_reviewed_after_fact_correctio
 
     schedule.capture("Classes resume today", datetime.now() + timedelta(seconds=1))
     assert workflow.store.retry_failed() == 1
+    notice = asyncio.run(reminder_review.review(workflow.store.pending()[0], datetime.now()))
+    assert notice.action == "send"
+    assert not workflow.notices
     asyncio.run(service.deliver_due(workflow.store))
 
     assert len(workflow.notices) == len(workflow.calls) == 1
@@ -84,6 +90,10 @@ def test_fact_changed_during_model_review_blocks_even_a_send_approval(workflow, 
         return result
 
     monkeypatch.setattr(failover, "complete_with_failover", changing)
+    reminder = workflow.store.pending()[0]
+    advisory = asyncio.run(reminder_review.review(reminder, datetime.now()))
+    assert advisory.action == "send"
+    assert asyncio.run(reminder_review.recheck(reminder, advisory, datetime.now())).action == "suppress"
     asyncio.run(service.deliver_due(workflow.store))
 
     assert workflow.calls and not workflow.notices
@@ -100,6 +110,10 @@ def test_internal_executive_bookkeeping_does_not_invalidate_reminder_approval(wo
         phase["state"] = "completed"
         return result
     monkeypatch.setattr(failover, "complete_with_failover", completed_review)
+    reminder = workflow.store.pending()[0]
+    advisory = asyncio.run(reminder_review.review(reminder, datetime.now()))
+    assert phase["state"] == "completed"
+    assert asyncio.run(reminder_review.recheck(reminder, advisory, datetime.now())).action == "send"
     asyncio.run(service.deliver_due(workflow.store))
     assert len(workflow.notices) == 1 and not workflow.store.pending()
 

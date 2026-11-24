@@ -547,40 +547,41 @@ def test_answer_listen_cancelled_while_waiting_never_records(voice_api):
     assert "record" not in voice_api.events
 
 
-def test_voice_chat_reply_is_returned_and_spoken_without_caching(voice_api):
+def test_voice_model_reply_is_returned_for_review(voice_api):
     body = voice_api.client.post("/api/v1/voice", json={}).json()
     assert (body["transcription"], body["response"]) == (
         "tell me a fun fact", "Octopuses have three hearts. They also have blue blood."
     )
-    # The first sentence is spoken while the rest is still streaming in, then the rest in one go
-    assert voice_api.spoken == [("Octopuses have three hearts.", False), ("They also have blue blood.", False)]
+    assert body["allow_speech"] is False
+    assert voice_api.spoken == []
 
 
-def test_first_sentence_is_spoken_before_the_reply_finishes(voice_api, monkeypatch):
+def test_unapproved_first_sentence_never_starts_playback(voice_api, monkeypatch):
     monkeypatch.setattr(
         voice_route, "_speak_in_background",
         lambda text, cache=False: voice_api.events.append(f"spoke {text!r}"),
     )
     voice_api.client.post("/api/v1/voice", json={})
-    assert voice_api.events[-4:] == [
-        "streamed 'three hearts. They also '",
-        "spoke 'Octopuses have three hearts.'",
-        "streamed 'have blue blood.'",
-        "spoke 'They also have blue blood.'",
-    ]
+    assert voice_api.events == ["stop speech", "record"]
 
 
-def test_nothing_more_is_said_after_the_user_cuts_friday_off(voice_api, monkeypatch):
-    def spoke(text, cache=False):
-        voice_api.spoken.append((text, cache))
-        voice_route.tts.stop()  # the user pressed the voice hotkey during the first sentence
-    monkeypatch.setattr(voice_route.tts, "stop", tts_module.TextToSpeech.stop.__get__(voice_route.tts))
-    monkeypatch.setattr(voice_route, "_speak_in_background", spoke)
+def test_cutting_off_playback_during_model_work_preserves_silent_review(voice_api, monkeypatch):
+    saved = []
+    text = "Octopuses have three hearts. They also have blue blood."
+
+    async def proposed(*args, **kwargs):
+        voice_route.tts.stop()
+        return SimpleNamespace(content=text, provider="openrouter", model="m", tokens_used=9)
+
+    monkeypatch.setattr(voice_route, "complete_with_failover", proposed)
+    monkeypatch.setattr(voice_route._memory, "save_message", lambda role, content: saved.append((role, content)))
 
     body = voice_api.client.post("/api/v1/voice", json={}).json()
 
-    assert body["response"] == "Octopuses have three hearts. They also have blue blood."  # still returned and saved
-    assert voice_api.spoken == [("Octopuses have three hearts.", False)]
+    assert body["response"] == text and body["allow_speech"] is False
+    assert saved[-1] == ("assistant", text)
+    assert voice_api.events == ["stop speech", "record", "stop speech"]
+    assert voice_api.spoken == []
 
 
 def test_nothing_is_streamed_or_spoken_when_speech_is_off(voice_api):

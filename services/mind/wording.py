@@ -1,19 +1,10 @@
-"""
-services/mind/wording.py
-
-The AI model's one job when FRIDAY speaks on her own: wording. What to say is decided before this file is
-reached — by her brain (services/mind/brain.py), her list of questions, a plan the Boss mentioned — and
-arrives here as raw data: a small dict of facts. say() hands the model those facts and nothing else about
-the Boss's activity, and gets back one line in her voice.
-
-No model (offline, all providers down, or only the small local fallback model — measured 2026-10-01: it
-answers her questions itself and invents names), or a line that lost the name of what it's about →
-plain(): the same facts in her own plain words, so she still speaks, and correctly.
-"""
+"""Local speech formatting and a compatibility preview for model suggestions."""
 
 import asyncio
 import json
 import re
+import sqlite3
+from datetime import datetime
 
 from core.config import config
 from core.logger import logger
@@ -41,9 +32,25 @@ def _list(items) -> str:
 
 
 def plain(raw: dict) -> str:
-    """The raw data in her own plain words — what she says when no model can word it."""
+    """Render literal fallback wording from the supplied facts."""
     r = {k: v for k, v in raw.items() if v not in (None, "", [])}
     kind = r.get("kind")
+    if kind in {"command", "graph_answer"}:
+        return raw["fact"]
+    if kind == "task_done":
+        return f"Recorded {r['name']} as complete." if raw.get("owner_report") else f"{r['name']} is complete."
+    if kind == "exam_soon":
+        return f"{r['subject']} is {r['when']}."
+    if kind == "stress_ack":
+        return "Understood, Boss. I'll keep it brief."
+    if kind == "greeting":
+        return "I'm here, Boss. What are we doing today?"
+    if kind == "thanks":
+        return "Anytime, Boss."
+    if kind == "goodbye":
+        return "Talk later, Boss."
+    if kind == "joke":
+        return "I'll leave the jokes for another time, Boss."
     if kind in {'care', 'goal_coaching', 'coaching'}:
         return str(raw['answer'])
     if kind == 'phone_answer':
@@ -93,12 +100,48 @@ def plain(raw: dict) -> str:
     if kind == "prediction":
         return f"My guess, Boss: {when} you'll open {r['program']} ({r['because']}). Right?"
     if kind == "automate":
+        if r.get('context', {}).get('effect') == 'open':
+            return r['ask']
         return (f"You've confirmed {r['the_boss_confirmed_it']} that {when} you open {r['program']}, Boss. "
-                "Shall I just open it myself from now on?")
+                "Shall I offer to open it when that happens?")
     if kind == "feeling":
         return f"Feeling {r['mood']}, Boss: {r['because']}. Today {r['my_day_so_far']}"
     doing = f" You've been {r['the_boss_is']} for {r['for_minutes']} minutes." if r.get("the_boss_is") else ""
     return "Checking in, Boss." + doing + " How's it going?"
+
+
+def render(raw: dict, situation=None, snapshot=None, *, now=None, private=False) -> str:
+    """Word a local intent with a reviewed/stock template, or keep its literal facts."""
+    from services.automation.intent import remote_request
+    from services.mind import expression
+    from services.remote.context import remote_origin
+
+    kind = raw.get("kind")
+    if (private or remote_request.get() or remote_origin.get() or kind not in expression.SUPPORTED
+            or raw.get("phone_private") or raw.get("questions_tonight")):
+        return plain(raw)
+    if kind == "command" and (any(mark in raw["fact"] for mark in ("?", "\n", "\r")) or not raw["fact"].strip()):
+        return plain(raw)
+    try:
+        if now is None and snapshot and snapshot.get("as_of"):
+            now = datetime.fromisoformat(snapshot["as_of"])
+        now = expression._clock(now)
+        if snapshot is None:
+            from services.mind.state import snapshot as present
+            snapshot = present(now)
+        context = snapshot.get("situation") if situation is None else situation
+        tone = snapshot.get("emotion", {})
+        returned = tone.get("return_at")
+        if kind == "greeting" and tone.get("face") == "waving" and returned is not None and not snapshot.get("quiet"):
+            if line := expression.render({"kind": "back", "return_event": returned}, context, snapshot, now=now):
+                return line
+        if kind in {"task_done", "exam_soon", "feeling"}:
+            raw = {**raw, "fact": plain(raw)}
+        if line := expression.render(raw, context, snapshot, now=now):
+            return line
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError, sqlite3.Error) as error:
+        logger.debug("Local expression unavailable (%s)", type(error).__name__)
+    return plain(raw)
 
 
 def _line(content: str) -> str | None:
@@ -126,8 +169,8 @@ def _faithful(line: str, raw: dict) -> bool:
 
 
 async def say(raw: dict) -> str:
-    """One line in her voice for `raw`: worded by the model when there is one, by plain() when not."""
-    if raw.get('kind') in {'phone_pattern', 'phone_answer', 'care', 'goal_coaching', 'coaching'} or raw.get('phone_private'):
+    """Preview a legacy model phrasing proposal; live speech uses render()."""
+    if raw.get('kind') in {'phone_pattern', 'phone_answer', 'care', 'goal_coaching', 'coaching', 'automate'} or raw.get('phone_private'):
         return plain(raw)
     from providers.failover import complete_with_failover
 
@@ -144,16 +187,16 @@ async def say(raw: dict) -> str:
             line = None  # only the small local fallback answered: it invents things and answers her own questions
         if line and _faithful(line, raw):
             return line
-        logger.info(f"Wording: the model's line wasn't usable ({reply.content[:80]!r}); saying it plainly")
+        logger.debug("The model wording proposal was unusable")
     except Exception as e:
         logger.info(f"Wording: no model ({e}); saying it plainly")
     return plain(raw)
 
 
 async def enhance(text: str, provider_name: str | None = None) -> str:
-    """Polish a completed local remark; failure always preserves the original."""
+    """Preview a model paraphrase without speaking or adding it to the library."""
     from providers.failover import complete_with_failover
-    if not config.AI_WORDING_ENABLED or not text.strip():
+    if config.FRIDAY_LLM != "on" or not config.AI_WORDING_ENABLED or not text.strip():
         return text
     # Structured output, questions and sensitive command replies keep their exact wording.
     if "\n" in text or "?" in text or len(text) > 500:
@@ -187,4 +230,13 @@ async def enhance(text: str, provider_name: str | None = None) -> str:
         return line
     except Exception as error:
         logger.debug("Wording unavailable (%s); using local remark", type(error).__name__)
+        return text
+
+
+async def command_reply(text, provider_name=None):
+    """Only owner-approved variants may frame an already completed command."""
+    try:
+        async with asyncio.timeout(.15):
+            return await asyncio.to_thread(render, {"kind": "command", "fact": text})
+    except TimeoutError:
         return text

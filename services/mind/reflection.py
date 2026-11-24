@@ -207,13 +207,16 @@ def match_mind_command(text: str) -> dict | None:
 def on_my_mind() -> str:
     """Her mood and live thoughts, then everything FRIDAY has learned by itself: the profile, humour,
     corrections and the predictor's scores."""
-    from services.mind import brain, corrections, humour, learner, life, talk, thoughts, wonder
+    from services.mind import corrections, humour, learner, life, talk, wonder
+    from services.mind.state import snapshot
 
     now = datetime.now()
     profile = load()
-    word, why = life.mood(now, brain.away_minutes(now))
-    noticed = [t.data.get("noticed", t.kind) + (f" ({t.data['program']})" if t.data.get("program") else "")
-               for t in thoughts.alive(now)[:4]]
+    present = snapshot(now)
+    word, why = present['mood'], present['mood_reason']
+    noticed = [item['data'].get("noticed", item['kind']) +
+               (f" ({item['data']['program']})" if item['data'].get("program") else "")
+               for item in present['live_thoughts']]
     parts = [f"Mood: {word} — {why}. Today {life.day_line(now.date().isoformat())}",
              ("Things I've noticed and haven't brought up yet:\n" + "\n".join(f"- {n}" for n in noticed))
              if noticed else "Nothing unexplained on my mind right now.",

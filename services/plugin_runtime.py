@@ -78,7 +78,12 @@ def start(loop=None) -> PluginManager:
                     asyncio.run_coroutine_threadsafe(say(), loop)
 
             _manager = PluginManager(builtin_matcher=builtin_matches, notify=notify, speak=speak)
-            _manager.start()
+            try:
+                _manager.start()
+            except Exception:
+                failed, _manager = _manager, None
+                failed.close()
+                raise
         return _manager
 
 
@@ -88,6 +93,22 @@ def stop():
         manager, _manager = _manager, None
     if manager:
         manager.close()
+
+
+async def run_monitored():
+    from services.health.watchdog import CHECK_SECONDS, watchdog
+
+    startup = asyncio.create_task(asyncio.to_thread(start, asyncio.get_running_loop()))
+    try:
+        manager = await asyncio.shield(startup)
+        while manager.thread and manager.thread.is_alive() and manager.discovery_error is None:
+            watchdog.heartbeat('plugins')
+            await asyncio.sleep(CHECK_SECONDS)
+        raise RuntimeError('Plugin discovery stopped')
+    finally:
+        # Finish the current startup before closing its generation on shutdown.
+        await asyncio.gather(startup, return_exceptions=True)
+        await asyncio.to_thread(stop)
 
 
 async def try_command(text: str) -> ActionResult | None:

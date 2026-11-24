@@ -38,7 +38,7 @@ db_path = str(config.MEMORY_DIR / "mind" / "brain.db")  # tests point this elsew
 LOOKUP_MIN_SECONDS = 600     # curious enough to look something up once the Boss has spent this long on it
 APP_LOOKUP_MIN_SECONDS = 60  # …a program she can't place: after a minute
 MAX_LOOKUPS_A_DAY = 20
-UNPLACED = {"app": "other", "topic": "browsing"}  # a program no rule knows; a page no rule knows
+UNPLACED = {"app": "other", "topic": "browsing", "term": "other", "course": "other", "place": "other"}
 PRUNE_AFTER_DAYS = 14        # a topic glanced at once and never explained is forgotten after this
 MAX_NAME = 90
 # Window titles that say nothing about what the Boss is doing
@@ -64,7 +64,7 @@ CATEGORY_WORDS = [
 KNOWN_CATEGORIES = sorted({*categories.APPS, *categories.SITES, "other"})
 
 LOOKUP_PROMPT = (
-    "You identify software, games, websites and topics from their name. Reply with ONLY a JSON object:\n"
+    "Identify the named app, topic, term, course code or place. Reply with ONLY a JSON object:\n"
     '{"known": true or false, "what": "<one short sentence: what it is>", "category": "<one of: '
     + ", ".join(KNOWN_CATEGORIES) + '>"}\n'
     "If you don't recognise the name for sure, set known to false — never guess. No commentary outside the JSON."
@@ -72,6 +72,7 @@ LOOKUP_PROMPT = (
 
 _lock = threading.Lock()
 _ready_for = None
+_looking_up = set()
 
 
 @dataclass
@@ -180,13 +181,32 @@ def get(key: str) -> Thing | None:
         return _thing(conn.execute("SELECT * FROM things WHERE key = ?", (key,)).fetchone())
 
 
-def find(name: str) -> Thing | None:
+def find(name: str, kind=None) -> Thing | None:
     """The thing the Boss means by `name`: a program, what a program's window is called, or a topic."""
     name = name.strip().lower()
     with db() as conn:
-        row = conn.execute("SELECT * FROM things WHERE key IN (?, ?) OR (kind = 'app' AND LOWER(hint) = ?) "
-                           "ORDER BY seconds DESC", (f"app:{name}", f"topic:{name}", name)).fetchone()
+        row = conn.execute("SELECT * FROM things WHERE (? IS NULL OR kind=?) AND "
+                           "(LOWER(name)=? OR (kind='app' AND LOWER(hint)=?)) "
+                           "ORDER BY about IS NULL, seconds DESC LIMIT 1", (kind, kind, name, name)).fetchone()
     return _thing(row)
+
+
+def requested_thing(name, kind, now):
+    """Remember a named question with zero observed usage."""
+    from services.mind.cognition import redact
+    name = ' '.join(name.split())
+    if not 1 <= len(name) <= MAX_NAME or redact(name) != name or not any(char.isalnum() for char in name):
+        return None
+    if thing := find(name, kind):
+        return thing
+    kind = kind or 'topic'
+    key = key_for(kind, name)
+    category = categories.app_category(name.lower().removesuffix('.exe')) if kind == 'app' else UNPLACED[kind]
+    stamp = now.isoformat(timespec='seconds')
+    with db() as conn:
+        conn.execute("INSERT OR IGNORE INTO things (key,kind,name,category,first_seen,last_seen,hours,last_day,last_slot) "
+                     "VALUES (?,?,?,?,?,?,?,'','')", (key, kind, name, category, stamp, stamp, json.dumps([0] * 24)))
+    return get(key)
 
 
 def see(conn, kind: str, name: str, category: str, now: datetime, hint: str | None = None) -> Thing | None:
@@ -196,7 +216,8 @@ def see(conn, kind: str, name: str, category: str, now: datetime, hint: str | No
     stamp = now.isoformat(timespec="seconds")
     if row is None:
         from services.mind.app_learning import supersede
-        supersede(conn, key)
+        if not conn.execute('SELECT 1 FROM thing_revisions WHERE key=?', (key,)).fetchone():
+            supersede(conn, key)
         hours = [0] * 24
         hours[now.hour] = 1
         conn.execute("INSERT INTO things (key, kind, name, category, first_seen, last_seen, times, days, hours, "
@@ -241,7 +262,7 @@ def refresh_learned() -> None:
     try:
         with db() as conn:
             for row in conn.execute("SELECT kind, name, category FROM things WHERE source IN ('boss','confirmed') "
-                                    "AND category NOT IN ('other', 'browsing')"):
+                                    "AND kind IN ('app','topic') AND category NOT IN ('other', 'browsing')"):
                 learned["app" if row["kind"] == "app" else "title"][row["name"].lower()] = row["category"]
     except sqlite3.Error as e:
         logger.warning(f"Couldn't read what FRIDAY has learned: {e}")
@@ -251,7 +272,8 @@ def refresh_learned() -> None:
 def prune(now: datetime) -> int:
     """Nightly: forget topics glanced at once and never explained."""
     with db() as conn:
-        return conn.execute("DELETE FROM things WHERE kind = 'topic' AND seconds < 60 AND about IS NULL AND last_seen < ?",
+        return conn.execute("DELETE FROM things WHERE kind='topic' AND seconds<60 AND about IS NULL AND last_seen<? "
+                            "AND key NOT IN (SELECT key FROM app_explanations WHERE state='pending')",
                             ((now - timedelta(days=PRUNE_AFTER_DAYS)).isoformat(),)).rowcount
 
 
@@ -265,19 +287,17 @@ def due_lookup(now: datetime) -> Thing | None:
         if today >= MAX_LOOKUPS_A_DAY:
             return None
         return _thing(conn.execute(
-            "SELECT * FROM things WHERE about IS NULL AND looked_up IS NULL AND kind='app' AND category=? "
+            "SELECT * FROM things WHERE about IS NULL AND (looked_up IS NULL OR (? AND EXISTS ("
+            "SELECT 1 FROM app_explanations WHERE key=things.key AND state='pending' AND provider='waiting for model'))) "
+            "AND kind='app' AND category=? "
             "AND name NOT LIKE 'phone:%' AND seconds>=? ORDER BY seconds DESC LIMIT 1",
-            (UNPLACED["app"], APP_LOOKUP_MIN_SECONDS)).fetchone())
+            (_model_enabled(), UNPLACED["app"], APP_LOOKUP_MIN_SECONDS)).fetchone())
 
 
-def _question(thing: Thing, requested: bool = False) -> str:
+def _question(thing: Thing) -> str:
     if thing.name.startswith('phone:'):
         return f'What is Android package "{thing.name.split(":", 2)[-1]}"?'
-    if thing.kind == "app":
-        return f'What is "{thing.name}"? It is the name of a Windows program.'
-    if requested:
-        return f'What is "{thing.name}"? This is an explicitly requested general knowledge question.'
-    raise ValueError("Automatic knowledge lookups use app identity only.")
+    return f'What is "{thing.name}"?'
 
 
 def _parse(reply: str) -> dict | None:
@@ -289,9 +309,12 @@ def _parse(reply: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-async def look_up(thing: Thing, now: datetime, *, requested: bool = False) -> Thing | None:
-    """Ask the model what `thing` is. Returns the thing as she now knows it; None when no model answered
-    (she'll try again later). A thing the model doesn't know comes back with no `about`."""
+def _model_enabled():
+    return config.FRIDAY_LLM == 'on' and (not config.AI_ASSIST_ONLY or config.AI_KNOWLEDGE_ENABLED)
+
+
+async def look_up(thing: Thing, now: datetime, *, requested: bool = False, model_assist=True) -> Thing | None:
+    """Stage one sourced answer or owner question without modifying confirmed knowledge."""
     if thing.name.startswith('phone:'):
         from services.phone_signals.preferences import load
         if not (load()['ai_app_names'] and load()['teacher']):
@@ -300,41 +323,57 @@ async def look_up(thing: Thing, now: datetime, *, requested: bool = False) -> Th
     from services.mind import app_learning
     from services.mind.training import teaching_for
 
-    if (thing.kind != "app" and not requested) or (config.AI_ASSIST_ONLY and not config.AI_KNOWLEDGE_ENABLED):
+    if thing.kind != "app" and not requested:
         return None
-    if teaching_for("subject", thing.key):
+    if thing.placed or teaching_for("subject", thing.key):
         return None
+    enabled = model_assist and _model_enabled()
     with db() as conn:
-        expected = app_learning.revision(conn, thing.key)
         current = conn.execute("SELECT source,about FROM things WHERE key=?", (thing.key,)).fetchone()
-        if not current or current["about"] or current["source"] in {"boss", "confirmed"}:
+        if not current or current["about"] or current["source"] in {"boss", "confirmed"} or thing.key in _looking_up:
             return None
+        pending = conn.execute("SELECT provider FROM app_explanations WHERE key=? AND state='pending' "
+                               "ORDER BY proposed_at DESC LIMIT 1", (thing.key,)).fetchone()
+        if pending and (pending['provider'] != 'waiting for model' or not enabled):
+            return None
+        expected = app_learning.revision(conn, thing.key)
+        if not enabled:
+            app_learning.stage(conn, thing.key, expected, '', thing.category, 'waiting for model', now)
+            return None
+        _looking_up.add(thing.key)
 
-    reply = None
     try:
-        reply = await complete_with_failover(config.ACTIVE_PROVIDER, [Message(role="user", content=_question(thing, requested))],
-                                             LOOKUP_PROMPT, 600, purpose="knowledge", attempt_timeout=8)
-    except Exception as e:
-        logger.info("App explanation unavailable (%s); owner clarification remains possible", type(e).__name__)
-    if reply and not config.AI_ASSIST_ONLY and reply.provider == "ollama" != config.ACTIVE_PROVIDER:
         reply = None
-    if reply and (getattr(reply, "tool_calls", None) or (getattr(reply, "metadata", None) or {}).get("incomplete")
-                  or not isinstance(reply.content, str)):
-        reply = None
-    if teaching_for("subject", thing.key):
+        try:
+            reply = await complete_with_failover(config.ACTIVE_PROVIDER, [Message(role="user", content=_question(thing))],
+                                                 LOOKUP_PROMPT, 600, purpose="knowledge", attempt_timeout=8)
+        except Exception as e:
+            logger.info("Knowledge lookup unavailable (%s)", type(e).__name__)
+        if reply and ((not config.AI_ASSIST_ONLY and reply.provider == "ollama" != config.ACTIVE_PROVIDER)
+                      or getattr(reply, 'tool_calls', None) or (getattr(reply, 'metadata', None) or {}).get('incomplete')
+                      or not isinstance(reply.content, str)):
+            reply = None
+        if teaching_for("subject", thing.key):
+            return get(thing.key)
+        data = (_parse(reply.content) if reply else None) or {}
+        from services.mind.cognition import redact
+        description = data.get('what')
+        description = redact(' '.join(description.split())) if data.get('known') is True and isinstance(description, str) else ''
+        category = str(data.get('category') or '').strip().lower()
+        with db() as conn:
+            if _model_enabled():
+                app_learning.stage(conn, thing.key, expected, description,
+                                   category if category in KNOWN_CATEGORIES else thing.category,
+                                   reply.provider if reply else 'unavailable', now)
+            else:
+                app_learning.stage(conn, thing.key, expected, '', thing.category, 'waiting for model', now)
         return get(thing.key)
-    data = (_parse(reply.content) if reply else None) or {}
-    known = data.get("known") is True and isinstance(data.get("what"), str) and data["what"].strip()
-    category = str(data.get("category") or "").strip().lower()
-    with db() as conn:
-        app_learning.stage(conn, thing.key, expected, str(data["what"]).strip() if known else "",
-                           category if category in KNOWN_CATEGORIES else thing.category,
-                           reply.provider if reply else "unavailable", now)
-    logger.debug("App explanation %s; awaiting owner verification", "proposed" if known else "unavailable")
-    return get(thing.key)
+    finally:
+        with _lock:
+            _looking_up.discard(thing.key)
 
 
-def teach(key: str, text: str) -> Thing | None:
+def teach(key: str, text: str, now=None) -> Thing | None:
     """The Boss said what it is: kept in their words, and sorted by the words they used."""
     category = next((c for c, words in CATEGORY_WORDS if re.search(words, text, re.I)), None)
     if re.search(r"\b(?:not|isn't|is not|don't|cannot)\b", text, re.I):
@@ -342,8 +381,8 @@ def teach(key: str, text: str) -> Thing | None:
     with db() as conn:
         from services.mind.app_learning import supersede
         supersede(conn, key)
-        conn.execute("UPDATE things SET about = ?, source = 'boss', category = COALESCE(?, category) WHERE key = ?",
-                     (text.strip()[:300], category, key))
+        conn.execute("UPDATE things SET about=?,source='boss',category=COALESCE(?,category),looked_up=? WHERE key=?",
+                     (text.strip()[:300], category, (now or datetime.now()).isoformat(timespec='seconds'), key))
     refresh_learned()
     return get(key)
 

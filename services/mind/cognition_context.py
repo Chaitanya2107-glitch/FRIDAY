@@ -2,12 +2,15 @@
 
 import json
 import sqlite3
-import time
+from contextvars import ContextVar
 from datetime import datetime
 
 from core.config import config
 from core.logger import logger
 from services.mind.cognition import cognition
+
+
+_present_inputs = ContextVar('friday_present_inputs', default=None)
 
 
 def operational_state():
@@ -29,26 +32,32 @@ def live_state() -> dict:
     from services.activity.log import activity_log, idle_seconds
     from services.activity.categories import categorize
     from services.automation import modes
-    from services.mind import life, talk
+    from services.mind import state, talk
     from services.telegram import capabilities
     from services import body_state
     from services.mind.development import development
 
     try:
-        pending = talk.load().get("pending")
+        supplied = _present_inputs.get()
+        if supplied is None:
+            now = datetime.now()
+            moment = {'idle': idle_seconds(), 'mode': modes.active() or {},
+                      'preferences': talk.load(), 'mood': state.persona(now, legacy=True)[0]}
+        else:
+            now, moment = supplied
+        pending = moment['preferences'].get("pending")
         from services.mind.dialogue import dialogue
-        body = body_state.snapshot()
+        body = body_state.snapshot(now.timestamp())
         from services.mind.executive import executive
-        current_mode = modes.active() or {}
-        idle = idle_seconds()
+        current_mode, idle = moment['mode'], moment['idle']
         return {"activity": categorize("app", activity_log.app) if activity_log.app else "away or unknown",
                 "away": idle >= 60, 'idle_band': 'typing' if idle < 5 else 'present' if idle < 60 else 'away',
-                "mode_active": bool(modes.active()),
+                "mode_active": bool(current_mode),
                 "mode_name": current_mode.get('name', 'normal'),
                 'integrations': operational_state(),
                 'development': development.context(),
-                "mood": life.mood(datetime.now())[0], "telegram_configured": capabilities.ready(),
-                "waiting_for_answer": bool(pending and time.time() - pending.get("at", 0) <= talk.ANSWER_SECONDS) or dialogue.awaiting(),
+                "mood": moment['mood'], "telegram_configured": capabilities.ready(),
+                "waiting_for_answer": bool(pending and now.timestamp() - pending.get("at", 0) <= talk.ANSWER_SECONDS) or dialogue.awaiting(),
                 "speaking": body["speaking"], "listening": body["listening"], "thinking": body["thinking"],
                 "active_operations": [{"kind": e["kind"], "channel": e["channel"]} for e in cognition.active()],
                 "executive": executive.status()}

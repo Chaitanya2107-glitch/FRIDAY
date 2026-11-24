@@ -109,20 +109,35 @@ class ReminderService(DeliveryState):
         except ReminderParseError as e:
             raise ReminderError(str(e))
 
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO reminders (text, due_at, created_at) VALUES (?, ?, ?)",
-                (task, due.timestamp(), now.timestamp()),
-            )
+        self._schedule(task, due.timestamp(), now.timestamp())
         logger.info(f"Reminder set for {due:%Y-%m-%d %H:%M}")
-        return f"Okay, I'll remind you at {describe_due(due, now)}: {task}."
+        from services.automation import autonomy
+        return autonomy.offer_text('set_reminder', f"Okay, I'll remind you at {describe_due(due, now)}: {task}.")
 
     def snooze(self, text: str, minutes: int) -> str:
         """The same reminder again in `minutes` (the notification's Snooze button)."""
-        due = time.time() + minutes * 60
-        with self._connect() as conn:
-            conn.execute("INSERT INTO reminders (text, due_at, created_at) VALUES (?, ?, ?)", (text, due, time.time()))
+        now = time.time()
+        self._schedule(text, now + minutes * 60, now)
         return f"Okay, I'll remind you again in {minutes} minutes: {text}."
+
+    def _schedule(self, text, due, created):
+        from services.automation import autonomy
+        with autonomy.record('set_reminder') as receipt, self._connect() as conn:
+            identity = conn.execute("INSERT INTO reminders (text, due_at, created_at) VALUES (?, ?, ?)",
+                                    (text, due, created)).lastrowid
+            receipt.add(dict(type='reminder', id=identity, created=created, db=str(Path(self.db_path).resolve())))
+
+    def undo_created(self, identity, created):
+        with self._connect() as conn:
+            self._delivery_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute("""DELETE FROM reminders WHERE id=? AND created_at=? AND delivered_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM reminder_delivery WHERE reminder_id=?
+                    AND (status IN ('submitting', 'uncertain') OR desktop_status IN ('submitted','uncertain')
+                         OR telegram_status IN ('submitted','uncertain')))""", (identity, created, identity)).rowcount
+            if changed:
+                conn.execute("DELETE FROM reminder_delivery WHERE reminder_id=?", (identity,))
+        return 'Cancelled the reminder I set.' if changed else 'That reminder no longer exists or delivery has started.'
 
     def pending(self) -> list[Reminder]:
         with self._connect() as conn:
@@ -210,6 +225,9 @@ def show_toast(title: str, body: str, buttons: list[tuple[str, str]] | None = No
             if accepted and cognition_text is None and not transient:
                 publish('notification', body, title=title, buttons=buttons)
         event.finish("submitted" if accepted else "failed")
+        if accepted:
+            from services.mind.speech_budget import budget
+            budget.note_text(body)
         return accepted
 
 
@@ -285,7 +303,7 @@ async def _deliver_claim(service, claim):
         service._decision(claim, held)
         service._hold(claim, held)
         return
-    review = await reminder_review.review(reminder, datetime.now())
+    review = await reminder_review.scheduled_review(reminder, datetime.now())
     if not service._active(claim):
         return
     service._decision(claim, review)

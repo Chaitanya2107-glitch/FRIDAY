@@ -17,6 +17,14 @@ from services.mind.cognition import cognition, redact
 PRIORITIES = {"low": 1, "normal": 2, "high": 3}
 
 
+def _task_completed():
+    from services.automation.intent import remote_request
+    from services.event_bus import publish
+
+    if not remote_request.get():
+        publish("workspace.task_completed", {})
+
+
 class AmbiguousReference(ValueError):
     def __init__(self, message, candidates):
         super().__init__(message)
@@ -239,6 +247,8 @@ class Workspace:
             conn.execute("UPDATE workspace_tasks SET cursor = ?, status = ?, evidence = ?, updated = ? WHERE id = ?",
                          (cursor, status, json.dumps(task["evidence"]), time.time(), ident))
         self.store.record("task", "workspace", f"Owner reported step completion for task {ident}", status="reported")
+        if status == "completed":
+            _task_completed()
 
     def task_state(self, ident, status, note="", expected_updated=None):
         if status not in {"active", "paused", "blocked", "completed", "cancelled"}:
@@ -259,6 +269,8 @@ class Workspace:
                          (status, note if status == "blocked" else "", json.dumps(task["evidence"]), time.time(), ident))
         self.store.record("task", "workspace", f"Owner set task {ident} to {status}",
                           status="reported" if status == "completed" else "completed")
+        if status == "completed":
+            _task_completed()
 
     def context(self):
         """Small shared attention inputs; full plans/evidence stay in the store."""

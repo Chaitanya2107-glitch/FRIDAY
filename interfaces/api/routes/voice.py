@@ -11,9 +11,8 @@ FLOW:
   2. Transcribe with faster-whisper
   3. Screen question, web search request, system command, or normal AI chat —
      same as typed chat
-  4. Return the reply straight away; FRIDAY speaks it in the background.
-     AI chat replies are streamed: the first sentence is spoken while the rest
-     is still being written (services/voice/speech_stream.py)
+  4. Return the reply. FRIDAY can speak local wording in the background.
+     Model replies stay visible for review.
 
 To hear the answer to a yes/no question, the client listens again with
 after_speech=true, which waits for FRIDAY to finish asking before recording.
@@ -39,7 +38,7 @@ from pydantic import BaseModel, Field
 
 from core.config import config
 from core.logger import logger
-from core.errors import MemoryError, FridayError
+from core.errors import MemoryError, FridayError, ModelUnavailable
 from providers.base_provider import Message
 from providers.failover import complete_with_failover, is_quick_chat
 from services.memory.sqlite_memory import MemoryService
@@ -48,7 +47,6 @@ from services.voice.recorder import recorder
 from services.voice.conversation import END_REPLY, START_REPLY, match_conversation
 from services.automation.command_words import rephrase_command
 from services.voice.stt import stt
-from services.voice.speech_stream import FirstSentenceSpeaker
 from services.voice.tts import tts
 from services.voice import wake as wake_log
 from services.voice.conversation_input import conversation_input
@@ -63,7 +61,7 @@ from services.search.web_search import build_search_context
 from services.files.assistant import build_file_context
 from services.vision.screen import ask_about_screen, extract_screen_question
 from services.memory.notes import is_note
-from services.mind import humour, talk
+from services.mind import humour, replies, talk
 from services.telegram import commands as telegram_commands
 from services.mind import cognition as cognition_service, cognition_commands
 from services.computation.commands import match_command as computation_command
@@ -117,6 +115,7 @@ class WakeStopRequest(BaseModel):
 
 class VoiceResponse(BaseModel):
     private: bool = False
+    allow_speech: bool = True
     transcription: str   # What Whisper heard you say
     response:      str   # What FRIDAY replied or did
     provider:      str   # the provider that actually answered (may be a fallback)
@@ -315,6 +314,19 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         return VoiceResponse(transcription='', response=coaching.message, provider='local', private=True,
                              model='coaching', tokens_used=0, action='system', action_success=coaching.success)
 
+    from services.mind import graph_commands, writers_room
+    if graph_result := await graph_commands.try_command(transcription, remote=remote_request.get()):
+        cancel_pending_confirmation()
+        cognition_service.reply(graph_result.message, safe_text=graph_commands.PRIVATE_MEMORY)
+        if request.speak and graph_result.speech != '':
+            _speak_in_background(graph_result.message, cache=False, local_only=True)
+        return VoiceResponse(transcription='', response=graph_result.message, provider='local', model='life_graph',
+                             tokens_used=0, private=True, allow_speech=graph_result.speech != '',
+                             action='system', action_success=graph_result.success)
+    if review := await writers_room.handle(transcription, remote=remote_request.get()):
+        return VoiceResponse(transcription="", response=review.message, provider="local", model="writers_room",
+                             tokens_used=0, private=True, allow_speech=False, action="system", action_success=review.success)
+
     from services.remote.local import try_command as try_remote_command
     remote_result = await try_remote_command(transcription)
     if remote_result is not None:
@@ -396,21 +408,22 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
     result = await screen_commands.handle(transcription, remote=remote_request.get())
     if result is not None:
         cognition_service.reply(result.message, safe_text=screen_commands.PRIVATE_MEMORY)
-        if request.speak:
-            _speak_in_background(result.message, cache=False, local_only=True)
+        if request.speak and result.speech != "":
+            _speak_in_background(result.speech or result.message, cache=False, local_only=True)
         return VoiceResponse(transcription=transcription, response=result.message, provider="local", private=True,
-                             model="system_control", tokens_used=0, action="system", action_success=result.success)
+                             model="system_control", tokens_used=0, action="system", action_success=result.success,
+                             allow_speech=result.speech != "")
     from services.mind import app_verification
     from services.activity.log import activity_log
     result = await app_verification.handle(transcription, activity_log, remote=remote_request.get())
     if result is not None:
         app_verification.mark_returned(result.message, remote=remote_request.get())
-        cognition_service.reply(result.message)
-        if request.speak:
-            _speak_in_background(result.message, cache=False)
+        cognition_service.reply(result.message, safe_text=result.memory_message)
+        if request.speak and result.speech != "":
+            _speak_in_background(result.speech or result.message, cache=False)
         return VoiceResponse(transcription=transcription, response=result.message, provider="local", model="system_control",
                              tokens_used=0, action="system", action_success=result.success,
-                             awaiting_reply=app_verification.awaiting())
+                             awaiting_reply=app_verification.awaiting(), allow_speech=result.speech != "")
     from services.browser.commands import match_command as automation_command
     if command := automation_command(transcription):
         from services.browser.service import automation
@@ -420,12 +433,15 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
             cancel_pending_confirmation()
         reply = await automation.handle(transcription, provider_name)
         cognition_service.reply("Automation task response")
+        preview = command.kind in {"status", "report"}
         if request.speak:
-            spoken = "The research report is ready in the command bar." if command.kind == "report" and reply.success else reply.message
-            _speak_in_background(spoken, cache=False)
+            if command.kind == "report" and reply.success:
+                _speak_in_background("The research report is ready in the command bar.", cache=False)
+            elif not preview:
+                _speak_in_background(reply.message, cache=False)
         return VoiceResponse(transcription=transcription, response=reply.message, provider="local",
                              model="automation_task", tokens_used=0, action="system",
-                             action_success=reply.success, awaiting_reply=reply.awaiting_reply)
+                             action_success=reply.success, awaiting_reply=reply.awaiting_reply, allow_speech=not preview)
     if not remote_request.get():
         from services.browser.service import automation
         automation.abandon_pending()
@@ -464,24 +480,24 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
 
     if system_result is not None and scene_runtime.private_turn():
         cognition_service.reply(system_result.message, safe_text=scene_runtime.PRIVATE_MEMORY)
-        if request.speak:
+        if request.speak and system_result.speech != "":
             _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
         return VoiceResponse(transcription=transcription, response=system_result.message, provider='local', private=True,
                              model='focus_scenes', tokens_used=0, action='system', action_success=system_result.success,
                              awaiting_reply=scene_runtime.pending())
     if system_result is not None and activity_plugin.private_turn():
         cognition_service.reply(system_result.message, safe_text=activity_plugin.PRIVATE_MEMORY)
-        if request.speak:
+        if request.speak and system_result.speech != "":
             _speak_in_background(system_result.speech or system_result.message, cache=False, local_only=True)
         return VoiceResponse(transcription=transcription, response=system_result.message, provider='local', private=True,
                              model='activity', tokens_used=0, action='system', action_success=system_result.success)
     if system_result is not None:
         app_verification.mark_returned(system_result.message, remote=remote_request.get())
-        if (config.AI_ASSIST_ONLY and system_result.success and not is_awaiting_confirmation()
+        if (system_result.success and not is_awaiting_confirmation()
                 and system_result.memory_message is None and not system_result.keyboard
                 and system_result.speech is None and system_result.repeatable):
-            from services.mind.wording import enhance
-            system_result = system_result._replace(message=await enhance(system_result.message, provider_name))
+            from services.mind.wording import command_reply
+            system_result = system_result._replace(message=await command_reply(system_result.message, provider_name))
         cognition_service.reply(system_result.message, safe_text=system_result.memory_message)
         logger.info("System action completed: %s", system_result.memory_message or system_result.message)
         if system_result.speech is not None:  # "read this": say the text itself, not "Reading it out"
@@ -501,8 +517,10 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
             tokens_used=0,
             action="system",
             action_success=system_result.success,
+            allow_speech=system_result.speech != "",
             private=system_result.memory_message is not None,
-            awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get()),
+            awaiting_reply=is_awaiting_confirmation() or conversation_context.awaiting_reply(remote=remote_request.get())
+            or (not remote_request.get() and app_verification.awaiting()),
             keyboard=list(system_result.keyboard),
         )
 
@@ -522,44 +540,47 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
                                                 max_tokens=request.max_tokens)
         if private_reply is not None:
             cognition_service.reply(private_reply.content, safe_text=companion.PRIVATE_MEMORY)
+            allow_speech = replies.speech_allowed(private_reply)
             if request.speak:
-                _speak_in_background(private_reply.content, cache=False, local_only=True)
+                text = private_reply.content if allow_speech else "The screen interpretation is in chat."
+                _speak_in_background(text, cache=False, local_only=True)
             return VoiceResponse(transcription=transcription, response=private_reply.content,
                                  provider=private_reply.provider, model=private_reply.model,
-                                 tokens_used=private_reply.tokens_used, action="chat", private=True)
+                                 tokens_used=private_reply.tokens_used, action="chat", private=True, allow_speech=allow_speech)
     if not remote_request.get() and not (cognition_command or screen_question or search_context):
         talk.hear(transcription)
     # Other configured providers are tried if this one fails
-    speaker = None
-    if config.AI_ASSIST_ONLY:
-        if config.AI_LANGUAGE_ENABLED and not screen_question:
+    if not (screen_question or search_context) and replies.remark_kind(transcription):
+        result = await replies.answer(transcription, provider_name, model_assist=False)
+    elif config.AI_ASSIST_ONLY or config.FRIDAY_LLM != "on":
+        if config.FRIDAY_LLM == "on" and config.AI_LANGUAGE_ENABLED and not screen_question:
             from services.mind.language import answer
             result = await answer(transcription, provider_name, messages, request.max_tokens, search_context)
         else:
             from services.mind.replies import answer
             result = await answer(transcription, provider_name, search_context, bool(screen_question))
     elif screen_question:
-        result = await ask_about_screen(
-            screen_question, messages, provider_name, request.max_tokens, spoken=True
-        )
+        try:
+            result = await ask_about_screen(screen_question, messages, provider_name, request.max_tokens, spoken=True)
+        except ModelUnavailable:
+            from services.mind.replies import answer
+            result = await answer(transcription, provider_name, screen=True, model_assist=False)
     else:
         messages.append(Message(role="user", content=transcription))
         from services.mind import reasoning
         reasoned = await reasoning.analyze(transcription, provider_name)
-        system_prompt = config.SYSTEM_PROMPT + await semantic_memory.prompt_section(transcription)
+        system_prompt = config.SYSTEM_PROMPT + replies.tone_instruction() + await semantic_memory.prompt_section(transcription)
         system_prompt += reasoning.questions_section(reasoned)
         if search_context:
             system_prompt += "\n\n" + search_context
-        if request.speak:
-            generation = _speech_generation.get()
-            if generation is None:
-                generation = tts.generation
-            speaker = FirstSentenceSpeaker(_speak_in_background, stopped=lambda: tts.generation != generation)
-        result = await complete_with_failover(
-            provider_name, messages, system_prompt, request.max_tokens,
-            prefer_local=is_quick_chat(transcription, provider_name, bool(search_context)),
-            on_text=speaker.feed if speaker else None,
-        )
+        try:
+            result = await complete_with_failover(
+                provider_name, messages, system_prompt, request.max_tokens,
+                prefer_local=is_quick_chat(transcription, provider_name, bool(search_context)),
+            )
+        except ModelUnavailable:
+            from services.mind.replies import answer
+            result = await answer(transcription, provider_name, search_context, model_assist=False)
         semantic_memory.learn_in_background(transcription, provider_name)
         humour.after_chat_reply()
     logger.info(f"Response received — provider: {result.provider} | model: {result.model} | tokens: {result.tokens_used}")
@@ -573,9 +594,8 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         logger.warning(f"Could not save voice messages to memory: {e}")
 
     # ── Step 5: Reply now, speak in the background ────────────────────────────
-    if speaker:
-        speaker.finish()  # the first sentence may already be playing
-    elif request.speak:
+    allow_speech = replies.speech_allowed(result)
+    if request.speak and allow_speech:
         _speak_in_background(result.content)
 
     return VoiceResponse(
@@ -584,6 +604,7 @@ async def _reply(transcription: str, request: VoiceRequest) -> VoiceResponse:
         provider=result.provider,
         model=result.model,
         tokens_used=result.tokens_used,
+        allow_speech=allow_speech,
         action="chat",
     )
 

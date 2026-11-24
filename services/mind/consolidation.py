@@ -222,5 +222,38 @@ class Consolidation:
         return {'active': counts.get(False, 0), 'retired': counts.get(True, 0), 'sources': sources,
                 'thread_limit': 100, 'method': 'locally reviewed extractive grouping'}
 
+    def nightly(self, now):
+        """Group distinct answers to the same recorded question; preserve original excerpts."""
+        if not config.COGNITION_ENABLED:
+            return
+        from services.mind.brain_memory import BrainMemory
+        from services.mind.dialogue import Dialogue
+
+        with self._db() as db:
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            BrainMemory.schema(db)
+            hidden = Dialogue.hidden_sources(db)
+            used = {ref for row in db.execute('SELECT refs FROM memory_threads WHERE retired=0') for ref in json.loads(row[0])}
+            rows = db.execute("SELECT * FROM owner_episodes WHERE channel IN ('chat','voice') AND question!='' "
+                              "AND recall_withheld=0 AND noted<=? ORDER BY noted DESC,id DESC LIMIT 100",
+                              (now.isoformat(),))
+            groups, known = {}, {}
+            for row in rows:
+                ref = f"owner_episode:{row['id']}"
+                question, text = row['question'].strip(), row['text'].strip()
+                if ref in used or row['id'] in hidden or not 3 <= len(question) <= 100 or not text or self._corrections(db, ref):
+                    continue
+                group = groups.setdefault(question.casefold(), {})
+                if len(group) < 4 and text.casefold() not in group:
+                    group[text.casefold()] = ref
+                    known[ref] = {**BrainMemory._episode(row), 'question': row['question'][:500], 'text': row['text'][:1200]}
+            threads = [MemoryThread(subject=known[next(iter(group.values()))]['question'].strip(), evidence=list(group.values()))
+                       for group in groups.values() if len(group) >= 2 and
+                       known[next(iter(group.values()))]['noted'][:10] == now.date().isoformat()][:3]
+            self.save(db, threads, now, known)
+            if not threads:
+                self._prune(db)
+
 
 consolidation = Consolidation(cognition)

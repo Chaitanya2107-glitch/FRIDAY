@@ -204,7 +204,8 @@ def test_private_questions_share_existing_daily_budget_without_model(tmp_path, m
     monkeypatch.setattr(delivery, 'eligible', lambda *a: True)
     monkeypatch.setattr(training, 'allows_nudge', lambda *a, **k: True)
     monkeypatch.setattr(training, 'show_toast', lambda *a, **k: pytest.fail('Private coaching entered training recorder'))
-    now, sent = datetime.now(), []
+    now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    sent = []
     for i, kind in enumerate(('care_question', 'goal_question', 'care_question', 'goal_question')):
         allowed = asyncio.run(delivery.submit('private care numbers', kind, now + timedelta(minutes=45 * i), key=str(i),
                                              on_send=lambda: sent.append(True) or True))

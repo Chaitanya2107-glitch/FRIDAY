@@ -252,7 +252,9 @@ def test_the_ai_can_also_choose_typing(monkeypatch):
     # An unfamiliar single request exercises AI typing; partially recognized
     # explicit batches are deliberately rejected before any tool executes.
     message = "show hello in the box with Enter to submit"
-    result = ask(message)
+    proposal = ask(message)
+    assert not proposal.keyboard and 'Reply yes or no' in proposal.message
+    result = ask('yes')
 
     assert classified == [message]
     assert result.keyboard == ({"text": "hello"}, {"keys": "enter", "times": 1})
@@ -263,7 +265,9 @@ def test_a_bad_key_from_the_ai_is_reported(monkeypatch):
         return [{"type": "system", "action": "press_keys", "keys": "the any key"}]
     monkeypatch.setattr(intent, "_classify_with_ai", fake_classify)
 
-    result = ask("press the any key")
+    proposal = ask('press the any key')
+    assert not proposal.keyboard and 'Reply yes or no' in proposal.message
+    result = ask('yes')
     assert result == ActionResult(False, 'I don\'t know the key "the any key".')
 
 

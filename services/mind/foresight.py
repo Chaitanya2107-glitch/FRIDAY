@@ -19,9 +19,9 @@ The first prediction of the day needs less behind it, so there's usually at leas
 kept per pattern, and confirmed ones become extra training examples for the model (foresight_labels).
 
 Automation comes last, and only by asking: a pattern confirmed AUTO_YES times, with her belief in it high,
-the model trained, and (for apps) the model agreeing, gets one question — "shall I just do it myself from
-now on?" Yes → she opens it herself, once a day, at its time (or a minute after the Boss settles into X),
-only if it isn't open already and never while busy, and says so. "stop opening <thing>" ends it.
+the model trained, and (for apps) the model agreeing, can earn a scheduled question. At the moment
+the pattern applies, FRIDAY asks before opening the exact program or site, at most once a day. The
+Boss can stop a suggestion with "stop opening <thing>".
 No → never asked again.
 
 "how do your predictions compare" → summary(). State: three foresight_* tables in memory/mind/brain.db.
@@ -148,7 +148,7 @@ def _ask(row, facts: dict, model_agrees: bool | None) -> tuple[str, str, dict, f
         return ("automate", f"auto:{row['pattern']}", {
             "noticed": "a prediction of mine that the Boss has confirmed several times, and my trained model is ready",
             **facts, "the_boss_confirmed_it": f"{row['yes']} times",
-            "ask": "whether I should just do it myself from now on — yes or no"}, 0.7)
+            "ask": "whether to offer to open this program when the pattern applies"}, 0.7)
     return ("prediction", f"next:{row['pattern']}", {
         "noticed": "I think I know what the Boss will do next", **facts,
         "my_trained_model": {None: "has no opinion on this kind of thing" if trained else "not trained yet",
@@ -156,9 +156,30 @@ def _ask(row, facts: dict, model_agrees: bool | None) -> tuple[str, str, dict, f
         "ask": "whether that's right — yes or no"}, 0.55)
 
 
+def _open_question(row, now, reason):
+    name = habits._name(row['nxt'])
+    context = dict(pattern=row['pattern'], thing=row['nxt'], at=now.isoformat(), effect='open', reason=reason)
+    return ('automate', f"open:{row['pattern']}:{now.date().isoformat()}",
+            dict(program=name, ask=f'Open {name} now?', context=context), .7)
+
+
+def notify_open(identity, data, now):
+    import asyncio
+
+    from services.presence import delivery
+    from services.proactive import buttons
+    from services.reminders.service import show_toast
+
+    def show():
+        links = buttons.offer('foresight_open', opening=data)
+        return show_toast('FRIDAY', data['ask'], links, mirror_telegram=False, cognition_public=False,
+                          cognition_text='Asked for consent to a reviewed app opening.')
+
+    asyncio.run(delivery.submit(data['ask'], 'presence_question', now, key=identity, on_send=show))
+
+
 def think(log, now: datetime, busy: bool = False) -> list[tuple[str, str, dict, float]]:
-    """Once a minute: act on what the Boss handed over, and turn her best guess into a thought to verify.
-    Returns the thoughts to have: (kind, subject, raw data, strength)."""
+    """Return a thought or exact approval question after rechecking the current pattern."""
     return _habits(log, now, busy) + _next_app(log, now, busy)
 
 
@@ -182,7 +203,7 @@ def _habits(log, now: datetime, busy: bool) -> list:
             continue  # already open, declined, or a project she's sure of (she can't resume those herself)
         if row["auto"] == 1:
             if ahead <= 0 and row["last_run"] != today and not busy and kind != "project":
-                _act(log, row, now, f"you usually do around {habits._clock(h.minute)}")
+                return [_open_question(row, now, f"you usually do around {habits._clock(h.minute)}")]
             continue
         if ahead < AHEAD_MINUTES[0] or h.support < (FIRST_SHARE if first else MIN_SHARE) or out:
             continue
@@ -215,7 +236,7 @@ def _next_app(log, now: datetime, busy: bool) -> list:
         first = not _asked_today(conn, now)
     if row["auto"] == 1:
         if row["last_run"] != now.date().isoformat() and not busy:
-            _act(log, row, now, f"you usually do after {habits._name('app:' + frm)}")
+            return [_open_question(row, now, f"you usually do after {habits._name('app:' + frm)}")]
         return []
     if row["auto"] == -1:
         return []
@@ -237,9 +258,11 @@ def _next_app(log, now: datetime, busy: bool) -> list:
     }, None if guess["model"] is None else guess["model"] == nxt)]
 
 
-def answered(kind: str, data: dict, answer: str, now: datetime) -> str | None:
-    """The Boss's yes / no to a prediction or to the offer to automate it. Returns what it was taken as."""
+def answered(kind: str, data: dict, answer: str, now: datetime, *, log=None) -> str | None:
+    """Record feedback or release an explicitly reviewed opening."""
     context = data.get("context") or {}
+    if kind == 'automate' and context.get('effect') == 'open':
+        return _answer_open(context, answer, now, log)
     said = "no" if _NO.search(answer) else "yes" if _YES.search(answer) else None
     if not context or not said:
         return None
@@ -254,6 +277,35 @@ def answered(kind: str, data: dict, answer: str, now: datetime) -> str | None:
         _mute_suggestion(key, said == "yes")  # she does it herself now: no "Open it?" notification as well
     logger.info(f"Foresight: {kind} {key} → {said}")
     return said
+
+
+def _answer_open(context, answer, now, log):
+    from services.activity.log import activity_log
+    from services.automation import intent
+    from services.proactive.watcher import is_busy
+    from services.remote.context import remote_origin
+    reply = intent.normalize_command(answer)
+    if intent.remote_request.get() or remote_origin.get() or not 0 <= (now - datetime.fromisoformat(context['at'])).total_seconds() <= 120:
+        return None
+    if reply in intent.NEGATIVE_REPLIES:
+        with knowledge.db() as conn:
+            conn.execute("UPDATE foresight_patterns SET auto=-1 WHERE pattern=? AND nxt=?", (context['pattern'], context['thing']))
+        if context['pattern'].startswith('time:'):
+            _mute_suggestion(context['pattern'], False)
+        return 'no'
+    if reply not in intent.AFFIRMATIVE_REPLIES or is_busy():
+        return None
+    log = log or activity_log
+    with knowledge.db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM foresight_patterns WHERE pattern=? AND nxt=? AND auto=1",
+                           (context['pattern'], context['thing'])).fetchone()
+        today = now.date().isoformat()
+        if not row or row['last_run'] == today or row['frm'] != 'time' and row['frm'] != log.app:
+            return None
+        conn.execute("UPDATE foresight_patterns SET last_run=? WHERE pattern=?", (today, row['pattern']))
+    _act(log, row, now, context['reason'])
+    return 'yes'
 
 
 def _mute_suggestion(habit_key: str, muted: bool) -> None:
@@ -272,14 +324,12 @@ def verified_rows() -> list[tuple[datetime, str, str, str | None]]:
 # ── Acting ────────────────────────────────────────────────────────────────────
 
 def _act(log, row, now: datetime, why: str) -> None:
-    """An automated pattern's moment: open it (if it isn't running), say so, and not again today."""
+    """Carry out the owner's fresh, target-bound approval and report the opening."""
     # ponytail: apps and sites only; a project (terminal + folder + sites) still needs its "resume" command
     from services.activity.log import running_apps
     from services.automation.system_control import system
     from services.reminders.service import show_toast
 
-    with knowledge.db() as conn:
-        conn.execute("UPDATE foresight_patterns SET last_run = ? WHERE pattern = ?", (now.date().isoformat(), row["pattern"]))
     kind, name = row["nxt"].split(":", 1)
     if kind == "app" and name in running_apps():
         return
@@ -293,7 +343,7 @@ def _act(log, row, now: datetime, why: str) -> None:
     command = {"action": "open_app", "app_name": name} if kind == "app" else {"action": "open_url", "url": name}
     log.log_command({**command, "origin": "automatic"}, True)
     shown = habits._name(row["nxt"])
-    show_toast("F.R.I.D.A.Y", f"Opened {shown}, Boss — {why}. Say \"stop opening {shown}\" and I won't.")
+    show_toast("F.R.I.D.A.Y", f"Opened {shown}, Boss — {why}. Say \"stop opening {shown}\" to end these prompts.")
     logger.info(f"Foresight: opened {name} by herself ({row['pattern']})")
 
 
@@ -337,7 +387,7 @@ def summary(now: datetime | None = None) -> str:
         auto = [habits._name(r["nxt"]) + (f" after {habits._name('app:' + r['frm'])}" if r["frm"] != "time" else " at its usual time")
                 for r in conn.execute("SELECT frm, nxt FROM foresight_patterns WHERE auto = 1")]
     lines.append(f"You've confirmed {yes} of my predictions and corrected {no}.")
-    lines.append("I open by myself: " + ", ".join(auto) + "." if auto else "Nothing is automated yet: I'll ask first.")
+    lines.append("I offer to open: " + ", ".join(auto) + "." if auto else "Nothing is automated yet: I'll ask first.")
     return "\n".join(lines)
 
 

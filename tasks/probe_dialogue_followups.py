@@ -24,6 +24,7 @@ logger.addHandler(logging.NullHandler())
 
 from providers import failover
 from providers.ollama.runtime import runtime
+from providers.failover import prepare_local_model
 from services.mind import cognition as cognition_module, cognition_context, dialogue as dialogue_module
 from services.mind import executive, reasoning, life_state, talk, review_metrics
 from services.mind.brain_memory import BrainMemory
@@ -151,7 +152,7 @@ async def main(args):
         if args.warmup:
             started = time.monotonic()
             async with asyncio.timeout(60):
-                warmup = await runtime.prepare_model()
+                warmup = await prepare_local_model()
             warmup['wall_seconds'] = round(time.monotonic() - started, 3)
             warmup['condition'] = 'Explicit prompt-free readiness before this warm-model probe; production budgets are unchanged.'
         for round_number in range(args.rounds):

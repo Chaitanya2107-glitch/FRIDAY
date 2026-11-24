@@ -28,8 +28,9 @@ import asyncio
 import ctypes
 import json
 import re
+import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.config import config
 from core.logger import logger
@@ -157,8 +158,8 @@ async def _deliver(text: str, *, urgent=False) -> None:
     await _notify(text, urgent=urgent)
 
 
-async def _notify(text, offered_buttons=None, *, kind="nudge", subject="", urgent=False):
-    return await notifications.notify(text, offered_buttons, kind=kind, subject=subject, transport=show_toast, urgent=urgent)
+async def _notify(text, offered_buttons=None, *, kind="nudge", subject="", urgent=False, on_sent=None):
+    return await notifications.notify(text, offered_buttons, kind=kind, subject=subject, transport=show_toast, urgent=urgent, on_sent=on_sent)
 
 
 async def _suggest_habit(now: datetime) -> None:
@@ -203,12 +204,14 @@ async def _check_mode_left_on(now: datetime) -> None:
                       buttons.offer("mode_end", mode=on["name"]))
 
 
-async def tick(now: datetime | None = None) -> None:
+async def tick(now: datetime | None = None, *, schedule_alerts=True) -> None:
     now = now or datetime.now()
     from services.mind import care_safeguard, coaching_runtime
     if care_safeguard.active(now):
         _held.clear()
         return
+    if schedule_alerts:
+        await _schedule_alerts(now)
     try:
         await coaching_runtime.tick(now)
     except Exception as error:
@@ -224,35 +227,83 @@ async def tick(now: datetime | None = None) -> None:
         await _tick(now)
         if nudges_active(now.timestamp()) and not await asyncio.to_thread(is_busy) and idle_seconds() < ACTIVE_WITHIN_SECONDS:
             if proposal := await asyncio.to_thread(reasoning.suggestion, now):
-                await _notify(proposal["text"], kind="reasoning", subject=f"reasoning:{proposal['id']}")
+                await notifications.notify(proposal['text'], kind='reasoning', subject=f"reasoning:{proposal['id']}",
+                                           transport=show_toast, basis=proposal.get('evidence'))
     await notifications.dispatch(batch)
+
+
+async def _schedule_alerts(now):
+    from services import briefing_runtime
+    from services.mind import care_safeguard
+    if care_safeguard.active(now) or briefing_runtime.schedule_alerts_installed():
+        return
+    for warning in await asyncio.to_thread(timetable.due_warnings, now):
+        subject = warning.split(" starts in ")[0]
+        link = college.link_for(subject)
+        offered = buttons.offer("join", url=link) if link else None
+        await notifications.scheduled_alert(warning, offered, kind="class_warning", subject=subject,
+                                            transport=show_toast, now=now)
+    for alert in await asyncio.to_thread(deadlines.due_alerts, now):
+        await notifications.scheduled_alert(alert, kind="deadline", transport=show_toast, now=now)
+
+
+async def _close_day_if_due(now, daily_rhythm):
+    day = now.date().isoformat()
+    if not daily_rhythm['nightly_due'] or load_state().get('last_journal') == day:
+        return
+    _save_state(last_journal=day)  # Claim before any background work that can suspend.
+    note = await asyncio.to_thread(journal.evening_note, now.date(), activity_log)
+    if note:
+        await _deliver(note)
+    from services.activity import insights
+    from services.mind import brain, humour, learner, life, reflection, talk
+    from services.mind.consolidation import consolidation
+    from services.memory.semantic import semantic_memory
+    await asyncio.to_thread(insights.write_command_dataset, activity_log)
+    await asyncio.to_thread(humour.fade)
+    await asyncio.to_thread(talk.fade)
+    await asyncio.to_thread(life.close_day, now)
+    try:
+        await asyncio.to_thread(consolidation.nightly, now)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        logger.warning('Nightly consolidation unavailable (%s)', type(error).__name__)
+    await asyncio.to_thread(brain.nightly, now)
+    await asyncio.to_thread(semantic_memory.fade, now)
+    await reflection.reflect(activity_log, now.date())
+    try:
+        await asyncio.to_thread(learner.train, activity_log, now)
+    except Exception as error:
+        logger.warning('Nightly training failed (%s)', type(error).__name__)
+    if now.weekday() == 6:
+        monday = weekly.monday_of(now.date())
+        note = await asyncio.to_thread(weekly.note, monday, activity_log)
+        if note:
+            await asyncio.to_thread(weekly.write, monday, activity_log)
+            await _deliver(note)
+        from services.memory import semantic
+        if review := await asyncio.to_thread(semantic.weekly_review, now):
+            await _deliver(review)
 
 
 async def _tick(now: datetime) -> None:
     now = now or datetime.now()
+    started = time.monotonic()
     await _check_mode_left_on(now)  # first: a forgotten quiet mode shouldn't keep her quiet this minute
     busy = await asyncio.to_thread(is_busy)
     if roast := personality.game_toast(activity_log.app, now):  # a game in study mode / class — shown while gaming too
-        await _deliver(roast)
         from services import body_state
-        body_state.push("roast", roast)  # her body side-eyes you
+        await _notify(roast, on_sent=lambda: body_state.push('roast', roast))
     for alert in await asyncio.to_thread(limits.due_alerts, activity_log, now):  # app limits — shown while gaming too
         await _deliver(alert)
     from services import briefing_runtime
-    for warning in ([] if briefing_runtime.schedule_alerts_installed() else timetable.due_warnings(now)):
-        if link := college.link_for(warning.split(" starts in ")[0]):  # a Meet link saved for the subject: [Join]
-            await _notify(warning, buttons.offer("join", url=link), kind="class_warning",
-                          subject=warning.split(" starts in ")[0])
-        else:
-            await _notify(warning, kind="class_warning", subject=warning.split(" starts in ")[0])
     from services.automation import modes  # avoid an import cycle at startup
+    from services.mind import rhythm
+    daily_rhythm = await asyncio.to_thread(rhythm.current, now, laptop_idle=idle_seconds())
     offer = college.class_start_offer(now, idle_seconds() < ACTIVE_WITHIN_SECONDS, bool(modes.active()))
     if offer:  # "DBMS has started. Start study mode for DBMS?" [Yes] [No]
         await _notify(offer["text"], buttons.offer(
             "mode", mode="study", subject=offer["subject"], loop=asyncio.get_running_loop()),
             kind="class_mode", subject=offer["subject"])
-    for alert in ([] if briefing_runtime.schedule_alerts_installed() else deadlines.due_alerts(now)):
-        await _deliver(alert)
     for ask in attendance.due_asks(now):  # "DBMS (9:30–10:30 AM): attended?" [Attended] [Missed] — same
         await _notify(ask["text"], buttons.offer(
             "attendance", date=ask["date"], subject=ask["subject"], start=ask["start"],
@@ -300,41 +351,7 @@ async def _tick(now: datetime) -> None:
         if summary:
             await _deliver(summary)
 
-    if (
-        not busy
-        and config.JOURNAL_HOUR.strip().isdigit()
-        and now.hour >= int(config.JOURNAL_HOUR)
-        and load_state().get("last_journal") != now.date().isoformat()
-    ):
-        _save_state(last_journal=now.date().isoformat())  # first, so a failure can't repeat it every minute
-        note = await asyncio.to_thread(journal.evening_note, now.date(), activity_log)
-        if note:
-            await _deliver(note)
-        from services.activity import insights  # the night's training data: every command, with features
-        await asyncio.to_thread(insights.write_command_dataset, activity_log)
-        from services.mind import humour, learner, reflection  # FRIDAY thinks over the day and updates what it knows
-        await asyncio.to_thread(humour.fade)
-        from services.mind import talk
-        await asyncio.to_thread(talk.fade)
-        from services.mind import brain, life
-        await asyncio.to_thread(life.close_day, now)  # her own diary
-        await asyncio.to_thread(brain.nightly, now)   # old thoughts and passing topics are forgotten
-        from services.memory.semantic import semantic_memory
-        await asyncio.to_thread(semantic_memory.fade, now)  # unused guesses about the Boss weaken, weak ones go
-        await reflection.reflect(activity_log, now.date())
-        try:
-            await asyncio.to_thread(learner.train, activity_log, now)  # retrain; the model leads only while it wins
-        except Exception as e:
-            logger.warning(f"Nightly training failed: {e}")
-        if now.weekday() == 6:  # Sunday: the weekly summary too
-            monday = weekly.monday_of(now.date())
-            note = await asyncio.to_thread(weekly.note, monday, activity_log)
-            if note:
-                await asyncio.to_thread(weekly.write, monday, activity_log)
-                await _deliver(note)
-            from services.memory import semantic  # what FRIDAY guessed about you this week, to check
-            if review := await asyncio.to_thread(semantic.weekly_review, now):
-                await _deliver(review)
+    await _close_day_if_due(now, daily_rhythm)
 
     if not busy:
         await _check_sessions(now)
@@ -365,8 +382,12 @@ async def _tick(now: datetime) -> None:
     # FRIDAY speaking on her own, when she's learned it's welcome
     followup = await task_followups.tick(now, busy, idle_seconds())
     waiting = followup or await asyncio.to_thread(task_followups.pending_conversation)
-    if not waiting and (said := await talk.tick(activity_log, now, busy, idle_seconds())):  # late nights are learned, not blocked
-        await talk.deliver(said)  # spoken AND a notification (for when the laptop is muted)
+    if not waiting and not busy and daily_rhythm['phase'] == 'winding_down' and idle_seconds() < ACTIVE_WITHIN_SECONDS:
+        from services.mind.evening import offer_graph
+        if not talk.load().get('pending'):
+            waiting = await offer_graph(now)
+    if not waiting and (said := await talk.tick(activity_log, now, busy, idle_seconds())):
+        await talk.deliver(said, now=now + timedelta(seconds=time.monotonic() - started))
     if not busy:
         await reflection.reflect_if_due(activity_log, now)  # rethink what she knows every few hours
         from services.memory import episodes
@@ -376,12 +397,17 @@ async def _tick(now: datetime) -> None:
 async def run_proactive() -> None:
     """Runs for the lifetime of the API process; started from app.py's lifespan."""
     logger.info("Briefing and nudges started")
-    while True:
-        try:
-            await tick()
-        except Exception as e:
-            logger.error(f"Briefing/nudge check failed: {e}", exc_info=True)
-        await asyncio.sleep(CHECK_SECONDS)
+    async def run(check):
+        while True:
+            try:
+                await check(datetime.now())
+            except Exception as e:
+                logger.error(f"Briefing/nudge check failed: {e}", exc_info=True)
+            await asyncio.sleep(CHECK_SECONDS)
+
+    async with asyncio.TaskGroup() as group:
+        group.create_task(run(_schedule_alerts))
+        group.create_task(run(lambda now: tick(now, schedule_alerts=False)))
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────

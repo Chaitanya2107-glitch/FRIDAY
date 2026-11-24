@@ -153,7 +153,7 @@ def test_summary_when_a_session_ends_with_end_mode_button_while_it_is_on(log, mo
     shown = []
     monkeypatch.setattr(watcher, "show_toast", lambda title, text, links=None, **kw: shown.append((text, links)))
     log._insert(at=t(14).isoformat(), kind="app", app="code", title="main.py", duration_s=30 * 60)
-    modes._set_active({"name": "work", "opened": [], "volume": None, "quiet": True})
+    modes._set_active({"name": "work", "opened": [], "volume": None, "quiet": False})
     asyncio.run(watcher._check_sessions(t(14, 45)))
     asyncio.run(watcher._check_sessions(t(14, 46)))  # once only
     assert len(shown) == 1

@@ -14,6 +14,10 @@ def match_command(text):
     text = normalize_command(text)
     if re.fullmatch(r"reasoning status|show (?:your )?reasoning|what (?:have you|did you) infer|show reasoning proposals", text, re.I):
         return {"action": "show"}
+    if match := re.fullmatch(r"(?P<action>confirm|reject) date proposal (?P<id>\d+)", text, re.I):
+        if match["action"].lower() == "confirm":
+            return {"action": "date_confirm", "id": match["id"]}
+        return {"action": "date_reject", "id": match["id"]}
     if match := re.fullmatch(r"(?P<action>apply|reject) reasoning proposal (?P<id>\d+)", text, re.I):
         return {"action": match["action"].lower(), "id": match["id"]}
     if re.fullmatch(r"reconsider (?:my situation|my plans|my facts)", text, re.I):
@@ -27,6 +31,11 @@ async def run(parsed):
     if remote_request.get() and not (telegram_owner.get() and parsed["action"] == "show"):
         return ActionResult(False, 'Reasoning evidence and controls are local-only. Ask me at the laptop.', repeatable=False)
     try:
+        if parsed["action"] in {"date_confirm", "date_reject"}:
+            accepted = parsed["action"] == "date_confirm"
+            subject = await asyncio.to_thread(reasoning_store.review_date_proposal, int(parsed["id"]), accepted)
+            message = f"Saved the proposed change for {subject}." if accepted else f"Rejected the date proposal for {subject}."
+            return ActionResult(True, message, memory_message="Reviewed a date proposal.", repeatable=False)
         if parsed["action"] == "review":
             result = await reasoning.analyze("")
             return ActionResult(result["status"] == "completed", "Reconsidered the current evidence." if result["status"] == "completed"
@@ -38,13 +47,22 @@ async def run(parsed):
                 lines.append(f"Conclusion {claim['id']} ({claim['kind']}, {claim['status']}, estimated confidence {claim['confidence']:.0%}): "
                              f"{claim['text']} Evidence: {', '.join(claim['evidence'])}." +
                              (f" Apply with: apply reasoning proposal {claim['id']}." if claim["status"] == "proposed" else ""))
+            if not remote_request.get():
+                for proposal in await asyncio.to_thread(reasoning_store.date_proposals):
+                    day = proposal['start'] or 'date unknown'
+                    if proposal['end'] and proposal['end'] != proposal['start']:
+                        day += f" through {proposal['end']}"
+                    lines.append(f"Date proposal {proposal['id']}. {proposal['subject']}, {proposal['status']}, {day}. "
+                                 f"From your report: {proposal['quote']!r}. "
+                                 f"Say confirm date proposal {proposal['id']} or reject date proposal {proposal['id']}.")
             for memory in data.get('memories', []):
                 lines.append(f"Historical memory thread (inferred topic: {memory['subject']}): " + '; '.join(
                     f"{source['id']} ({source['noted']}): " +
                     (f"answer to {source['question']!r}: " if source.get('question') else '') + source['text']
                     for source in memory['excerpts']) + '. Original reports, not verified current facts.')
             return ActionResult(True, "\n".join(lines) or "No current reasoning conclusions recorded.",
-                                memory_message="Reviewed local reasoning facts and proposals.", repeatable=False)
+                                memory_message="Reviewed local reasoning facts and proposals.", repeatable=False,
+                                speech="" if lines else None)
         ident = int(parsed["id"])
         if parsed["action"] == "reject":
             claim = await asyncio.to_thread(reasoning_store.get, ident, datetime.now())

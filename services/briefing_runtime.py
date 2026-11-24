@@ -15,7 +15,9 @@ def installed(name='briefings'):
 
 
 def schedule_alerts_installed():
-    return installed('schedule_alerts')
+    from services.plugin_runtime import current_manager
+    manager = current_manager()
+    return bool(manager and manager.get_service('schedule_alerts'))
 
 
 def service():

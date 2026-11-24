@@ -16,6 +16,18 @@ class Client:
     def load(self, section):
         return self._request('GET', '/customization/' + section)
 
+    def model_mode(self, mode=None):
+        path = '/customization/model'
+        if mode is None:
+            return self._request('GET', path)
+        return self._request('PUT', path, json={'mode': mode})
+
+    def status_report_time(self, time=None):
+        path = '/customization/status-report'
+        if time is None:
+            return self._request('GET', path)
+        return self._request('PUT', path, json={'time': time})
+
     def save(self, section, original, name, value, revision):
         return self._request('PUT', '/customization/' + section,
             json={'original': original, 'name': name, 'value': value, 'revision': revision})

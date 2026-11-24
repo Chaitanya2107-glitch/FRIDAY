@@ -81,7 +81,11 @@ def send(kind, payload, ttl=900):
         raise Denied('phone_effect_unknown')
     with service.effects:
         service.check(service.epoch, device)
-        return data.put(device['id'], kind, payload, ttl=min(ttl, 86400))
+        identity = data.put(device['id'], kind, payload, ttl=min(ttl, 86400))
+    if kind in {'text', 'notice'}:
+        from services.mind.speech_budget import budget
+        budget.note_text(payload['text'])
+    return identity
 
 
 def cancel(identity):

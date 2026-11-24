@@ -18,6 +18,7 @@ class MoodEngine:
         self.temporary = self.idle_event = None
         self.sequence = 0
         self.current = self._idle()
+        self.persona_face = 'idle'
         self.last_night = float('-inf')
         self.preview, self.preview_at = [], 0
 
@@ -51,6 +52,8 @@ class MoodEngine:
     def _refresh(self):
         selected = self._select()
         current = {k: selected[k] for k in self._idle()} if selected else self._idle()
+        if not selected and self.persona_face != 'idle' and not (self.calm() or self.quiet()):
+            current['mood'] = self.persona_face
         if current != self.current:
             previous = self.current['mood']
             self.current = current
@@ -103,6 +106,12 @@ class MoodEngine:
             return
         with self.lock:
             owner = self.owner(topic, payload, plugin_id)
+            if topic == 'mood.persona':
+                face = payload.get('face')
+                if plugin_id == 'friday' and face in ('idle', 'happy', 'curious', 'sleepy', 'focused', 'waving'):
+                    self.persona_face = face
+                    self._refresh()
+                return
             if topic == 'mood.set':
                 self.request(payload, owner=owner, plugin_id=plugin_id)
                 return

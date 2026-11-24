@@ -41,6 +41,8 @@ For requests outside these examples, use a simple literal command; the local rou
 
 
 async def understand(message: str, provider_name: str) -> str:
+    if config.FRIDAY_LLM == 'off':
+        return ""
     from providers.failover import complete_with_failover
     try:
         async with asyncio.timeout(22):
@@ -59,8 +61,11 @@ async def understand(message: str, provider_name: str) -> str:
 
 async def answer(message: str, provider_name: str, history: list[Message], max_tokens: int,
                  context: str | None = None) -> ProviderResponse:
+    from services.mind import replies
+    if config.FRIDAY_LLM == 'off':
+        return await replies.answer(message, provider_name, context, model_assist=False)
     from providers.failover import complete_with_failover
-    prompt = config.SYSTEM_PROMPT + (
+    prompt = config.SYSTEM_PROMPT + await asyncio.to_thread(replies.tone_instruction) + (
         "\nYou are FRIDAY's conversational language layer. Answer naturally and understand typos. "
         "You have no tools in this turn. Never claim to have performed a computer action, saved "
         "a memory, set a reminder or scheduled future work. Only FRIDAY's local executor can do that. "
@@ -89,10 +94,10 @@ async def answer(message: str, provider_name: str, history: list[Message], max_t
         if channel != 'telegram':
             from services.mind.working_memory import working_memory
             working = await asyncio.to_thread(working_memory.snapshot, channel=channel)
-            from services.mind.temporal_memory import situation
-            current = await asyncio.to_thread(situation)
-            from services.mind.life_state import current as behavioral_state
-            current['life_state'] = await asyncio.to_thread(behavioral_state)
+            from services.mind import state
+            present = await asyncio.to_thread(state.snapshot)
+            current = state.as_json(present['situation'])
+            current['life_state'] = state.as_json(present['life_state'])
     except Exception as error:
         logger.debug('Dialogue recall unavailable (%s)', type(error).__name__)
     messages = [Message(m.role, m.content[:4000]) for m in history[-12:]]
@@ -135,7 +140,7 @@ async def answer(message: str, provider_name: str, history: list[Message], max_t
         async with asyncio.timeout(35):
             result = await complete_with_failover(provider_name, messages, prompt, max_tokens,
                 purpose="conversation", attempt_timeout=10)
-        if not result.content.strip() or result.tool_calls:
+        if not result.content.strip() or result.tool_calls or (getattr(result, "metadata", None) or {}).get("incomplete"):
             raise ValueError("Expected a conversational reply")
         if working and working.get('available'):
             unchanged = await asyncio.to_thread(working_memory.revalidate, working, channel=channel)
@@ -145,7 +150,6 @@ async def answer(message: str, provider_name: str, history: list[Message], max_t
         return result
     except Exception as error:
         logger.debug("Conversational AI unavailable (%s)", type(error).__name__)
-        return ProviderResponse(
-            content="I can't reach my language AI right now, Boss. You can still use direct commands like "
-                    "'open Chrome' or 'set volume to 30'. Try conversation again shortly.",
-            provider="local", model="friday", tokens_used=0)
+        local = await replies.answer(message, provider_name, context, model_assist=False)
+        return ProviderResponse(content=f"I can't reach my language AI right now. {local.content}",
+                                provider="local", model="friday", tokens_used=0)

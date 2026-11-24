@@ -57,7 +57,8 @@ def _open_command(msg: str) -> dict | None:
         return None
     target = words.clean_target(rest)
 
-    app_name = words.resolve_app(target, system.list_apps())
+    registered = system.list_apps()
+    app_name = words.resolve_app(target, registered) or words.resolve_app(words._TARGET_PREFIX.sub('', rest), registered)
     if app_name:
         return _action("open_app", app_name=app_name)
     folder = words.resolve_folder(target)

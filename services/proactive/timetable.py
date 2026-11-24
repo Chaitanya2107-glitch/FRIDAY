@@ -36,7 +36,7 @@ subjects_path = config.MEMORY_DIR / "subjects.json"
 WARN_MINUTES = 10
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 TIMETABLE_ACTIONS = {"show_classes", "next_class", "add_class", "remove_class", "clear_timetable",
-                     "set_subjects", "add_subject", "list_subjects"}  # import is async
+                     "set_subjects", "add_subject", "list_subjects", "course_schedule", "course_faculty"}  # import is async
 MAX_IMAGE_SIDE = 2000
 READ_PROMPT = (
     "This is a weekly class timetable. {which}Reply with JSON only, no other text — a list of objects "
@@ -85,6 +85,9 @@ _NOT_ASK = re.compile(r"\b(?:file|sent|send|screen|photo|picture|pic|image|pdf|s
                       r"change|update|import|read|scan|why|how)\b", re.I)
 _ASK_DAY = re.compile(rf"\b(?P<day>today|tonight|tomorrow|tmrw|tmr|tom|{_DAY})\b", re.I)
 _DAY_SHORT = {"tonight": "today", "tmrw": "tomorrow", "tmr": "tomorrow", "tom": "tomorrow"}
+_COURSE_TIME = re.compile(r"^(?:what time is|when(?:'s| is)|show me the time of) (?:my |the )?(?P<course>.+?) "
+                          r"(?:class|lecture)(?: (?:on |for )?(?P<day>.+))?$", re.I)
+_COURSE_FACULTY = re.compile(r"^(?:who teaches|who is the (?:instructor|teacher|faculty) for) (?:my |the )?(?P<course>.+)$", re.I)
 
 _warned: set[str] = set()  # classes already warned about today
 
@@ -327,6 +330,14 @@ def match_timetable_command(text: str) -> dict | None:
                 "section": (m["section"] or "").upper()}
     if _NEXT.match(text):
         return {"type": "system", "action": "next_class"}
+    from services.automation.command_slots import calendar, course, has_command_tail
+    if not has_command_tail(text):
+        if m := _COURSE_TIME.fullmatch(text):
+            if m['course'].casefold() not in {'next', 'first', 'last'}:
+                return {'type': 'system', 'action': 'course_schedule', 'course': course(m['course']),
+                        'query': m['course'], 'day': calendar(m['day'] or 'today')}
+        if m := _COURSE_FACULTY.fullmatch(text):
+            return {'type': 'system', 'action': 'course_faculty', 'course': course(m['course']), 'query': m['course']}
     if m := _SHOW.match(text):
         return {"type": "system", "action": "show_classes", "day": (m["day"] or "today").lower()}
     if m := _ADD.match(text):
@@ -382,6 +393,20 @@ def _run(parsed: dict, now: datetime | None = None) -> str:
     action = parsed["action"]
     if action == "next_class":
         return next_class(now)
+    if action in {'course_schedule', 'course_faculty'}:
+        from services.automation.command_slots import course
+        name = course(parsed['query'])
+        if not name or name != parsed['course']:
+            raise AutomationError(f"Which course do you mean by {parsed['query']}? Use its saved name or code.")
+        if action == 'course_faculty':
+            from services.college.catalogs import subject_for
+            faculty = subject_for(name).get('faculty')
+            return f'{faculty} teaches {name}.' if faculty else f"I don't have an instructor saved for {name}."
+        from services.proactive.deadlines import parse_due
+        day = parse_due(parsed['day'], now).date()
+        found = [row for row in classes_for_date(day) if course(row['subject']) == name]
+        return (f'{name} on {day:%A, %d %b}: ' + ', '.join(_describe(row) for row in found) + '.'
+                if found else f'No {name} class on {day:%A, %d %b}.')
     if action == "set_subjects":
         _save_subjects(parsed["names"])
         return f"Got it: {', '.join(parsed['names'])}."

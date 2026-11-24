@@ -169,6 +169,63 @@ def shortcut_target(path: str) -> str:
         comtypes.CoUninitialize()
 
 
+def open_owned(path):
+    """Return a process token only when ShellExecute supplies an exact new process."""
+    executable = Path(path)
+    if executable.suffix.lower() != '.exe' or not executable.is_file():
+        os.startfile(path)
+        return None
+    try:
+        from win32com.shell import shell, shellcon
+    except ImportError:
+        os.startfile(path)
+        return None
+    comtypes.CoInitialize()
+    try:
+        result = shell.ShellExecuteEx(fMask=shellcon.SEE_MASK_NOCLOSEPROCESS, lpFile=str(path), nShow=1)
+    finally:
+        comtypes.CoUninitialize()
+    handle = result.get('hProcess')
+    if not handle:
+        return None
+    try:
+        pid = ctypes.windll.kernel32.GetProcessId(wintypes.HANDLE(int(handle)))
+        process = psutil.Process(pid)
+        if pid <= 0 or Path(process.exe()).resolve() != executable.resolve():
+            return None
+        return dict(type='app_process', pid=pid, created=process.create_time(), exe=str(executable.resolve()))
+    except (psutil.Error, OSError):
+        return None
+    finally:
+        handle.Close()
+
+
+def close_owned(token):
+    pid, created, executable = token['pid'], token['created'], token['exe']
+    def matches(process):
+        return (process.pid == pid and process.create_time() == created
+                and Path(process.exe()).resolve() == Path(executable))
+    try:
+        if not matches(psutil.Process(pid)):
+            return 'That app process already closed or changed.'
+    except psutil.NoSuchProcess:
+        return 'That app process already closed.'
+    except psutil.Error:
+        raise ValueError('Windows did not allow verification of the app process.') from None
+    windows = app_windows(matches)
+    if len(windows) != 1:
+        raise ValueError('I can’t identify one window to close safely.')
+    from win32process import GetWindowThreadProcessId
+    try:
+        if GetWindowThreadProcessId(windows[0])[1] != pid or not matches(psutil.Process(pid)):
+            return 'That app window already closed or changed.'
+    except (OSError, psutil.Error):
+        return 'That app window already closed or changed.'
+    if not close_windows(windows):
+        raise ValueError('Windows did not accept the close request.')
+    return 'Asked Windows to close the app window. Save prompts stay open.'
+
+
 def app_windows(is_app: Callable[[psutil.Process], bool]) -> list[int]:
     """Visible, titled top-level windows (what Alt+F4 would close) whose process `is_app` accepts."""
     user32 = ctypes.windll.user32

@@ -17,7 +17,6 @@ from urllib.parse import quote
 from core.config import config
 from core.errors import ProviderError
 from core.logger import logger
-from providers.registry import get_provider
 from providers.base_provider import Message
 from services.automation.command_tools import COMMAND_ROUTER_PROMPT, build_tools, tool_call_to_action
 from services.automation.clipboard_history import clipboard_history

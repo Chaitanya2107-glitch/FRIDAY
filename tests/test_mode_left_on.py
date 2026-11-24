@@ -26,7 +26,7 @@ def test_left_on(name, off, idle, expected):
 @pytest.fixture
 def watching(monkeypatch):
     toasts, ended = [], []
-    modes._set_active({"name": "work", "opened": [], "volume": 50, "quiet": True, "since": 1.0})
+    modes._set_active({"name": "work", "opened": [], "volume": 50, "quiet": False, "since": 1.0})
     monkeypatch.setattr(watcher, "_off_mode_since", None)
     monkeypatch.setattr(watcher, "_reminded_mode", None)
     monkeypatch.setattr(watcher, "idle_seconds", lambda: 5)
@@ -57,6 +57,15 @@ def test_apps_that_fit_the_mode_never_nag(watching, monkeypatch):
     for minute in range(0, 120, 5):
         asyncio.run(watcher._check_mode_left_on(start + timedelta(minutes=minute)))
     assert toasts == [] and ended == []
+
+
+def test_quiet_suppresses_mode_nags_and_allows_existing_automatic_end(watching):
+    toasts, ended = watching
+    modes._set_active({**modes.active(), 'quiet': True})
+    start = datetime(2026, 9, 30, 20)
+    for minute in (0, 16, 46):
+        asyncio.run(watcher._check_mode_left_on(start + timedelta(minutes=minute)))
+    assert not toasts and ended == ['work']
 
 
 def test_away_for_an_hour_ends_it(watching, monkeypatch):

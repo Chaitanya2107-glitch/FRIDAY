@@ -247,6 +247,20 @@ class SettingsWindow:
         ttk.Label(header, text='Your people, shortcuts and workspaces. All in one place.', style='Muted.TLabel').grid(row=2, column=0, sticky='w')
         self.connection = tk.StringVar(root, 'Connecting…')
         ttk.Label(header, textvariable=self.connection, style='Brand.TLabel').grid(row=1, column=1, padx=(12, 0))
+        self.model_enabled = tk.BooleanVar(root)
+        self.model_mode = None
+        self.model_option = ttk.Checkbutton(header, text='Model assistance', variable=self.model_enabled,
+                                           command=self.change_model, state='disabled')
+        self.model_option.grid(row=2, column=1, sticky='e', padx=(12, 0))
+        footer = ttk.Frame(root, padding=(26, 12))
+        footer.grid(row=2, column=0, sticky='ew')
+        footer.columnconfigure(0, weight=1)
+        self.report_at = tk.StringVar(root)
+        ttk.Label(footer, text='Daily status report · HH:MM · blank turns it off', style='Muted.TLabel').grid(row=0, column=1, padx=8)
+        self.report_entry = ttk.Entry(footer, width=7, textvariable=self.report_at)
+        self.report_entry.grid(row=0, column=2)
+        self.report_save = ttk.Button(footer, text='Save time', command=self.change_report_time)
+        self.report_save.grid(row=0, column=3, padx=(8, 0))
         self.notebook = ttk.Notebook(root)
         self.notebook.grid(row=1, column=0, sticky='nsew', padx=24)
         self.editors = {}
@@ -255,14 +269,47 @@ class SettingsWindow:
             self.editors[section] = editor
             self.notebook.add(editor, text=label)
         self.notebook.bind('<<NotebookTabChanged>>', self.changed)
-        ttk.Label(root, text='Ctrl+S  Save     Ctrl+N  New     F5  Reload', style='Muted.TLabel',
-                  padding=(26, 12)).grid(row=2, column=0, sticky='w')
+        ttk.Label(footer, text='Ctrl+S  Save     Ctrl+N  New     F5  Reload', style='Muted.TLabel').grid(row=0, column=0, sticky='w')
         root.bind('<Control-s>', lambda event: self.current().save())
         root.bind('<Control-n>', lambda event: self.current().new())
-        root.bind('<F5>', lambda event: self.current().reload())
+        root.bind('<F5>', lambda event: self.reload())
         root.bind('<MouseWheel>', self.scroll)
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.timer = root.after(50, self.poll)
+        self.refresh_runtime_settings()
+
+    def model_updated(self, data, error):
+        if error is None:
+            self.model_mode = data['mode']
+        else:
+            self.connection.set(str(error))
+        self.model_enabled.set(self.model_mode == 'on')
+        self.model_option.configure(state='normal' if self.model_mode is not None else 'disabled')
+
+    def refresh_runtime_settings(self):
+        self.submit(lambda: self.client.model_mode(), self.model_updated)
+        self.submit(lambda: self.client.status_report_time(), self.report_time_updated)
+
+    def reload(self):
+        self.current().reload()
+        self.refresh_runtime_settings()
+
+    def change_model(self):
+        mode = 'on' if self.model_enabled.get() else 'off'
+        self.model_option.configure(state='disabled')
+        self.submit(lambda: self.client.model_mode(mode), self.model_updated)
+
+    def report_time_updated(self, data, error):
+        self.report_save.configure(state='normal')
+        if error:
+            self.connection.set(str(error))
+        else:
+            self.report_at.set(data['time'])
+
+    def change_report_time(self):
+        time = self.report_at.get().strip()
+        self.report_save.configure(state='disabled')
+        self.submit(lambda: self.client.status_report_time(time), self.report_time_updated)
 
     def current(self):
         return list(self.editors.values())[self.notebook.index('current')]

@@ -83,6 +83,26 @@ def welcome(where: str, state: dict | None = None) -> float:
     return liked / (liked + disliked)
 
 
+def learned_dial() -> float:
+    """Combine learned evidence for the character sheet with one copy of the prior."""
+    state = load()
+    liked, disliked = PRIOR
+    for where in SITUATIONS:
+        a, b = _belief(state, where)
+        liked += max(0, a - PRIOR[0])
+        disliked += max(0, b - PRIOR[1])
+    return liked / (liked + disliked)
+
+
+def allowed(now=None) -> bool:
+    from services.automation import intent, personality
+    from services.mind import emotion
+    from services.remote.context import remote_origin
+
+    return (not intent.remote_request.get() and not remote_origin.get()
+            and personality.is_on() and not emotion.snapshot(now)["owner_stressed"])
+
+
 def should_joke(where: str, weight: float = 1.0, rng: random.Random = random) -> bool:
     """Thompson sampling: joke with a chance drawn from the belief. weight > 1 for obvious openings (a game in study mode)."""
     liked, disliked = _belief(load(), where)
@@ -112,7 +132,15 @@ def reaction(text: str) -> str:
 def hear(message: str, now: float | None = None) -> str | None:
     """The Boss said something: if it answers a recent joke, learn from it. Returns the reaction, or None."""
     try:
-        return _hear(message, now)
+        from services.automation import intent, personality
+        from services.mind import character
+        from services.remote.context import remote_origin
+        if intent.remote_request.get() or remote_origin.get():
+            return None
+        felt = _hear(message, now)
+        if personality.match_personality_command(message.strip(" .!?")) is None:
+            character.observe(message, felt, now)
+        return felt
     except Exception as e:  # learning must never break a reply
         logger.info(f"Humour learning skipped: {e}")
         return None
@@ -147,10 +175,8 @@ def _hear(message: str, now: float | None) -> str | None:
 
 def after_chat_reply() -> None:
     """A chat reply went out with humour allowed: a laugh or a complaint next tells whether it worked."""
-    from services.automation import personality
-
     try:
-        if personality.is_on() and welcome(where := situation()) >= 0.25:
+        if allowed() and welcome(where := situation()) >= 0.25:
             told(where, "chat")
     except Exception as e:  # learning must never break a reply
         logger.info(f"Humour bookkeeping skipped: {e}")

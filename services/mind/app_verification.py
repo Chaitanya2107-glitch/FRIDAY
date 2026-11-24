@@ -1,4 +1,4 @@
-"""Scoped app-definition replies, handled before generic chat or personal-fact learning."""
+"""Scoped owner verification for app, course, term, place and topic explanations."""
 
 import re
 import threading
@@ -18,7 +18,11 @@ _turns = OrderedDict()
 _REPLY = re.compile(
     r"^(?:yes|yep|yeah|correct|right|no|nope|incorrect|wrong|maybe|not sure|i don't know|"
     r"i do not know|i'm not sure|i am not sure|that's right|that is right|that's wrong|that is wrong|"
-    r"actually\b.*|yes[, ]+.*|yeah[, ]+.*|no[, ]+.*|it's\b.*|it is\b.*|this app is\b.*|a .+|an .+)[.! ]*$", re.I)
+    r"actually\b.*|yes[, ]+.*|yeah[, ]+.*|no[, ]+.*|it's\b.*|it is\b.*|this (?:app|course|term|place) is\b.*|(?:a|an|the) .+)[.! ]*$", re.I)
+_NAMED = re.compile(r'^(?:(?:learn|identify|verify) (?:the )?(?:(app|course|term|place|topic) (?:code )?)?'
+                    r'|(?:what is|what\'s) (?:the )?(app|course|term|place|topic) (?:code )?)(.+)$', re.I)
+_GENERAL = re.compile(r"^(?:what (?:is|are)|what's) (.+)$", re.I)
+PRIVATE_PROPOSAL = 'I asked you to review an unverified explanation.'
 
 
 def _begin_turn():
@@ -81,7 +85,7 @@ def handle_reply(text, *, remote=False, now=None):
         if talk._SHUSH.search(text) and (len(text.split()) <= talk.SHUSH_WORDS or
                 re.search(r"\b(?:stop asking|no more questions|don't ask me|do not ask me)\b", text, re.I)):
             talk.pause(talk.SHUSH_PAUSE_MINUTES)
-            return ActionResult(True, "I'll stop asking for now. The app explanation stays unconfirmed.", repeatable=False)
+            return ActionResult(True, "I'll stop asking for now. The explanation stays in the inbox.", repeatable=False)
         if not _REPLY.fullmatch(text.strip()):
             _retire(pending)
             return None
@@ -95,23 +99,26 @@ def handle_reply(text, *, remote=False, now=None):
         if (not pending.get("offered") or not 0 <= now - offered <= talk.ANSWER_SECONDS
                 or not offer_current(pending)):
             _retire(pending)
-            return ActionResult(False, "That app explanation is no longer the current question. Ask me to learn the app again.",
+            return ActionResult(False, "That explanation is no longer the current question. Ask me to verify it again.",
                                 repeatable=False)
         with inquiry.answer_guard(pending.get("inquiry_id"), pending.get("question")) as valid:
             result = app_learning.resolve(pending["app_verification"], text, datetime.fromtimestamp(now)) if valid else "stale"
+        from services.mind.life_state import reaction
+        if result != 'stale':
+            reaction(pending, 'acted_on' if result in {'confirmed', 'corrected'} else 'answered', now)
         if result == "uncertain":
             # Keep the proposal, but don't keep a dangling approval target.
             _retire(pending, "ignored")
-            return ActionResult(True, "I'll leave that app explanation unconfirmed.", repeatable=False)
+            return ActionResult(True, "I'll leave that explanation unconfirmed.", repeatable=False)
         _retire(pending, "answered" if result != "stale" else "withheld")
-        if result in {"confirmed", "corrected"}:
+        if result in {"confirmed", "corrected"} and pending['app_verification']['key'].startswith(('app:', 'topic:')):
             from services.activity.log import activity_log
             activity_log.resort()
         messages = {
-            "confirmed": "Saved the app explanation you confirmed. That doesn't yet tell me your current task.",
-            "corrected": "Saved your correction as the app explanation.",
-            "rejected": "Discarded that model explanation. You can tell me what the app is for.",
-            "stale": "That app explanation changed, so I haven't applied this answer.",
+            "confirmed": "Saved the explanation you confirmed.",
+            "corrected": "Saved your correction as the explanation.",
+            "rejected": "Discarded that explanation.",
+            "stale": "That explanation changed. Ask me to verify the current version.",
         }
         return ActionResult(result != "stale", messages[result], repeatable=False)
 
@@ -133,6 +140,10 @@ async def handle(text, log, *, remote=False):
     report = await asyncio.to_thread(local_turn)
     if report is not None:
         return report
+    from services.automation.command_words import normalize_command
+    command = normalize_command(text).strip(' ?.!')
+    if re.fullmatch(r"what (?:did|have) you learn(?:ed)? this week", command, re.I):
+        return ActionResult(True, await asyncio.to_thread(app_learning.week, datetime.now()), repeatable=False, speech='')
     if correction := re.fullmatch(r"this app is (.{4,300})[.!]?", text.strip(), re.I):
         seen = activity_awareness.recent_context(log)
         if not seen:
@@ -150,30 +161,67 @@ async def handle(text, log, *, remote=False):
             knowledge.teach(key, correction[1])
         await asyncio.to_thread(log.resort)
         return ActionResult(True, "Saved your explanation of this app.", repeatable=False)
-    if text.strip().lower().rstrip("?.!") not in {
-            "learn this app", "identify this app", "what is this app", "verify this app"}:
+    if command.casefold() in {"learn this app", "identify this app", "what is this app", "verify this app"}:
+        seen = activity_awareness.recent_context(log)
+        if not seen:
+            return ActionResult(False, "Open the app first, then ask me to learn it.", repeatable=False)
+        return await _present(seen['app'], 'app', generation, observed=True)
+    if match := _NAMED.fullmatch(command):
+        kind = match[1] or match[2]
+        if kind is None and command.casefold().startswith('identify '):
+            return None  # Existing feature aliases such as identifying the current song own this wording.
+        if kind is None and command.casefold().startswith('learn '):
+            from services.proactive.timetable import match_timetable_command
+            if (match_timetable_command(command) or {}).get('action') == 'import_timetable':
+                return None
+        return await _present(match[3], kind.casefold() if kind else None, generation)
+    return None
+
+
+async def general(text, *, remote=False):
+    """General lookups run after deterministic commands and before language-model routing."""
+    from services.automation.command_words import normalize_command
+    from services.mind import training
+    from services.mind.lessons import personal_question
+    text = normalize_command(text).strip(' ?.!')
+    match = _GENERAL.fullmatch(text)
+    if (remote or not match or personal_question(text) or training.local_reply(text)
+            or re.search(r'\b(?:my|mine|your|our|this|that|me|you|us|weather|like|how|when|why|of (?:a|an|the))\b', match[1], re.I)):
         return None
-    seen = activity_awareness.recent_context(log)
-    if not seen:
-        return ActionResult(False, "Open the app first, then ask me to learn it.", repeatable=False)
+    return await _present(match[1], None, _begin_turn())
+
+
+async def _present(name, kind, generation, *, observed=False):
+    import asyncio
     from services.automation import intent
-    intent.cancel_pending_confirmation()
+    from services.mind import knowledge
+    with _lock:
+        if generation != _generation:
+            return ActionResult(False, 'A newer request replaced that question.', repeatable=False)
+        intent.cancel_pending_confirmation()
     now = datetime.now()
-    key = knowledge.key_for("app", seen["app"])
-    thing = await asyncio.to_thread(knowledge.get, key)
+    if kind in {None, 'course'}:
+        from services.automation.command_slots import course
+        try:
+            saved = course(name)
+        except (OSError, ValueError) as error:
+            from core.logger import logger
+            logger.debug('Local course lookup unavailable (%s)', type(error).__name__)
+            saved = None
+        if saved:
+            return ActionResult(True, f'{saved} is on your timetable.', repeatable=False)
+    thing = await asyncio.to_thread(knowledge.requested_thing, name, kind, now)
     if not thing:
-        from services.activity.categories import app_category
-        with knowledge.db() as conn:
-            knowledge.see(conn, "app", seen["app"], app_category(seen["app"]), now)
-        thing = knowledge.get(key)
-    if thing.about:
-        return ActionResult(True, knowledge.describe(thing), repeatable=False)
+        return ActionResult(False, 'Give me the short name of the thing you want me to identify.', repeatable=False)
+    key = thing.key
+    if thing.placed:
+        return ActionResult(True, knowledge.describe(thing) if observed else f'{thing.name}. {thing.about or thing.category}.', repeatable=False)
+    await knowledge.look_up(thing, now, requested=True)
+    if (current := knowledge.get(key)) and current.about:
+        return ActionResult(True, f'{current.name}. {current.about}', repeatable=False)
     rows = app_learning.pending(key)
     if not rows:
-        await knowledge.look_up(thing, now)
-        rows = app_learning.pending(key)
-    if not rows:
-        return ActionResult(False, "App explanation lookup is unavailable or disabled. You can tell me what this app is for.",
+        return ActionResult(False, "The lookup hasn't produced a review item yet. Ask me to verify the name again.",
                             repeatable=False)
     proposal = rows[0]
     question = app_learning.question(proposal)
@@ -183,20 +231,20 @@ async def handle(text, log, *, remote=False):
     known = {**proposal, "kind": "app_verification"}
     with _lock:
         if generation != _generation:
-            return ActionResult(False, "A newer request replaced that app question.", repeatable=False)
+            return ActionResult(False, "A newer request replaced that question.", repeatable=False)
         talk.retire_question()
         with inquiry._db() as db:
             epoch = db.execute("SELECT epoch FROM inquiry_meta WHERE id=1").fetchone()[0]
             cursor = db.execute("INSERT INTO inquiry_jobs(signature,token,epoch,expires,state,explicit,created,retry_at,"
                 "question,topic,reason,basis,gap,gap_version) VALUES(?,?,?,?,'prepared',1,?,0,?,?,?,?,?,?)",
                 (fingerprint(known), uuid.uuid4().hex, epoch, time.time() + LEASE_SECONDS, time.time(), question,
-                 "app explanation " + key, "Owner explicitly requested app identification.",
+                 "app explanation " + key, "Owner explicitly requested identification.",
                  json.dumps({ref: fingerprint(known)}), ref + ":verify", fingerprint({
                      name: known[name] for name in ("key", "token", "revision", "description", "category")})))
             ident = cursor.lastrowid
         talk._record({"say": question, "inquiry_id": ident, "explicit": True, "app_generation": generation,
                       "app_verification": app_learning.identity(proposal)}, "asked", time.time())
-    return ActionResult(True, question, repeatable=False)
+    return ActionResult(True, question, memory_message=PRIVATE_PROPOSAL, repeatable=False, speech="")
 
 
 def awaiting():

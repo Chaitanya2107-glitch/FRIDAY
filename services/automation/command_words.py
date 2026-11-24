@@ -31,7 +31,7 @@ from services.automation.task_phrases import rephrase_task_command
 LEADING_FILLER = (
     r"(?:hey|hi|hello|ok|okay|yo)\s+friday",
     r"friday",
-    r"please", r"pls", r"plz", r"kindly", r"just", r"quickly", r"now",
+    r"please", r"pls", r"plz", r"kindly", r"just", r"quickly", r"now", r"um", r"uh", r"erm",
     r"(?:can|could|would|will)\s+(?:you|u)",
     r"(?:can|could|would|will)\s+(?:you|u)\s+be\s+able\s+to",
     r"is\s+it\s+possible\s+for\s+you\s+to",
@@ -46,7 +46,7 @@ TRAILING_FILLER = (
     r"thanks", r"thank\s+you", r"real\s+quick", r"quickly",
     # her name, but not the day: "classes on friday", "due friday", "add class DBMS on friday …"
     "".join(rf"(?<!\b{w} )" for w in ("on", "by", "this", "next", "last", "every", "until", "till", "for",
-                                      "from", "to", "due", "before", "after", "project", "resume", "continue")) + "friday",
+                                      "from", "to", "due", "deadlines", "before", "after", "project", "resume", "continue")) + "friday",
 )
 
 # Dropped around a target: "open the chrome app" → "chrome"
@@ -398,7 +398,7 @@ TIMES_WORDS = {"once": 1, "twice": 2, "two": 2, "three": 3, "four": 4, "five": 5
 # Whole messages that mean a key press
 KEY_PHRASES = {
     "select all": "ctrl+a", "select everything": "ctrl+a",
-    "undo": "ctrl+z", "undo that": "ctrl+z", "redo": "ctrl+y", "redo that": "ctrl+y",
+    "undo": "ctrl+z", "redo": "ctrl+y", "redo that": "ctrl+y",
     "save": "ctrl+s", "save it": "ctrl+s", "save this": "ctrl+s", "save the file": "ctrl+s",
     "copy that": "ctrl+c", "copy this": "ctrl+c", "copy the selection": "ctrl+c",
     "paste": "ctrl+v", "paste it": "ctrl+v", "paste that": "ctrl+v",
@@ -492,11 +492,9 @@ _TARGET_SUFFIX = re.compile(rf"(?:\s+(?:{_alternation(TARGET_SUFFIXES)}))+$")
 
 def strip_leading_filler(message: str) -> str:
     """Like normalize_command, but only from the front: dictated text keeps its ending."""
-    text = message.strip().replace("’", "'")
-    previous = None
-    while text != previous:
-        previous = text
-        text = _LEADING.sub("", text, count=1)
+    text = message.strip()
+    while match := _LEADING.match(text.replace('’', "'")):
+        text = text[match.end():]
     return text
 
 
@@ -573,6 +571,8 @@ _PARAMETER_PARAPHRASES = tuple((re.compile(pattern, re.I | re.S), replacement) f
 ))
 _SENTENCE_PATTERNS = tuple((re.compile(pattern, re.I), replacement) for pattern, replacement in (
     (r"get\s+(?P<target>.+?)\s+(?:running|started|launched|open)", r"open \g<target>"),
+    (r"(?P<verb>open|launch|close|quit) (?:the |my )?(?:app|application|program) (?:named |called )?(?P<target>.+)",
+     r"\g<verb> \g<target>"),
     (r"bring\s+(?P<target>.+?)\s+to\s+(?:the\s+)?(?:front|foreground)", r"open \g<target>"),
     (r"(?:close|shut)\s+(?P<target>.+?)\s+down", r"close \g<target>"),
     (r"(?:take|capture|grab|snap|save)\s+(?:a\s+|an\s+)?(?:picture|image|snapshot|photo)\s+of\s+"
@@ -644,7 +644,8 @@ STEP_STARTERS = (
     | {"play", "pause", "resume", "skip", "next", "previous", "unpause"}
     | {"shuffle", "repeat", "queue", "like", "unlike"}
     | {"type", "write", "press", "hit", "select", "undo", "redo", "paste", "scroll", "refresh"}
-    | {"what", "tell", "time", "date", "day"}
+    | {"what", "tell", "time", "date", "day", "when", "who", "move", "push", "shift", "postpone", "reschedule",
+       "message", "send", "text", "whatsapp", "list", "check", "read", "add", "delete", "cancel"}
 )
 _STEP_SPLIT = re.compile(r"\s*(?:,\s*)?\b(?:and\s+then|and\s+also|then|and|also)\b\s*|\s*[;,]\s*|\s+&\s+", re.I)
 _QUOTED_STEP_TEXT = re.compile(r'''"(?:\\.|[^"\\])*(?:"|$)|(?<!\w)'(?:\\.|[^'\\])*(?:'|$)''')

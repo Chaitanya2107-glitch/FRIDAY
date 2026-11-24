@@ -47,7 +47,7 @@ from pycaw.pycaw import AudioUtilities
 
 from core.logger import logger
 from core.errors import FridayError
-from services.automation import app_finder, clipboard
+from services.automation import app_finder, autonomy, clipboard
 
 
 # ── Custom error ──────────────────────────────────────────────────────────────
@@ -170,10 +170,10 @@ class SystemControl:
         origin.note_open(app=Path(path).stem.lower() if str(path).lower().endswith(".exe") else None)
 
         try:
-            # os.startfile delegates to the shell (ShellExecute), which correctly
-            # handles plain .exe paths, .lnk shortcuts, and shell:/ms- URIs alike —
-            # subprocess.Popen can only launch real executables directly.
-            os.startfile(path)
+            # ShellExecute also handles shortcuts and registered URI handlers.
+            with autonomy.record('open_app', tokens=[{'type': 'unavailable'}]) as receipt:
+                if token := app_finder.open_owned(path):
+                    receipt.checkpoint([token])
             threading.Thread(target=self._focus_when_open, args=(key, app_name), daemon=True,
                              name="focus-opened-app").start()
             return f"Opening {app_name.title()}."
@@ -381,28 +381,26 @@ class SystemControl:
         moved = 0
         errors = 0
 
-        for file in self._files_to_organise(path):
-            ext = file.suffix.lower()
-            target_folder_name = ext_to_folder.get(ext, "Others")
-            target_folder = path / target_folder_name
+        with autonomy.record('organise_folder') as receipt:
+            for file in self._files_to_organise(path):
+                target_folder = path / ext_to_folder.get(file.suffix.lower(), "Others")
+                try:
+                    target_folder.mkdir(exist_ok=True)
+                    new_path, counter = target_folder / file.name, 1
+                    while new_path.exists() or new_path.is_symlink():
+                        new_path = target_folder / f"{file.stem}_{counter}{file.suffix}"
+                        counter += 1
 
-            try:
-                target_folder.mkdir(exist_ok=True)
-                new_path = target_folder / file.name
-
-                # Don't overwrite existing files — add a number suffix
-                counter = 1
-                while new_path.exists():
-                    new_path = target_folder / f"{file.stem}_{counter}{file.suffix}"
-                    counter += 1
-
-                file.rename(new_path)
-                moved += 1
-                logger.debug(f"Moved: {file.name} → {target_folder_name}/")
-
-            except Exception as e:
-                logger.warning(f"Could not move {file.name}: {e}")
-                errors += 1
+                    token = {'type': 'unavailable'} if file.is_symlink() else autonomy.move_token(file, new_path)
+                    receipt.add(token)
+                    file.rename(new_path)
+                    moved += 1
+                    logger.debug(f"Moved: {file.name} → {target_folder.name}/")
+                except (OSError, ValueError) as error:
+                    logger.warning(f"Could not move {file.name}: {error}")
+                    errors += 1
+            if not moved and errors:
+                receipt.status = 'failed'
 
         result = f"Organised {moved} file{'' if moved == 1 else 's'} in {folder_display_name(folder_path)}."
         if errors:

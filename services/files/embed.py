@@ -12,7 +12,9 @@ import time
 import numpy as np
 
 from core.config import config
+from core.errors import ModelUnavailable
 from core.logger import logger
+from providers.failover import run_embedding
 from services.automation import media_control  # noqa: F401 — loads the right msvcp140.dll before torch
 
 DIMENSIONS = 384
@@ -41,10 +43,19 @@ def encode(texts: list[str]) -> np.ndarray:
     """Unit-length float32 vectors, one row per text."""
     if not texts:
         return np.zeros((0, DIMENSIONS), dtype=np.float32)
-    with _lock:
-        model = _load()
-        vectors = model.encode(texts, batch_size=BATCH_SIZE, normalize_embeddings=True, show_progress_bar=False)
-        return np.asarray(vectors, dtype=np.float32)
+    def operation():
+        with _lock:
+            model = _load()
+            return _validated(model.encode(texts, batch_size=BATCH_SIZE, normalize_embeddings=True,
+                                           show_progress_bar=False), len(texts))
+    return run_embedding("file-embeddings", operation, timeout=8)
+
+
+def _validated(values, count):
+    values = np.asarray(values, dtype=np.float32)
+    if values.ndim != 2 or len(values) != count or not np.isfinite(values).all():
+        raise ModelUnavailable("The embedding model returned invalid vectors.")
+    return values
 
 
 def encode_query(text: str) -> np.ndarray:
@@ -60,17 +71,20 @@ def encode_local(texts: list[str], *, deadline=None) -> np.ndarray:
     check_deadline()
     if not texts:
         return np.zeros((0, DIMENSIONS), dtype=np.float32)
-    # Do not queue recall behind file indexing or other embedding work.
-    if not _lock.acquire(blocking=False):
-        raise RuntimeError('Local embedding model busy')
-    try:
-        model = _load(local_only=True)
-        vectors = []
-        for offset in range(0, len(texts), BATCH_SIZE):
-            check_deadline()  # Cold loading or the previous batch may outlast the request.
-            vectors.append(model.encode(texts[offset:offset + BATCH_SIZE], batch_size=BATCH_SIZE,
-                normalize_embeddings=True, show_progress_bar=False))
-        check_deadline()
-        return np.asarray(np.concatenate(vectors), dtype=np.float32)
-    finally:
-        _lock.release()
+    def operation():
+        if not _lock.acquire(blocking=False):
+            raise InterruptedError('Local embedding model busy')
+        try:
+            model = _load(local_only=True)
+            vectors = []
+            for offset in range(0, len(texts), BATCH_SIZE):
+                check_deadline()
+                vectors.append(model.encode(texts[offset:offset + BATCH_SIZE], batch_size=BATCH_SIZE,
+                    normalize_embeddings=True, show_progress_bar=False))
+            check_deadline()
+            return _validated(np.concatenate(vectors), len(texts))
+        finally:
+            _lock.release()
+
+    remaining = max(0, deadline - time.monotonic()) if deadline is not None else 3
+    return run_embedding("file-embeddings", operation, timeout=min(3, remaining))

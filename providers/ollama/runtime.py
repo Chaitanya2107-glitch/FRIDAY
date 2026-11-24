@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -30,6 +31,21 @@ class OllamaRuntime:
         self.last_used = 0.0
         self.monitor = None
         self.retry_after = 0.0
+        self.crashed_at = None
+        self.restart_attempts = deque()
+        self.restart_limit = False
+
+    def health(self):
+        crashed = self.crashed_at is not None or (self.process is not None and self.process.poll() is not None)
+        enabled = config.FRIDAY_LLM == 'on'
+        return {'owned': self.process is not None, 'needs_restart': enabled and crashed,
+                'restart_limit': enabled and self.restart_limit}
+
+    async def recover_owned(self):
+        if not self.health()['needs_restart']:
+            return False
+        await self.ensure_running(config.OLLAMA_BASE_URL)
+        return True
 
     async def ready(self, base_url):
         try:
@@ -40,11 +56,29 @@ class OllamaRuntime:
             return False
 
     async def ensure_running(self, base_url):
+        from providers.execution import require_enabled
         async with self.lock:
-            if time.monotonic() < self.retry_after:
+            require_enabled()
+            now = time.monotonic()
+            if self.process and self.process.poll() is not None:
+                self.crashed_at = self.crashed_at or now
+            if now < self.retry_after:
                 raise ProviderError("Ollama is unavailable; using FRIDAY's saved remarks.")
             if await self.ready(base_url):
+                if self.process and self.process.poll() is not None:
+                    self.process = None
+                self.crashed_at = None
                 return
+            require_enabled()
+            if self.crashed_at is not None:
+                while self.restart_attempts and now - self.restart_attempts[0] >= 600:
+                    self.restart_attempts.popleft()
+                if self.restart_limit or len(self.restart_attempts) >= 3:
+                    self.restart_limit = True
+                    raise ProviderError("FRIDAY's Ollama server reached its restart limit.")
+                if now < self.crashed_at + 2 ** (len(self.restart_attempts) + 1):
+                    raise ProviderError("FRIDAY's Ollama server is backing off before restart.")
+                self.restart_attempts.append(now)
             url = urlsplit(base_url)
             if (not config.OLLAMA_AUTO_START or url.hostname not in {"localhost", "127.0.0.1", "::1"}
                     or url.scheme != "http" or url.path.strip("/") or url.username or url.password):
@@ -70,12 +104,16 @@ class OllamaRuntime:
                     if self.process.poll() is not None:
                         raise ProviderError("Ollama exited during startup.")
                     if await self.ready(base_url):
+                        self.crashed_at = None
                         if self.monitor is None or self.monitor.done():
                             self.monitor = asyncio.create_task(self.watch_idle())
                         return
                     await asyncio.sleep(0.2)
                 raise ProviderError("Ollama startup timed out.")
             except BaseException:
+                if self.process is not None:
+                    self.crashed_at = time.monotonic()
+                    self.restart_limit = len(self.restart_attempts) >= 3
                 await self.stop_owned()
                 self.retry_after = time.monotonic() + 30
                 raise
@@ -163,6 +201,9 @@ class OllamaRuntime:
 
     async def check_idle(self):
         async with self.lock:
+            if self.process and self.process.poll() is not None:
+                self.crashed_at = self.crashed_at or time.monotonic()
+                self.process = None
             if self.process and not self.active and time.monotonic() - self.last_used >= max(1, config.OLLAMA_IDLE_SECONDS):
                 await self.stop_owned()
 
@@ -178,6 +219,10 @@ class OllamaRuntime:
             self.monitor = None
         async with self.lock:
             await self.stop_owned()
+            self.crashed_at = None
+            self.restart_attempts.clear()
+            self.restart_limit = False
+            self.retry_after = 0.
 
 
 runtime = OllamaRuntime()

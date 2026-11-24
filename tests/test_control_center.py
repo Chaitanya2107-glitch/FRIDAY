@@ -34,6 +34,10 @@ class FakeClient:
         self.threads.append(threading.get_ident())
         return copy.deepcopy(self.data)
 
+    def request(self, method, path):
+        self.calls.append((method, path))
+        return {'text': 'Course (1)\nPhysics'}
+
     def chat(self, message, provider, speak):
         self.calls.append(('chat', message, provider, speak))
         self.threads.append(threading.get_ident())
@@ -205,8 +209,8 @@ def test_ordinary_commands_do_not_require_target(message):
     assert not focus.requires_target(message)
 
 
-def test_six_pages_offline_library_and_examples_never_execute(window):
-    assert set(window.pages) == {'home', 'library', 'chat', 'guides', 'tools', 'status'}
+def test_pages_offline_library_and_examples_never_execute(window):
+    assert set(window.pages) == {'home', 'library', 'chat', 'guides', 'tools', 'status', 'life_graph'}
     assert all(call == ('snapshot',) for call in window.client.calls)
     window.client.data = {'online': False, 'error': 'not running'}
     window.refresh()
@@ -225,6 +229,14 @@ def test_six_pages_offline_library_and_examples_never_execute(window):
     library.query.set('no-such-feature')
     assert not library.list.get_children()
     assert 'No matches' in library.detail.text.get('1.0', 'end')
+
+
+def test_life_graph_is_a_read_only_local_view(window):
+    window.show('life_graph')
+    spin(window, lambda: not window.running)
+    assert window.client.calls[-1] == ('GET', '/api/v1/mind/life-graph')
+    assert 'Physics' in window.graph_text.get('1.0', 'end')
+    assert window.graph_text.cget('state') == 'disabled'
 
 
 def test_guides_render_search_and_missing_file_without_crashing(window, monkeypatch):

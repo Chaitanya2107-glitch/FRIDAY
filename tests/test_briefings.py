@@ -330,13 +330,13 @@ def test_rechecks_eligibility_after_build_and_before_queued_speech(tmp_path):
 def test_night_deferral_across_midnight_does_not_consume_next_night(tmp_path):
     context = {'fullscreen': True}
     brief, clock, api = make_brief(tmp_path, desktop=lambda: context)
-    clock.value = clock.now().replace(hour=23, minute=55)
+    clock.value = clock.now().replace(hour=23, minute=20)
     brief.tick()
-    first_day = clock.now().date().isoformat()
-    clock.advance(minutes=10)
+    assert 'night' in brief.state['pending']
+    clock.advance(minutes=45)
     context['fullscreen'] = False
     brief.tick()
-    assert brief.state['delivered']['night'] == first_day
+    assert 'night' not in brief.state['delivered'] and 'night' not in brief.state['pending']
     clock.value = clock.now().replace(hour=22, minute=30)
     brief.tick()
-    assert len(api.payloads('briefing.ready')) == 2
+    assert len(api.payloads('briefing.ready')) == 1

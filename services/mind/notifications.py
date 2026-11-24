@@ -4,9 +4,10 @@ import asyncio
 import contextvars
 import hashlib
 import json
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +68,8 @@ class Candidate:
     public: bool = True
     class_state: list | None = field(default=None, repr=False)
     basis: dict | None = field(default=None, repr=False)
+    reason: str = field(default='', repr=False)
+    on_sent: object = field(default=None, repr=False)
 
 
 @dataclass
@@ -251,6 +254,7 @@ async def consider(candidates, now, observations=None) -> dict[str, tuple[bool, 
             from services.mind import task_followups
             if not await asyncio.to_thread(task_followups.deliverable, candidate.subject, now):
                 send, reason = False, "The task, owner preferences or attention changed; task followup withheld."
+        candidate.reason = reason
         event = cognition.record("notification_decision", "proactive", json.dumps({
             "kind": candidate.kind, "candidate": candidate.text, "reason": reason}, ensure_ascii=False),
             status="approved" if send else "suppressed" if choice else "unavailable", public=candidate.public)
@@ -265,7 +269,10 @@ def proposal_current(candidate, now):
     return bool(proposal and proposal["status"] == "proposed")
 
 
-def _reject_current(candidate, event, reason, status="suppressed"):
+def _reject_current(candidate, event, reason, now, status="suppressed"):
+    from services.mind.speech_budget import budget
+    budget.decide(now, candidate.kind, candidate.text, reason=candidate.reason or reason,
+                  blocked=reason, public=candidate.public)
     cognition.finish(event, status)
     cognition.record("notification_decision", "proactive", json.dumps({
         "kind": candidate.kind, "candidate": candidate.text, "reason": reason,
@@ -281,12 +288,36 @@ async def _followup_result(candidate, event, state, now):
             logger.warning("Task followup receipt unavailable: %s", type(error).__name__)
 
 
+async def scheduled_alert(text, offered_buttons=None, *, kind, subject="", transport, now):
+    """Deliver a due alert from the schedule, checking the owner rule at submission."""
+    from services.mind.care_safeguard import active
+    from services.proactive import buttons
+    if active(now) or kind == "class_warning" and not schedule.allowed(now.date(), subject):
+        return False
+    event = cognition.record("notification_decision", "proactive", json.dumps({
+        "kind": kind, "candidate": text, "reason": "An owner-scheduled alert is due."}),
+        status="approved", public=True)
+    buttons.bind_decision(offered_buttons, event)
+    try:
+        if kind == "class_warning" and not schedule.allowed(now.date(), subject):
+            cognition.finish(event, "suppressed")
+            return False
+        accepted = await asyncio.to_thread(transport, "F.R.I.D.A.Y", text, offered_buttons, cognition_public=True)
+    except Exception as error:
+        logger.warning("Scheduled notification transport failed (%s)", type(error).__name__)
+        accepted = False
+    cognition.finish(event, "submitted" if accepted is True else "failed" if accepted is False else "attempted")
+    return accepted is True
+
+
 async def dispatch(batch: Batch) -> bool:
     from services.mind.care_safeguard import active
+    from services.mind.speech_budget import budget, delivery_id
     if active(batch.now):
         return False
     if not batch.candidates:
         return False
+    started = time.monotonic()
     # Bound each reasoning call; excess candidates remain undelivered.
     candidates = batch.candidates[:30]
     decisions = await consider(candidates, batch.now, batch.observations)
@@ -294,32 +325,36 @@ async def dispatch(batch: Batch) -> bool:
     for i, candidate in enumerate(candidates):
         approved, event = decisions[str(i)]
         if not approved:
+            await asyncio.to_thread(budget.decide, batch.now, candidate.kind, candidate.text,
+                                    reason=candidate.reason or 'Proactive notice reviewed.', blocked='notice withheld at review',
+                                    public=candidate.public)
             await _followup_result(candidate, event, "withheld", batch.now)
             continue
         try:
-            current = await _context(batch.now)
+            now = batch.now + timedelta(seconds=time.monotonic() - started)
+            current = await _context(now)
             if not _suitable(candidate, decisions.context, current, batch.now):
                 _reject_current(candidate, event,
-                    "Facts, activity or notification settings changed, or an interruption is unsuitable before delivery.")
+                    "Facts, activity or notification settings changed, or an interruption is unsuitable before delivery.", batch.now)
                 await _followup_result(candidate, event, "withheld", batch.now)
                 continue
         except Exception as error:
-            _reject_current(candidate, event, "Current facts and activity could not be rechecked before delivery.", "unavailable")
+            _reject_current(candidate, event, "Current facts and activity could not be rechecked before delivery.", batch.now, "unavailable")
             await _followup_result(candidate, event, "withheld", batch.now)
             logger.warning("Notification context recheck unavailable: %s", type(error).__name__)
             continue
         if candidate.kind == "reasoning" and not proposal_current(candidate, batch.now):
-            _reject_current(candidate, event, "The reasoning proposal changed, expired or is no longer pending before delivery.")
+            _reject_current(candidate, event, "The reasoning proposal changed, expired or is no longer pending before delivery.", batch.now)
             continue
         # A fact can change while the provider is reasoning. Recheck before sending.
         if candidate.kind in {"class_warning", "attendance", "class_mode"} and not schedule.allowed(
                 batch.now.date(), candidate.subject):
-            _reject_current(candidate, event, "A current owner fact cancels this class before delivery.")
+            _reject_current(candidate, event, "A current owner fact cancels this class before delivery.", batch.now)
             continue
         if is_question(candidate):
             from services.mind.inquiry import inquiry
             if not await asyncio.to_thread(inquiry.reserve_external, event, batch.now):
-                _reject_current(candidate, event, 'Shared brain question budget or spacing withheld this interruption.')
+                _reject_current(candidate, event, 'Shared brain question budget or spacing withheld this interruption.', batch.now)
                 await _followup_result(candidate, event, 'withheld', batch.now)
                 continue
         from services.proactive import buttons
@@ -327,38 +362,59 @@ async def dispatch(batch: Batch) -> bool:
             from services.mind import task_followups
             if (not await asyncio.to_thread(task_followups.deliverable, candidate.subject, batch.now)
                     or not await asyncio.to_thread(task_followups.claim, candidate.subject, batch.now)):
-                _reject_current(candidate, event, "The task followup changed or was already claimed before delivery.")
+                _reject_current(candidate, event, "The task followup changed or was already claimed before delivery.", batch.now)
                 await _followup_result(candidate, event, "withheld", batch.now)
                 continue
-        buttons.bind_decision(candidate.buttons, event)
         if active(batch.now):
-            _reject_current(candidate, event, 'Automatic nudges are paused.')
+            _reject_current(candidate, event, 'Automatic nudges are paused.', batch.now)
             await _followup_result(candidate, event, 'withheld', batch.now)
             continue
+        evidence = {'event': event, **{k: v for k, v in batch.observations.items() if type(v) in (float, int)}}
+        if candidate.public:
+            evidence.update(candidate.basis or {})
+            if candidate.subject:
+                evidence['subject'] = candidate.subject
+        now = batch.now + timedelta(seconds=time.monotonic() - started)
+        speech_id = await asyncio.to_thread(budget.decide, now, candidate.kind, candidate.text,
+            reason=candidate.reason or 'A proactive notice was approved.', evidence=evidence,
+            source=f'notice:{event}' if event else None, public=candidate.public,
+            context=current.get('life_state', {}).get('context'))
+        if speech_id is None:
+            cognition.finish(event, 'suppressed')
+            await _followup_result(candidate, event, 'withheld', batch.now)
+            continue
+        buttons.bind_decision(candidate.buttons, event, speech_id=speech_id)
         try:
             from services.mind.training import urgent_delivery
             token = urgent_delivery.set(candidate.urgent)
+            speech_token = delivery_id.set(speech_id)
             try:
                 accepted = await asyncio.to_thread(candidate.transport, "F.R.I.D.A.Y", candidate.text,
                                                    candidate.buttons, cognition_public=candidate.public)
             finally:
+                delivery_id.reset(speech_token)
                 urgent_delivery.reset(token)
+            await asyncio.to_thread(budget.finish, speech_id, accepted)
             cognition.finish(event, "submitted" if accepted is True else "failed" if accepted is False else "attempted")
             await _followup_result(candidate, event, "submitted" if accepted is True else "failed" if accepted is False else "uncertain", batch.now)
             sent = sent or accepted is True
+            if accepted is True and candidate.on_sent:
+                candidate.on_sent()
         except Exception as error:
+            await asyncio.to_thread(budget.finish, speech_id, False)
             await _followup_result(candidate, event, "uncertain", batch.now)
             cognition.finish(event, "failed")
             logger.warning("Approved notification transport failed: %s", type(error).__name__)
     return sent
 
 
-async def notify(text, buttons=None, *, kind="nudge", subject="", transport, now=None, urgent=False, public=True, basis=None):
+async def notify(text, buttons=None, *, kind="nudge", subject="", transport, now=None, urgent=False, public=True, basis=None, on_sent=None):
     from services.mind.care_safeguard import active
     if kind in PRIVATE_COACHING or active(now or (_batch.get().now if _batch.get() else None)):
         return False
     candidate = Candidate(text, kind, buttons, subject, transport, urgent, public)
     candidate.basis = basis
+    candidate.on_sent = on_sent
     if kind in {"class_warning", "attendance", "class_mode"}:
         from services.proactive import timetable
         moment = now or (_batch.get().now if _batch.get() else datetime.now())
@@ -374,6 +430,18 @@ async def notify(text, buttons=None, *, kind="nudge", subject="", transport, now
 
 
 async def approve_question(line, now):
-    decision = (await consider([Candidate(line["say"], "question", basis={'sources': line.get('basis', []),
-        'reason': line.get('reason', ''), 'purpose': line.get('purpose')}, public=False)], now))["0"]
+    candidate = Candidate(line["say"], "question", basis={'sources': line.get('basis', []),
+        'reason': line.get('reason', ''), 'purpose': line.get('purpose')}, public=False)
+    if line.get('local_decision'):
+        try:
+            context = await _context(now)
+            if not _suitable(candidate, context, context, now):
+                return None
+        except (OSError, ValueError, TimeoutError):
+            return None
+        event = cognition.record("notification_decision", "proactive", json.dumps({
+            "kind": "question", "reason": "One unresolved saved detail warrants a question."}),
+            status="approved", public=False)
+        return {**line, "decision_id": event}
+    decision = (await consider([candidate], now))["0"]
     return {**line, "decision_id": decision[1]} if decision[0] else None

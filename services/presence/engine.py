@@ -118,11 +118,12 @@ def _publish(snapshot):
 engine = PresenceEngine(publish=_publish)
 
 
-def current(now=None):
+def current(now=None, *, laptop_idle=None):
     import sqlite3
     from .inputs import observation
     now = now or datetime.now()
     try:
-        return engine.observe(observation(now), now)
+        data = observation(now) if laptop_idle is None else observation(now, laptop_idle=laptop_idle)
+        return engine.observe(data, now)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, sqlite3.Error):
         return engine.observe(dict(fresh=False, laptop_idle=999999), now)

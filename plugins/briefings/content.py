@@ -51,11 +51,13 @@ class Builder:
         today = self.now().date()
         rows = self.source('schedule', 'due_items', 2) or []
         lines = []
+        listed = []
         for offset in ([0, 1] if morning else [1]):
             found = [row for row in rows if row.due_at and row.due_at.date() == today + timedelta(days=offset)
                      and (not morning or row.kind != 'exam')]
             if found:
                 lines.append(self.line('due_today' if offset == 0 else 'due_tomorrow', items=self.listed(found)))
+                listed.extend(found[:2])
         if morning:
             exams = self.source('schedule', 'upcoming_exams', 7) or []
             if exams:
@@ -63,6 +65,13 @@ class Builder:
                 if len(exams) > 2:
                     detail += f' and {len(exams)-2} more'
                 lines.append(self.line('exams', items=detail))
+                listed.extend(exams[:2])
+        from services.automation.intent import remote_request
+        from services.remote.context import remote_origin
+        from services.screen_watch.commands import local_request
+        if local_request.get() and not remote_request.get() and not remote_origin.get():
+            from services.mind.graph_sources import briefing_connections
+            lines.append(briefing_connections(listed))
         return clean(' '.join(lines), 650)
 
     def work(self, *, morning):

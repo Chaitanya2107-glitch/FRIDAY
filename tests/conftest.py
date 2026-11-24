@@ -1,5 +1,7 @@
 import logging
 import functools
+import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +37,120 @@ from services.computer import agent as computer_module, desktop as computer_desk
 from services.browser import service as automation_service, research as research_service
 from services.browser.worker import ProcessRuntime
 from services.watch import asked as watches
+
+
+def pytest_addoption(parser):
+    group = parser.getgroup("friday model")
+    group.addoption("--llm-mode", choices=("on", "off", "slow", "garbage"), default="on",
+                    help="Run FRIDAY with normal, disabled, slow, or invalid model transport.")
+    group.addoption("--llm-off", action="store_true", help="Shorthand for --llm-mode=off.")
+
+
+def _model_mode(pytest_config):
+    return "off" if pytest_config.getoption("--llm-off") else pytest_config.getoption("--llm-mode")
+
+
+def pytest_report_header(config):
+    return "FRIDAY model profile: " + _model_mode(config)
+
+
+class FakeModelGateway:
+    def __init__(self, monkeypatch):
+        self.patch = monkeypatch
+        self.calls = 0
+
+    def use(self, mode):
+        from core.errors import ModelUnavailable
+        from providers import execution, registry
+        from providers.base_provider import ProviderResponse
+        enabled = "off" if mode == "off" else "on"
+        self.patch.setenv("FRIDAY_LLM", enabled)
+        self.patch.setattr(config, "FRIDAY_LLM", enabled)
+        if mode not in {"slow", "garbage"}:
+            return self
+        run = execution.run_async
+
+        async def invoke(operation):
+            self.calls += 1
+            if mode == "slow":
+                await asyncio.Future()  # Production timeout and cancellation own this.
+            if operation.__name__ == "invoke":
+                return await operation()  # Exercise the public completion decoder.
+            if operation.__name__ == "prepare_model" or operation.__name__ == "simulated_model_readiness":
+                return {"was_resident": True}
+            raise ModelUnavailable("Invalid private model output.")
+
+        def invoke_embedding(operation):
+            self.calls += 1
+            raise ModelUnavailable("Embedding model timed out." if mode == "slow" else "Invalid embedding output.")
+
+        class GarbageProvider:
+            def __init__(self, name, model=None):
+                self.name, self.model = name, model or "test-model"
+
+            def get_model_name(self):
+                return self.model
+
+            async def complete(self, **kwargs):
+                return ProviderResponse(None, self.name, self.model)
+
+            async def complete_structured(self, schema, **kwargs):
+                return ProviderResponse("{invalid JSON", self.name, self.model)
+
+            async def stream(self, **kwargs):
+                yield None
+
+        self.patch.setattr(execution, "_invoke", invoke)
+        self.patch.setattr(execution, "_invoke_embedding", invoke_embedding)
+        if mode == "slow":
+            async def short_timeout(name, operation, *, timeout):
+                return await run(name, operation, timeout=min(timeout, .015))
+            self.patch.setattr(execution, "run_async", short_timeout)
+        self.patch.setattr(registry, "get_provider", GarbageProvider)
+        return self
+
+
+@pytest.fixture
+def fake_gateway(monkeypatch):
+    return FakeModelGateway(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def model_profile(request, monkeypatch):
+    from providers import execution
+    monkeypatch.setattr(execution, "_circuits", {})
+    mode = _model_mode(request.config)
+    # A test with its own provider/SDK contract still runs its specified transport.
+    # These modules verify the meaning and handling of intentional model answers.
+    model_contract = {
+        "test_ai_assistance", "test_ai_language", "test_app_learning", "test_brain",
+        "test_brain_crosscheck", "test_brain_memory", "test_browser_api", "test_browser_automation", "test_caches",
+        "test_checked_recall", "test_college_uploads", "test_commitment_topics",
+        "test_compact_recall", "test_computer_agent", "test_computer_api", "test_conversation_references",
+        "test_curiosity", "test_date_answers", "test_dialogue_followups", "test_dialogue_lifecycle",
+        "test_episodes", "test_executive", "test_failover", "test_first_call_review", "test_fun",
+        "test_git_status", "test_inquiry", "test_intent_classifier", "test_lexical_recall",
+        "test_life_state", "test_llm_gateway", "test_memory_consolidation", "test_memory_review_grounding", "test_network",
+        "test_notification_reasoning", "test_outcome_learning", "test_passive_assistant", "test_reasoning",
+        "test_recall_query_words", "test_relevance_recall", "test_reminder_review", "test_review_reliability",
+        "test_screen_vision", "test_screen_watch_models", "test_screen_watch_routes", "test_semantic_controls_probe",
+        "test_semantic_memory", "test_streaming", "test_talk", "test_telegram_answers", "test_telegram_messages",
+        "test_temporal_corrections", "test_temporal_memory", "test_timetable", "test_voice", "test_web_search",
+        "test_working_memory",
+    }
+    model_cases = {
+        "test_actual_conversation_receives_development_evidence_without_source",
+        "test_api_search_loads_cached_model_without_download",
+        "test_chat_and_voice_providers_receive_telegram_awareness",
+        "test_chat_answers_file_questions_with_the_ai",
+        "test_chat_reply_is_known_by_voice_and_next_provider",
+        "test_embedder_local_first_and_never_downloads_during_embed",
+        "test_notification_review_is_an_explicit_scoped_permission",
+        "test_review_permission_does_not_leak_after_completion",
+    }
+    verifies_model = (Path(request.node.path).stem in model_contract or
+                      getattr(request.node, "originalname", None) in model_cases)
+    FakeModelGateway(monkeypatch).use("on" if verifies_model else mode)
 
 
 async def _no_download(self):

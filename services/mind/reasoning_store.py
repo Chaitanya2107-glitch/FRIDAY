@@ -29,6 +29,9 @@ class ReasoningStore:
             db.execute("""CREATE TABLE IF NOT EXISTS reasoning_conclusions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL, refs TEXT NOT NULL,
                 noted TEXT NOT NULL, status TEXT NOT NULL, outcome TEXT NOT NULL DEFAULT '')""")
+            db.execute("""CREATE TABLE IF NOT EXISTS temporal_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL, refs TEXT NOT NULL,
+                signature TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending')""")
             yield db
 
     def facts(self):
@@ -133,8 +136,8 @@ class ReasoningStore:
             db.execute("BEGIN IMMEDIATE")
             if guard:
                 guard(db)
-            from services.mind.temporal_memory import TemporalMemory
-            TemporalMemory(self.store).save(db, report.situations, now, known)
+            if report.situations:
+                self._save_situations(db, report.situations, now, known)
             from services.mind.consolidation import Consolidation
             Consolidation(self.store).save(db, report.memories, now, known)
             for fact in report.facts:
@@ -159,6 +162,60 @@ class ReasoningStore:
             if finalize:
                 finalize(db)
         return claims
+
+    def _save_situations(self, db, situations, now, known):
+        from services.mind.temporal_memory import TemporalMemory, answer_date_phrase, answer_target
+
+        TemporalMemory.validate(situations, known)
+        owner_answers = []
+        for value in situations:
+            source = known[value.source]
+            target = answer_target(source, known)
+            # An answer to an identified commitment question directly supplies its date.
+            if (not config.AI_ASSIST_ONLY or target and value.supersedes == [target]
+                    and value.quote == source['text'] and value.date_phrase == answer_date_phrase(source)
+                    and value.start and value.status in {'planned', 'postponed'}):
+                owner_answers.append(value)
+                continue
+            refs = {ref: fingerprint(known[ref]) for ref in [value.source, *value.supersedes]}
+            body = value.model_dump()
+            signature = fingerprint({'body': body, 'refs': refs})
+            db.execute('INSERT OR IGNORE INTO temporal_proposals(body,refs,signature) VALUES(?,?,?)',
+                       (redact(json.dumps(body)), json.dumps(refs), signature))
+        TemporalMemory(self.store).save(db, owner_answers, now, known)
+        db.execute("DELETE FROM temporal_proposals WHERE id IN "
+                   "(SELECT id FROM temporal_proposals ORDER BY id DESC LIMIT -1 OFFSET 100)")
+
+    @staticmethod
+    def _available_date_proposal(row, known):
+        return row['status'] == 'pending' and all(
+            ref in known and fingerprint(known[ref]) == version
+            for ref, version in json.loads(row['refs']).items())
+
+    def date_proposals(self):
+        known = self.evidence()
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM temporal_proposals WHERE status='pending' ORDER BY id DESC").fetchall()
+        return [{**json.loads(row['body']), 'id': row['id']} for row in rows
+                if self._available_date_proposal(row, known)][:10]
+
+    def review_date_proposal(self, ident, accept, now=None):
+        from services.mind.temporal_memory import TemporalMemory, TemporalUpdate
+
+        if not config.COGNITION_ENABLED:
+            raise ValueError('Conversation memory is disabled.')
+        known = self.evidence()
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM temporal_proposals WHERE id=?', (ident,)).fetchone()
+            if row is None or not self._available_date_proposal(row, known):
+                raise ValueError('That date proposal changed or was already reviewed.')
+            value = TemporalUpdate.model_validate_json(row['body'])
+            if accept:
+                TemporalMemory(self.store).save(db, [value], now or datetime.now(), known)
+            db.execute('UPDATE temporal_proposals SET status=? WHERE id=?',
+                       ('accepted' if accept else 'rejected', ident))
+        return value.subject
 
     def conclusions(self, now, known=None, include_future=False, include_expired=False):
         known = self.evidence() if known is None else known

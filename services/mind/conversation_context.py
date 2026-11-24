@@ -20,7 +20,9 @@ def observe(text, *, remote=False):
     execution_turn = (match_command(text) or {}).get("workflow") == "project_execution"
     brief = project_session_context.observe(text, remote=remote)
     try:
-        dialogue_turn = dialogue.match_turn(text, remote=remote)
+        from services.mind import date_rules
+        date_turn = date_rules.match_turn(text, remote=remote)
+        dialogue_turn = None if date_turn else dialogue.match_turn(text, remote=remote)
         deadline_turn = deadline_changes.match_turn(text, remote=remote)
         class_turn = class_changes.match_turn(text, remote=remote)
         followup_turn = followup_commands.match_turn(text, remote=remote)
@@ -30,7 +32,7 @@ def observe(text, *, remote=False):
         file_send = (telegram_commands.match_command(text) or {}).get("action") == "telegram_file"
         topic_turn = None
         if not remote:
-            if not (dialogue_turn or execution_turn or brief or deadline_turn or class_turn or followup_turn or handoff or file_command or file_send):
+            if not (date_turn or dialogue_turn or execution_turn or brief or deadline_turn or class_turn or followup_turn or handoff or file_command or file_send):
                 try:
                     topic_turn = topics.match_turn(text)
                 except (OSError, ValueError, sqlite3.Error):
@@ -45,9 +47,12 @@ def observe(text, *, remote=False):
                     logger.debug('Optional commitment topic could not be retired')
         if not file_command and not file_send:
             files.last_results.clear()
-        if not remote and not handoff:
+        if not remote and (not handoff or not date_turn):
             with workspace._db() as conn:
-                context.clear(conn, "handoff")
+                if not handoff:
+                    context.clear(conn, "handoff")
+                if not date_turn:
+                    context.clear(conn, date_rules.CONTEXT)
         if not deadline_turn:
             with workspace._db() as conn:
                 context.clear(conn, "deadline", "telegram" if remote else "local")
@@ -57,7 +62,7 @@ def observe(text, *, remote=False):
         if not followup_turn:
             with workspace._db() as conn:
                 context.clear(conn, "task_followup", "telegram" if remote else "local")
-        return bool(dialogue_turn or topic_turn or execution_turn or brief or handoff or file_command or file_send or deadline_turn or class_turn or followup_turn)
+        return bool(date_turn or dialogue_turn or topic_turn or execution_turn or brief or handoff or file_command or file_send or deadline_turn or class_turn or followup_turn)
     except (OSError, ValueError, sqlite3.Error) as error:
         logger.warning("Conversation reference unavailable: %s", type(error).__name__)
         reference_words = re.match(r"(?:open|show|reveal) (?:it|that(?: one)?|this(?: one)?|\d+)\b|"
@@ -70,7 +75,12 @@ async def try_handle(text, *, remote=False):
     from services.automation import intent
 
     try:
+        from services.mind import date_rules
         from services.mind.dialogue import dialogue
+        if parsed := await asyncio.to_thread(date_rules.match_turn, text, remote=remote):
+            intent.cancel_pending_confirmation()
+            await asyncio.to_thread(dialogue.cancel)
+            return await asyncio.to_thread(date_rules.run, parsed)
         if parsed := await asyncio.to_thread(dialogue.match_turn, text, remote=remote):
             intent.cancel_pending_confirmation()
             return await dialogue.run(parsed)
@@ -115,15 +125,18 @@ def clear():
 
 
 def awaiting_reply(*, remote=False):
+    from services.mind import date_rules
     from services.mind.dialogue import dialogue
-    return False if remote else dialogue.awaiting()
+    return not remote and (dialogue.awaiting() or date_rules.awaiting())
 
 
 def retire_dialogue(*, remote=False):
     if not remote:
+        from services.mind import date_rules
         from services.mind.dialogue import dialogue
         from services.mind.commitment_topics import topics
         try:
+            date_rules.clear()
             dialogue.cancel()
         except (OSError, ValueError, sqlite3.Error):
             logger.debug('Conversation clarification could not be retired')

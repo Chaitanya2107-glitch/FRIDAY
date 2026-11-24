@@ -111,8 +111,11 @@ def _progress(row, now, memory, measure=None, *, weekly=False):
 def _describe(row, result):
     definition = row['definition']
     text = f"Goal {row['id']} — {definition['title']}: "
+    from services.mind.graph_sources import goal_connections
+    names = goal_connections(row['id'])
+    linked = ' Connected to ' + ', '.join(names) + '.' if names else ''
     if result['unavailable']:
-        return text + 'measurement unavailable. No zero or completion was inferred. Confirm another source or a manual source to log progress.'
+        return text + 'measurement unavailable. No zero or completion was inferred. Confirm another source or a manual source to log progress.' + linked
     noun = 'logged' if definition['source']['kind'] == 'manual' else 'recorded'
     text += f"{_number(result['done'])}/{_number(result['target'])} {result['unit']} {noun}; {_number(result['remaining'])} remaining. "
     if definition['cadence']:
@@ -131,7 +134,7 @@ def _describe(row, result):
         text += f"{_number(result['shortfall'])} {result['unit']} below a straight-line plan through completed days. Options: move the date, reduce the target, or ask for study-block proposals. "
     elif result['slack'] > 0:
         text += f"{_number(result['slack'])} {result['unit']} above a straight-line plan through completed days. "
-    return text.strip()
+    return text.strip() + linked
 
 
 def _win(row, result, memory, now):

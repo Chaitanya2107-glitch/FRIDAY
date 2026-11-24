@@ -7,7 +7,7 @@ Feelings come from what happens to her, not from a schedule. Two of them, each f
 HALF_LIFE_HOURS:
   warmth     positive conversational engagement; quiet requests never reduce it
   curiosity  up with everything she notices and can't explain, down when she learns what something is
-mood() provides light persona tone: quiet while away, curious, pleased or content.
+mood() combines those counters with the local emotion ledger for presentation.
 Behavioral priorities/gates come from life_state, shared with local cognition.
 
 Her day: what she noticed, said, was answered, respected quiet, and learned. "how are you feeling" / "how was
@@ -40,7 +40,8 @@ _FEEL = re.compile(r"^(?:how are you feeling(?: today)?|how do you feel|how(?:'s
 
 def load() -> dict:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
@@ -68,8 +69,8 @@ def feel(event: str, now_ts: float | None = None) -> None:
            "at": now_ts, "day": day, "today": today})
 
 
-def mood(now: datetime, away_minutes: float = 0) -> tuple[str, str]:
-    """(one word, why) — from her feelings right now."""
+def legacy_mood(now: datetime, away_minutes: float = 0) -> tuple[str, str]:
+    """Keep existing behavioral consumers on the same inputs."""
     warmth, curiosity = _faded(load(), now.timestamp())
     if away_minutes >= AWAY_MINUTES:
         return "quiet", "respecting time away from the laptop"
@@ -78,6 +79,30 @@ def mood(now: datetime, away_minutes: float = 0) -> tuple[str, str]:
     if warmth >= PLEASED:
         return "pleased", "the Boss has been talking to me"
     return "content", "nothing much has happened to me"
+
+
+def mood(now: datetime, away_minutes: float = 0, *, tone=None) -> tuple[str, str]:
+    """The persona mood and a brief explanation for the owner."""
+    if away_minutes >= AWAY_MINUTES:
+        return "quiet", "respecting time away from the laptop"
+    if tone is None:
+        from services.mind import emotion
+        tone = emotion.snapshot(now)
+    if tone["owner_stressed"]:
+        return "calm", "keeping my replies short and clear"
+    if tone["face"] == "sleepy":
+        return "calm", "keeping things quiet during late hours"
+    if tone["face"] == "waving":
+        return "pleased", "ready to pick things up again"
+    if tone["band"] == "focused":
+        return "focused", "ready to help with what's coming up"
+    if tone["band"] == "bright":
+        return "pleased", "recent progress is worth acknowledging"
+    if tone["face"] == "curious":
+        return "curious", "there's more to learn about what I've noticed"
+    if tone["band"] == "calm":
+        return "calm", "keeping things straightforward"
+    return legacy_mood(now, away_minutes)
 
 
 def day_line(day: str) -> str:
@@ -111,16 +136,16 @@ def match_life_command(text: str) -> dict | None:
 
 def feeling(now: datetime, away_minutes: float = 0) -> dict:
     """The raw data behind "how are you feeling" — worded by services/mind/wording.py."""
-    word, why = mood(now, away_minutes)
-    from services.mind.temporal_memory import situation
-    from services.mind.life_state import current
     from services.automation.intent import remote_request
     if remote_request.get():
+        word, why = legacy_mood(now, away_minutes)
         return {'kind': 'feeling', 'mood': word, 'because': why, 'my_day_so_far': 'I am ready to help when you ask.'}
-    behavior = current(now)
-    word, why = behavior.get('posture', word), behavior.get('reason', why)
+    from services.mind.state import as_json, snapshot
+    present = snapshot(now)
+    behavior = as_json(present['life_state'])
+    word, why = present['mood'], present['mood_reason']
     return {"kind": "feeling", "the_boss_asked": "how you feel / how your day is", "mood": word, "because": why,
-            'situation': situation(now),
+            'situation': as_json(present['situation']),
             'life_state': behavior,
             "my_day_so_far": day_line(now.date().isoformat()),
-            "on_my_mind": [t.data.get("noticed") for t in thoughts.alive(now)[:2]]}
+            "on_my_mind": [item['data'].get("noticed") for item in present['live_thoughts'][:2]]}

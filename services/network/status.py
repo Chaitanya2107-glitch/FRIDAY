@@ -109,13 +109,16 @@ class NetworkStatus:
 network = NetworkStatus()
 
 
-def warm_local_model() -> None:
-    """Load the Ollama model into memory now, so the first offline reply isn't slowed by loading it (~4 s)."""
+async def warm_local_model() -> None:
+    """Optionally warm Ollama without delaying the network watcher."""
+    from core.errors import ModelUnavailable
+    from providers.failover import prepare_local_model
     try:
-        httpx.post(f"{config.OLLAMA_BASE_URL}/api/generate",
-                   json={"model": config.OLLAMA_MODEL, "keep_alive": "30m"}, timeout=60)
-    except httpx.HTTPError as e:
-        logger.warning(f"Couldn't load the local model ({config.OLLAMA_MODEL}) — is Ollama running? {e}")
+        await prepare_local_model()
+    except ModelUnavailable:
+        pass
+    except Exception as error:
+        logger.debug("Local model warmup unavailable (%s)", type(error).__name__)
 
 
 async def watch_network(status: NetworkStatus = network) -> None:
@@ -123,17 +126,24 @@ async def watch_network(status: NetworkStatus = network) -> None:
     from services.reminders.service import show_toast  # toast helper shared with reminders
 
     logger.info("Network watcher started")
-    while True:
-        try:
-            note = await asyncio.to_thread(status.check)
-            if note:
-                await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", note)
-                if not status.online:
-                    await asyncio.to_thread(warm_local_model)
-            if not status.online and status.reason == "connected":  # on Wi-Fi without internet: a login page?
-                from services.network import campus
-                if login_note := await asyncio.to_thread(campus.on_no_internet):
-                    await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", login_note)
-        except Exception as e:
-            logger.error(f"Network watcher error: {e}", exc_info=True)
-        await asyncio.sleep(POLL_SECONDS)
+    warmup = None
+    try:
+        while True:
+            try:
+                note = await asyncio.to_thread(status.check)
+                if note:
+                    await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", note)
+                    if config.FRIDAY_LLM == "on" and not status.online and (warmup is None or warmup.done()):
+                        operation = warm_local_model()
+                        if operation is not None:
+                            warmup = asyncio.create_task(operation)
+                if not status.online and status.reason == "connected":
+                    from services.network import campus
+                    if login_note := await asyncio.to_thread(campus.on_no_internet):
+                        await asyncio.to_thread(show_toast, "F.R.I.D.A.Y", login_note)
+            except Exception as e:
+                logger.error(f"Network watcher error: {e}", exc_info=True)
+            await asyncio.sleep(POLL_SECONDS)
+    finally:
+        if warmup is not None:
+            warmup.cancel()

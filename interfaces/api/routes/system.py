@@ -43,9 +43,9 @@ async def system_control(request: SystemRequest):
     from services.screen_watch import commands as screen_commands
     screen = await screen_commands.handle(request.command, remote=intent.remote_request.get())
     if screen is not None:
-        if request.speak:
+        if request.speak and screen.speech != "":
             from interfaces.api.routes.voice import _speak_in_background
-            _speak_in_background(screen.message, cache=False, local_only=True)
+            _speak_in_background(screen.speech or screen.message, cache=False, local_only=True)
         return SystemResponse(command=request.command, success=screen.success, action="system_control", result=screen.message)
 
     # This endpoint cannot complete chat/voice's yes/no confirmation exchange.

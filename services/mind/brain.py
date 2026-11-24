@@ -282,7 +282,10 @@ def think(log, now: datetime, busy: bool = False) -> None:
     a regular that's missing."""
     try:
         for kind, subject, data, strength in foresight.think(log, now, busy):
-            _wonder(kind, subject, data, strength, now)
+            if kind == 'automate' and data['context'].get('effect') == 'open':
+                foresight.notify_open(subject, data, now)
+            else:
+                _wonder(kind, subject, data, strength, now)
     except Exception as e:  # a guess must never stop the rest of her thinking
         logger.warning(f"Foresight skipped: {e}")
     found = episodes(log, now)
@@ -363,7 +366,9 @@ def answered(thought_id: int, answer: str, now: datetime) -> None:
         foresight.answered(thought.kind, thought.data, answer, now)
     # Knowing a category doesn't mean she knows what it is: keep the Boss's explanation too.
     if thought and thought.kind in ("unknown", "new") and (thing := knowledge.get(thought.subject)):
-        knowledge.teach(thing.key, answer)
+        from services.mind.app_learning import pending, uncertain
+        if len(answer.split()) >= 2 and not uncertain(answer) and not pending(thing.key):
+            knowledge.teach(thing.key, answer, now)
 
 
 def nightly(now: datetime) -> None:

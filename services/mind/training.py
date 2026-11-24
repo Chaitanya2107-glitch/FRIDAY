@@ -39,13 +39,14 @@ def show_toast(title, body, *args, **kwargs):
     """Proactive-only notification hook; normal delivery still owns its transport."""
     from services.reminders.service import show_toast as deliver
     from services.mind.cognition_context import live_state
+    from services.mind.speech_budget import delivery_id
 
     urgent = kwargs.pop("urgent", False) or urgent_delivery.get()
     allowed = allows_nudge(title, body, urgent=urgent)
 
     try:
         item = review_module.capture("nudge", body, {"title": title, "snapshot": live_state(),
-                                                   "urgent": urgent,
+                                                   "urgent": urgent, "speech_id": delivery_id.get(),
                                                    "buttons": kwargs.get("buttons", args[0] if args else None)},
                                      channel="notification")
     except Exception as error:

@@ -150,6 +150,8 @@ async def ask_about_screen(
     Capture the screen and ask the vision model about it, with the recent chat
     history for context. Other providers are tried if the first one fails.
     """
+    from providers.failover import require_enabled
+    require_enabled()
     image = await asyncio.to_thread(capture_screen)
     messages = history + [Message(role="user", content=question, images=[image])]
 

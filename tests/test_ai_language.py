@@ -31,6 +31,9 @@ def test_messy_request_reaches_ai_then_local_executor(monkeypatch):
     effects = []
     monkeypatch.setattr(intent.system, 'set_volume', lambda n: effects.append(n) or 'Volume 23%.')
     result = asyncio.run(intent.try_system_action('bro the speakers r too loud bring em down to 23', 'openrouter'))
+    assert result.success and intent.is_awaiting_confirmation() and not effects
+    assert "set volume to 23" in result.message
+    result = asyncio.run(intent.try_system_action('yes', 'openrouter'))
     assert result.success and effects == [23]
     assert len(calls) == 1 and calls[0][1]['purpose'] == 'understanding'
     assert 'tools' not in calls[0][1]

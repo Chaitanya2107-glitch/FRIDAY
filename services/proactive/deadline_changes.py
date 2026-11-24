@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from core.logger import logger
-from services.automation.command_words import strip_leading_filler
+from services.automation.command_words import normalize_command, strip_leading_filler
 from services.automation.results import ActionResult
 from services.automation.system_control import AutomationError
 from services.mind import reference_context as context
@@ -28,7 +28,11 @@ def identity(row):
 
 
 def match_turn(text, *, remote=False):
-    parsed = deadlines.match_deadline_change(strip_leading_filler(text).strip().rstrip(".!?"))
+    from services.automation.command_slots import has_command_tail
+
+    if has_command_tail(text):
+        return None
+    parsed = deadlines.match_deadline_change(normalize_command(text))
     if parsed and parsed["action"] in ACTIONS:
         try:
             matches = resolve(deadlines.load(), parsed["reference"])
@@ -51,6 +55,13 @@ def match_turn(text, *, remote=False):
     if not saved:
         return None
     candidates = saved["payload"]["candidates"]
+    if saved['payload'].get('missing') == 'date':
+        phrase = text.strip(' ?.!')
+        try:
+            changed_due(phrase, datetime.fromisoformat(candidates[0]['due']), deadlines.datetime.now())
+        except (AutomationError, ValueError, OverflowError):
+            return None
+        return {**saved['payload']['request'], 'when': phrase, 'context': saved, 'choices': candidates}
     indices = context.choices(text, [r["what"] for r in candidates])
     ordinal = re.fullmatch(r"(?:the )?(?:\d+|first|second|third|fourth|fifth|last)(?: one| deadline)?",
                            strip_leading_filler(text).strip().rstrip(".!?"), re.I)
@@ -142,6 +153,11 @@ def run(parsed, *, remote=False):
                     if digest(pending[-1]) != parsed["proposal_digest"]:
                         raise ValueError("The proposed reminder times changed. Review the proposal again.")
             if action == "move_deadline":
+                if not parsed.get('when'):
+                    with workspace._db() as db:
+                        context.remember(db, 'deadline', {'request': {k: v for k, v in parsed.items() if k not in {'context', 'choices'}},
+                                         'missing': 'date', 'candidates': [identity(row)]}, scope)
+                    return ActionResult(False, f"What date should I move {row['what']} to?", repeatable=False)
                 message = move(row, parsed, now, scope)
             elif action == "recall_deadline":
                 message = f'{row["what"]} is due {row["due"]} (owner reported).'
@@ -155,7 +171,15 @@ def run(parsed, *, remote=False):
                 deadlines._save(rows)
             with workspace._db() as db:
                 context.clear(db, "deadline", scope)
-            return ActionResult(True, message, memory_message=f'Deadline "{row["what"]}": current due {row["due"]}.', repeatable=False)
+        if action == "recall_deadline" and not remote:
+            from services.college.work import is_exam
+            from services.mind import wording
+
+            if is_exam(row):
+                message = wording.render({
+                    "kind": "exam_soon", "subject": row["what"], "when": f"on {row['due']} (owner reported)",
+                }, now=now)
+        return ActionResult(True, message, memory_message=f'Deadline "{row["what"]}": current due {row["due"]}.', repeatable=False)
     except (AutomationError, ValueError, OSError, sqlite3.Error) as error:
         logger.warning("Deadline change unavailable: %s", type(error).__name__)
         message = str(error) if isinstance(error, (AutomationError, ValueError)) else "The deadline change could not be verified. Check current state before retrying."

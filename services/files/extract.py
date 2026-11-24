@@ -46,7 +46,7 @@ PRIVATE_NAME = re.compile(
 
 
 def is_private(path: Path) -> bool:
-    return bool(PRIVATE_NAME.search(path.name))
+    return bool(PRIVATE_NAME.search(path.name) or re.match(r'^\.?life_graph[._-]', path.name, re.I))
 
 
 def is_readable(path: Path) -> bool:

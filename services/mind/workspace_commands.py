@@ -86,6 +86,10 @@ def run(parsed, *, remote=False):
         else:
             workspace.task_state(ident, STATES[parsed["state"].lower()], parsed.get("note") or "")
             text = f"Updated task \"{selected['title']}\"." + (" Completion recorded as your report." if parsed["state"].lower() == "complete" else "")
+            if parsed["state"].lower() == "complete" and not remote:
+                from services.mind import wording
+
+                text = wording.render({"kind": "task_done", "name": selected["title"], "owner_report": True})
         if ident is not None:
             workspace.focus(kind, ident, scope=scope)
         return ActionResult(True, redact(text), repeatable=False)
